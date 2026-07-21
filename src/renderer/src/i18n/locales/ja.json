@@ -7106,7 +7106,9 @@
           "search_terminal_themes": "ターミナルテーマを検索",
           "cb330ef7f8": "/{{value0}}",
           "c822571b2e": " 「{{value0}}」に一致",
-          "3119c012a5": "文字列"
+          "3119c012a5": "文字列",
+          "plugin_themes": "Plugin themes",
+          "contributed_by": "Contributed by {{value0}}"
         },
         "SettingsSidebar": {
           "e0900f83e7": "SSH",
@@ -10052,7 +10054,13 @@
           "close": "閉じる",
           "cancel": "キャンセル",
           "update": "プラグインを更新",
-          "install": "プラグインをインストール"
+          "install": "プラグインをインストール",
+          "themesOne": "1 app theme",
+          "themes": "{{value0}} app themes",
+          "iconThemesOne": "1 icon theme",
+          "iconThemes": "{{value0}} icon themes",
+          "terminalThemesOne": "1 terminal theme",
+          "terminalThemes": "{{value0}} terminal themes"
         },
         "PluginMarketplaceSourceDialog": {
           "addFailed": "このマーケットプレイスを追加できませんでした。Git URL、ref、Git 認証情報を確認してください。",
@@ -10105,7 +10113,8 @@
           "experimental": "実験的機能",
           "description": "Orca プラグインをインストールおよび管理。SSH ワークスペースでもこのコンピュータでプラグインが実行されます。",
           "logsFailed": "プラグインログをロードできませんでした。",
-          "rollbackFailed": "このプラグインをロールバックできませんでした。以前の不変バージョンが利用できない可能性があります。"
+          "rollbackFailed": "このプラグインをロールバックできませんでした。以前の不変バージョンが利用できない可能性があります。",
+          "themeApplyFailed": "The plugin was enabled, but Orca could not apply its terminal theme."
         },
         "PluginSettingsRow": {
           "blocked": "ブロック中",
@@ -10135,7 +10144,9 @@
           "remove": "削除",
           "disableLabel": "{{value0}}を無効にする",
           "enableLabel": "{{value0}}を有効にする",
-          "invalidPluginError": "プラグインマニフェストまたはインストールされたファイルが無効です。プラグインを修正してから更新してください。"
+          "invalidPluginError": "プラグインマニフェストまたはインストールされたファイルが無効です。プラグインを修正してから更新してください。",
+          "inUse": "In use",
+          "useTheme": "Use theme"
         },
         "PluginVmRecipeConsentPreview": {
           "create": "作成",
@@ -10278,6 +10289,18 @@
           "saveFailed": "表示設定のデフォルトを保存できませんでした。",
           "updateServer": "ソースのデフォルトを設定するには、このサーバーを更新してください。",
           "updateServerDefaults": "表示のデフォルトを設定するには、このサーバーを更新してください。"
+        },
+        "AppearanceInterfaceSection": {
+          "pluginTheme": {
+            "title": "Plugin theme",
+            "description": "Apply a theme from an enabled Orca plugin.",
+            "builtIn": "Use built-in theme"
+          },
+          "pluginIconTheme": {
+            "title": "Icon theme",
+            "description": "Use file, folder, sidebar, and agent icons from an enabled Orca plugin.",
+            "builtIn": "Use built-in icons"
+          }
         }
       },
       "right": {

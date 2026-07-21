@@ -15,6 +15,7 @@ import type { CSSProperties } from 'react'
 import type { TuiAgent } from '../../../../shared/tui-agent'
 import type { IDisposable } from '@xterm/xterm'
 import { useAppStore } from '../../store'
+import { usePluginTerminalThemeStore } from '@/store/plugin-terminal-themes'
 import { useLinkRoutingPreferenceDialog } from '@/components/link-routing-preference-dialog'
 import { DaemonActionDialog, useDaemonActions } from '@/components/shared/useDaemonActions'
 import {
@@ -894,6 +895,7 @@ function TerminalPane(
   onPtyExitRef.current = onPtyExit
 
   const systemPrefersDark = useSystemPrefersDark()
+  const pluginTerminalThemes = usePluginTerminalThemeStore((state) => state.themes)
   const dispatchNotification = useNotificationDispatch(worktreeId)
   const setCacheTimerStartedAt = useAppStore((store) => store.setCacheTimerStartedAt)
 
@@ -1363,6 +1365,7 @@ function TerminalPane(
     isActive,
     isVisible: isRendererVisible,
     systemPrefersDark,
+    pluginTerminalThemes,
     settings,
     settingsRef,
     requestOpenLinksInAppPreference,

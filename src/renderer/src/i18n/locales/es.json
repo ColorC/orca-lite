@@ -7084,7 +7084,9 @@
           "builtin_themes": "Integrados",
           "imported_from": "Importado desde {{value0}}",
           "imported_themes": "Importados",
-          "search_terminal_themes": "Buscar temas de terminal"
+          "search_terminal_themes": "Buscar temas de terminal",
+          "plugin_themes": "Plugin themes",
+          "contributed_by": "Contributed by {{value0}}"
         },
         "SettingsSidebar": {
           "e0900f83e7": "SSH",
@@ -10052,7 +10054,13 @@
           "close": "Close",
           "cancel": "Cancelar",
           "update": "Actualizar plugin",
-          "install": "Instalar plugin"
+          "install": "Instalar plugin",
+          "themesOne": "1 app theme",
+          "themes": "{{value0}} app themes",
+          "iconThemesOne": "1 icon theme",
+          "iconThemes": "{{value0}} icon themes",
+          "terminalThemesOne": "1 terminal theme",
+          "terminalThemes": "{{value0}} terminal themes"
         },
         "PluginMarketplaceSourceDialog": {
           "addFailed": "No se pudo añadir este marketplace. Comprueba la URL de Git, la referencia y tus credenciales de Git.",
@@ -10105,7 +10113,8 @@
           "experimental": "Experimental",
           "description": "Instala y administra plugins de Orca. Los plugins se ejecutan en este equipo, incluso en espacios de trabajo SSH.",
           "logsFailed": "No se pudieron cargar los registros del plugin.",
-          "rollbackFailed": "No se pudo revertir este plugin. Es posible que no haya una versión inmutable anterior disponible."
+          "rollbackFailed": "No se pudo revertir este plugin. Es posible que no haya una versión inmutable anterior disponible.",
+          "themeApplyFailed": "The plugin was enabled, but Orca could not apply its terminal theme."
         },
         "PluginSettingsRow": {
           "blocked": "Bloqueado",
@@ -10135,7 +10144,9 @@
           "remove": "Eliminar",
           "disableLabel": "Desactivar {{value0}}",
           "enableLabel": "Activar {{value0}}",
-          "invalidPluginError": "El manifiesto o los archivos instalados del plugin no son válidos. Corrige el plugin y actualiza."
+          "invalidPluginError": "El manifiesto o los archivos instalados del plugin no son válidos. Corrige el plugin y actualiza.",
+          "inUse": "In use",
+          "useTheme": "Use theme"
         },
         "PluginVmRecipeConsentPreview": {
           "create": "Crear",
@@ -10278,6 +10289,18 @@
           "saveFailed": "No se pudieron guardar los valores predeterminados de visibilidad.",
           "updateServer": "Actualiza este servidor para configurar los valores predeterminados de las fuentes.",
           "updateServerDefaults": "Actualiza este servidor para configurar los valores predeterminados de visibilidad."
+        },
+        "AppearanceInterfaceSection": {
+          "pluginTheme": {
+            "title": "Plugin theme",
+            "description": "Apply a theme from an enabled Orca plugin.",
+            "builtIn": "Use built-in theme"
+          },
+          "pluginIconTheme": {
+            "title": "Icon theme",
+            "description": "Use file, folder, sidebar, and agent icons from an enabled Orca plugin.",
+            "builtIn": "Use built-in icons"
+          }
         }
       },
       "right": {

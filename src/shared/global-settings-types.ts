@@ -75,6 +75,10 @@ export type GlobalSettings = {
   branchPrefix: BranchPrefixStrategy
   branchPrefixCustom: string
   theme: 'system' | 'dark' | 'light'
+  /** Qualified plugin theme id layered over the built-in light/dark preference. */
+  pluginAppTheme?: `plugin:${string}` | null
+  /** Qualified plugin icon-theme id; missing contributions fall back to built-in icons. */
+  pluginIconTheme?: `plugin:${string}` | null
   /** Imported shadcn/Tweakcn palettes, applied over the built-in tokens. */
   customUiThemes?: CustomUiTheme[]
   /** Id of the applied entry in `customUiThemes`; empty means the built-in palette. */

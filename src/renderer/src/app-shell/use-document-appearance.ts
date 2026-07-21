@@ -1,16 +1,40 @@
 import { useEffect } from 'react'
 import { buildAppFontFamily } from '@/lib/app-font-family'
 import { applyCustomUiTheme, findCustomUiTheme } from '../lib/custom-ui-theme-apply'
-import { applyDocumentTheme, resolveDocumentTheme } from '../lib/document-theme'
+import {
+  applyDocumentTheme,
+  applyPluginAppTheme,
+  resolveDocumentTheme
+} from '../lib/document-theme'
 import { scheduleRuntimeGraphSync } from '../runtime/sync-runtime-graph'
 import { useAppStore } from '../store'
+import { usePluginIconThemeStore, usePluginIconThemes } from '../store/plugin-icon-themes'
+import { usePluginTerminalThemes } from '../store/plugin-terminal-themes'
+import { usePluginThemes } from '../store/plugin-themes'
 
 /** Applies the settings-driven theme and app font to the document root. */
 export function useDocumentAppearance(): void {
   const activeCustomUiThemeId = useAppStore((s) => s.settings?.activeCustomUiThemeId)
   const customUiThemes = useAppStore((s) => s.settings?.customUiThemes)
+  const pluginAppTheme = useAppStore((s) => s.settings?.pluginAppTheme)
+  const pluginIconTheme = useAppStore((s) => s.settings?.pluginIconTheme)
   const theme = useAppStore((s) => s.settings?.theme)
   const appFontFamily = useAppStore((s) => s.settings?.appFontFamily)
+  const pluginThemes = usePluginThemes()
+  usePluginIconThemes()
+  const pluginTerminalThemes = usePluginTerminalThemes()
+  const setActivePluginIconTheme = usePluginIconThemeStore((state) => state.setActiveId)
+  const activePluginTheme =
+    pluginThemes.find((pluginTheme) => pluginTheme.id === pluginAppTheme) ?? null
+
+  useEffect(() => {
+    setActivePluginIconTheme(pluginIconTheme ?? null)
+  }, [pluginIconTheme, setActivePluginIconTheme])
+
+  useEffect(() => {
+    // Plugin palettes do not mutate settings, so hidden terminals need an explicit refresh.
+    scheduleRuntimeGraphSync()
+  }, [pluginTerminalThemes])
 
   useEffect(() => {
     if (!theme) {
@@ -35,10 +59,12 @@ export function useDocumentAppearance(): void {
       return
     }
 
-    if (theme === 'dark') {
+    applyPluginAppTheme(activePluginTheme)
+    const themePreference = activePluginTheme?.base ?? theme
+    if (themePreference === 'dark') {
       applyDocumentTheme('dark')
       return undefined
-    } else if (theme === 'light') {
+    } else if (themePreference === 'light') {
       applyDocumentTheme('light')
       return undefined
     }
@@ -52,7 +78,7 @@ export function useDocumentAppearance(): void {
     }
     mq.addEventListener('change', handler)
     return () => mq.removeEventListener('change', handler)
-  }, [theme])
+  }, [activePluginTheme, theme])
 
   useEffect(() => {
     document.documentElement.style.setProperty(

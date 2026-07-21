@@ -41,6 +41,8 @@ export function buildDefaultSettings(args: {
     branchPrefix: 'git-username',
     branchPrefixCustom: '',
     theme: 'system',
+    pluginAppTheme: null,
+    pluginIconTheme: null,
     customUiThemes: [],
     activeCustomUiThemeId: '',
     leftSidebarAppearanceMode: 'default',

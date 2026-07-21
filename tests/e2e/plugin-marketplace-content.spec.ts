@@ -1,11 +1,10 @@
 /**
  * Invariant: a fresh profile discovers the managed official marketplace and
- * completes the Phase 1 language, VM-recipe, and keybinding journey through
- * production Git paths.
+ * completes the Phase 1 theme, language, and skill journey through production Git paths.
  */
 
 import { execFile } from 'node:child_process'
-import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -106,22 +105,33 @@ async function createMarketplaceFixture(): Promise<MarketplaceFixture> {
   const gitEnvironment = await configureFixtureGit(home, repositories)
   await copyLaunchPlugin(
     repositories,
+    'orca-nord-theme',
+    'stablyai.orca-nord-theme',
+    gitEnvironment
+  )
+  await copyLaunchPlugin(
+    repositories,
     'orca-portuguese',
     'stablyai.orca-portuguese',
     gitEnvironment
   )
-  await copyLaunchPlugin(
-    repositories,
-    'orca-multipass-recipes',
-    'stablyai.orca-multipass-recipes',
-    gitEnvironment
+
+  const skillRepository = join(repositories, 'orca-e2e-skills.git')
+  await cp(
+    join(process.cwd(), 'resources', 'plugins', 'launch', 'stablyai.orca-workflow-skills'),
+    skillRepository,
+    { recursive: true }
   )
-  await copyLaunchPlugin(
-    repositories,
-    'orca-navigation-shortcuts',
-    'stablyai.orca-navigation-shortcuts',
-    gitEnvironment
-  )
+  const skillManifestPath = join(skillRepository, 'orca-plugin.json')
+  const skillManifest = JSON.parse(await readFile(skillManifestPath, 'utf8')) as Record<
+    string,
+    unknown
+  >
+  skillManifest.id = 'orca-e2e-skills'
+  skillManifest.name = 'Orca E2E Skills'
+  skillManifest.repository = 'https://github.com/stablyai/orca-e2e-skills'
+  await writeFile(skillManifestPath, `${JSON.stringify(skillManifest, null, 2)}\n`)
+  await commitRepository(skillRepository, gitEnvironment)
 
   const marketplaceRepository = join(repositories, 'orca-plugins.git')
   await mkdir(marketplaceRepository, { recursive: true })
@@ -132,9 +142,9 @@ async function createMarketplaceFixture(): Promise<MarketplaceFixture> {
         name: 'Orca Plugins',
         owner: 'stablyai',
         plugins: [
+          ['stablyai.orca-nord-theme', 'orca-nord-theme', 'themes'],
           ['stablyai.orca-portuguese', 'orca-portuguese', 'languages'],
-          ['stablyai.orca-multipass-recipes', 'orca-multipass-recipes', 'vm-recipes'],
-          ['stablyai.orca-navigation-shortcuts', 'orca-navigation-shortcuts', 'keybindings']
+          ['stablyai.orca-e2e-skills', 'orca-e2e-skills', 'skills']
         ].map(([id, repository, category]) => ({
           id,
           source: {
@@ -174,7 +184,7 @@ async function installMarketplacePluginThroughUi(
   page: Page,
   pluginKey: string,
   pluginName: string,
-  consentDialogName: string
+  expectedSkillCopy: readonly string[] = []
 ): Promise<void> {
   const listing = page.locator(`[data-marketplace-plugin-key="${pluginKey}"]`)
   await expect(listing).toBeVisible()
@@ -182,28 +192,19 @@ async function installMarketplacePluginThroughUi(
   const preview = page.getByRole('dialog', { name: pluginName })
   await expect(preview).toContainText('Official · stablyai')
   await preview.getByRole('button', { name: 'Install plugin' }).click()
-  const consent = page.getByRole('dialog', { name: consentDialogName })
+  const consent = page.getByRole('dialog', {
+    name: expectedSkillCopy.length > 0 ? 'Review plugin content' : 'Review permissions'
+  })
   await expect(consent).toBeVisible()
+  for (const expected of expectedSkillCopy) {
+    await expect(consent).toContainText(expected)
+  }
   await consent.getByRole('button', { name: 'Enable plugin' }).click()
   await expect(consent).toBeHidden()
 }
 
-async function enableInstalledPluginThroughUi(
-  page: Page,
-  pluginKey: string,
-  consentDialogName: string
-): Promise<void> {
-  await page.getByRole('tab', { name: /^Installed/ }).click()
-  const plugin = page.locator(`[data-plugin-key="${pluginKey}"]`)
-  await expect(plugin).toBeVisible()
-  await plugin.getByRole('button', { name: 'Review & enable' }).click()
-  const consent = page.getByRole('dialog', { name: consentDialogName })
-  await expect(consent).toBeVisible()
-  await consent.getByRole('button', { name: 'Enable plugin' }).click()
-  await expect(consent).toBeHidden()
-}
-
-async function applyInstalledLanguage(page: Page): Promise<void> {
+async function applyInstalledThemeAndLanguage(page: Page): Promise<void> {
+  const themeId = 'plugin:stablyai.orca-nord-theme/nord'
   const languageId = 'plugin:stablyai.orca-portuguese/pt-BR'
   await page.evaluate(() => {
     const state = window.__store?.getState()
@@ -213,6 +214,12 @@ async function applyInstalledLanguage(page: Page): Promise<void> {
     state.openSettingsTarget({ pane: 'appearance', repoId: null })
   })
   await expect(page.locator('[data-settings-section="appearance"]')).toBeVisible()
+  await page.getByRole('combobox', { name: 'Plugin theme' }).click()
+  await page.getByRole('option', { name: 'Nord', exact: true }).click()
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.dataset.orcaPluginTheme))
+    .toBe(themeId)
+
   await page.evaluate(() => window.__store?.setState({ settingsSearchQuery: 'Language' }))
   await page.getByRole('combobox', { name: 'Language' }).click()
   await page.getByRole('option', { name: 'pt-BR — stablyai.orca-portuguese', exact: true }).click()
@@ -221,7 +228,7 @@ async function applyInstalledLanguage(page: Page): Promise<void> {
     .toBe(languageId)
 }
 
-async function runMarketplaceJourney(page: Page): Promise<void> {
+async function runMarketplaceJourney(page: Page, fixture: MarketplaceFixture): Promise<void> {
   const startedAt = Date.now()
   await openPluginSettings(page)
   const pluginSystem = page.getByRole('switch', { name: 'Plugin system' })
@@ -239,34 +246,37 @@ async function runMarketplaceJourney(page: Page): Promise<void> {
     .toMatchObject({
       sources: [expect.objectContaining({ official: true, stale: false })],
       listings: expect.arrayContaining([
+        expect.objectContaining({ pluginKey: 'stablyai.orca-nord-theme', official: true }),
         expect.objectContaining({ pluginKey: 'stablyai.orca-portuguese', official: true }),
-        expect.objectContaining({ pluginKey: 'stablyai.orca-multipass-recipes', official: true }),
-        expect.objectContaining({
-          pluginKey: 'stablyai.orca-navigation-shortcuts',
-          official: true
-        })
+        expect.objectContaining({ pluginKey: 'stablyai.orca-e2e-skills', official: true })
       ])
     })
 
-  await installMarketplacePluginThroughUi(
-    page,
-    'stablyai.orca-portuguese',
-    'Português do Brasil',
-    'Review plugin'
-  )
-  await installMarketplacePluginThroughUi(
-    page,
-    'stablyai.orca-multipass-recipes',
-    'Multipass VM Recipes',
-    'Review plugin content'
-  )
-  await enableInstalledPluginThroughUi(
-    page,
-    'stablyai.orca-navigation-shortcuts',
-    'Review plugin content'
-  )
+  await installMarketplacePluginThroughUi(page, 'stablyai.orca-nord-theme', 'Nord for Orca')
+  await installMarketplacePluginThroughUi(page, 'stablyai.orca-portuguese', 'Português do Brasil')
+  await installMarketplacePluginThroughUi(page, 'stablyai.orca-e2e-skills', 'Orca E2E Skills', [
+    'change-handoff',
+    'repository-review',
+    'Record the branch, clean or dirty status'
+  ])
 
-  await applyInstalledLanguage(page)
+  await applyInstalledThemeAndLanguage(page)
+  await expect
+    .poll(() =>
+      page.evaluate(async () =>
+        (await window.api.plugins.listSkillStore()).registrations.filter(
+          (registration) => registration.pluginKey === 'stablyai.orca-e2e-skills'
+        )
+      )
+    )
+    .toHaveLength(2)
+
+  const materializedPaths = await page.evaluate(async () =>
+    (await window.api.plugins.listSkillStore()).registrations.flatMap((registration) =>
+      registration.pluginKey === 'stablyai.orca-e2e-skills' ? registration.materializedPaths : []
+    )
+  )
+  expect(materializedPaths.every((path) => path.startsWith(fixture.home))).toBe(true)
   expect(Date.now() - startedAt).toBeLessThan(120_000)
 }
 
@@ -278,7 +288,7 @@ test('installs and applies official Phase 1 content from a fresh profile', async
   let launched: Awaited<ReturnType<typeof session.launch>> | null = null
   try {
     launched = await session.launch()
-    await runMarketplaceJourney(launched.page)
+    await runMarketplaceJourney(launched.page, fixture)
   } finally {
     if (launched) {
       await session.close(launched.app)
