@@ -38,6 +38,29 @@
       "menuBarIcon": {
         "title": "显示菜单栏图标",
         "description": "在 macOS 菜单栏中保留 Orca 快捷方式和活动指示器。"
+      },
+      "customUiTheme": {
+        "title": "自定义界面主题",
+        "paste": {
+          "label": "主题内容",
+          "description": "粘贴 shadcn/Tweakcn 的 JSON 调色板，或包含 :root 与 .dark 块的 CSS。"
+        },
+        "name": {
+          "label": "名称",
+          "placeholder": "Catppuccin Latte"
+        },
+        "import": "导入",
+        "imported": "已导入的主题",
+        "builtIn": "内置配色",
+        "delete": "删除主题",
+        "untitled": "导入的主题",
+        "atCapacity": "已达主题数量上限，删除一个后才能继续导入。",
+        "error": {
+          "empty": "请先粘贴主题内容。",
+          "tooLarge": "主题内容过大。",
+          "unparsable": "这看起来不是有效的 JSON。",
+          "noTokens": "没有找到可用的颜色变量。请粘贴 shadcn/Tweakcn 调色板或 CSS 的 :root 块。"
+        }
       }
     }
   },

@@ -5,7 +5,9 @@ import { AppWindow, PanelLeft, TerminalSquare } from 'lucide-react'
 import type { GlobalSettings } from '../../../../shared/global-settings-types'
 
 import { AppearanceSection } from './AppearanceSection'
+import { AppearanceAdvancedDisclosure } from './AppearanceAdvancedDisclosure'
 import { AppearanceInterfaceSection } from './AppearanceInterfaceSection'
+import { CustomUiThemeSection } from './CustomUiThemeSection'
 import { AppearanceWindowSidebarSection } from './AppearanceWindowSidebarSection'
 import { SearchableSetting } from './SearchableSetting'
 import { matchesSettingsSearch, normalizeSettingsSearchQuery } from './settings-search'
@@ -275,6 +277,13 @@ export function AppearancePane({
           />
         </AppearanceSection>
       ) : null}
+
+      {/* Importing a palette is rare and the paste box is bulky, so keep it collapsed. */}
+      <AppearanceAdvancedDisclosure
+        label={translate('settings.appearance.customUiTheme.title', 'Custom UI Theme')}
+      >
+        <CustomUiThemeSection settings={settings} updateSettings={updateSettings} />
+      </AppearanceAdvancedDisclosure>
 
       {/* App icon stays at the bottom of Appearance as a small easter egg,
           matching production — not buried inside Interface advanced. */}

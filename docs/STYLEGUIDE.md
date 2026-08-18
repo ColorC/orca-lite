@@ -18,6 +18,7 @@ When in doubt:
 | --------------------------------------------- | ----------------------------------------------------- |
 | Color tokens                                  | `src/renderer/src/assets/main.css` (`:root`, `.dark`) |
 | Tailwind theme bindings                       | Same file, `@theme inline { … }` block                |
+| Which tokens an imported theme may set        | `src/shared/custom-ui-themes.ts`                      |
 | Component primitives                          | `src/renderer/src/components/ui/` (shadcn-style)      |
 | App typography / scrollbars / titlebar chrome | Same `main.css`                                       |
 
@@ -80,6 +81,17 @@ background: color-mix(in srgb, var(--primary) 12%, var(--background));
 ```
 
 This keeps light/dark parity automatic.
+
+### Imported themes
+
+Users can paste a shadcn/Tweakcn palette (JSON or a Tailwind v4 CSS sheet) in Settings → Advanced → Appearance and have it repaint the app. That changes what adding a token means, so:
+
+- **Only the standard shadcn set is settable by a theme.** `THEMABLE_TOKENS` in `src/shared/custom-ui-themes.ts` is the list — `background`, `card`, `primary`, `sidebar`, the `chart-*` ramp, and so on. A pasted theme carries nothing else, because that is all the ecosystem's palettes define.
+- **App-specific tokens follow via `DERIVED_TOKENS`.** `--worktree-sidebar` trails `--sidebar`, `--editor-surface` and `--settings-panel` trail `--card`, `--settings-canvas` trails `--background`. Without a derivation an imported theme leaves the token at its built-in value, and that surface reads as an unthemed patch next to everything that did change.
+- **So when you add a surface token to `main.css`, decide its derivation too.** If it is a variant of a standard role, add it to `DERIVED_TOKENS`. If it is deliberately fixed — the git decoration colors are, since they mirror VS Code — leave it out and it stays constant across themes, which is the intent.
+- **`--orca-security-*` is never themable.** The plugin marketplace's consent and provenance surfaces read from it, and their contrast has to stay host-owned so a theme pack cannot disguise a trust decision. The parser drops the prefix outright.
+
+Imported values are untrusted text. Every persistence, IPC, and store boundary re-normalizes rather than trusting its caller, and values are restricted to color and length literals — `url()` would let a theme reach the network, and `var()`, semicolons, or braces would escape the declaration they get injected into.
 
 ## Typography
 

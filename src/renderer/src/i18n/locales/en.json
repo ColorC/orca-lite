@@ -137,6 +137,29 @@
       "menuBarIcon": {
         "title": "Show Menu Bar Icon",
         "description": "Keep an Orca shortcut and activity indicator in the macOS menu bar."
+      },
+      "customUiTheme": {
+        "title": "Custom UI Theme",
+        "paste": {
+          "label": "Theme source",
+          "description": "Paste a shadcn/Tweakcn JSON palette or a CSS sheet with :root and .dark blocks."
+        },
+        "name": {
+          "label": "Name",
+          "placeholder": "Catppuccin Latte"
+        },
+        "import": "Import",
+        "imported": "Imported themes",
+        "builtIn": "Built-in palette",
+        "delete": "Delete theme",
+        "untitled": "Imported theme",
+        "atCapacity": "Theme limit reached. Delete one to import another.",
+        "error": {
+          "empty": "Paste a theme first.",
+          "tooLarge": "That theme is too large.",
+          "unparsable": "That does not look like valid JSON.",
+          "noTokens": "No usable color variables found. Paste a shadcn/Tweakcn palette or a CSS :root block."
+        }
       }
     },
     "browser": {

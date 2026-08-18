@@ -6,6 +6,7 @@ import {
   normalizeTuiAgentEnvRecord
 } from '../../../shared/tui-agent-launch-defaults'
 import { normalizeTerminalQuickCommands } from '../../../shared/terminal-quick-commands'
+import { normalizeCustomUiThemes } from '../../../shared/custom-ui-themes'
 import { normalizeTerminalCustomThemes } from '../../../shared/terminal-custom-themes'
 import { normalizeTerminalCursorStyleDefault } from '../../../shared/terminal-cursor-style-settings'
 import { normalizeDesktopTerminalScrollbackRows } from '../../../shared/terminal-scrollback-policy'
@@ -107,6 +108,9 @@ export function updateSettings(
     sanitizedUpdates.terminalCustomThemes = normalizeTerminalCustomThemes(
       updates.terminalCustomThemes
     )
+  }
+  if ('customUiThemes' in updates) {
+    sanitizedUpdates.customUiThemes = normalizeCustomUiThemes(updates.customUiThemes)
   }
   if ('terminalCursorStyle' in updates) {
     Object.assign(

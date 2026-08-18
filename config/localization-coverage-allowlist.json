@@ -82,5 +82,12 @@
     "text": "ghostty",
     "dynamic": false,
     "count": 1
+  },
+  {
+    "filePath": "src/renderer/src/components/settings/CustomUiThemeSection.tsx",
+    "kind": "jsx-attribute:placeholder",
+    "text": ":root { --background: #eff1f5; ... }",
+    "dynamic": false,
+    "count": 1
   }
 ]

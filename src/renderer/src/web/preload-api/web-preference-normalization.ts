@@ -15,6 +15,7 @@ import type { GlobalSettings } from '../../../../shared/global-settings-types'
 import type { PairedUiState, PairingLocalUiField } from '../../../../shared/pairing-local-ui-fields'
 import type { PersistedUIState } from '../../../../shared/persisted-ui-state-types'
 import { normalizeStatusBarUsageMode } from '../../../../shared/status-bar-usage-mode'
+import { normalizeCustomUiThemes } from '../../../../shared/custom-ui-themes'
 import { normalizeTerminalCustomThemes } from '../../../../shared/terminal-custom-themes'
 import {
   normalizeTuiAgentArgsRecord,
@@ -154,6 +155,7 @@ export function mergeSettings(
     terminalCustomThemes: normalizeTerminalCustomThemes(
       updates.terminalCustomThemes ?? base.terminalCustomThemes
     ),
+    customUiThemes: normalizeCustomUiThemes(updates.customUiThemes ?? base.customUiThemes),
     uiLanguage: normalizeUiLanguage(updates.uiLanguage ?? base.uiLanguage)
   }
   return {

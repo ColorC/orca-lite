@@ -16,6 +16,7 @@ import {
   applyPRBotAuthorOverride,
   normalizePRBotAuthorOverrides
 } from '../../../../shared/pr-bot-author-overrides'
+import { normalizeCustomUiThemes } from '../../../../shared/custom-ui-themes'
 import { normalizeTerminalCursorStyleDefault } from '../../../../shared/terminal-cursor-style-settings'
 import { normalizeTerminalCustomThemes } from '../../../../shared/terminal-custom-themes'
 import { normalizeUiLanguage } from '../../../../shared/ui-language'
@@ -39,6 +40,7 @@ export function getStoredSettings(): GlobalSettings {
     ...normalizeTerminalCursorStyleDefault(stored),
     ...normalizeOsc52ClipboardDefaultOn(stored),
     terminalCustomThemes: normalizeTerminalCustomThemes(stored.terminalCustomThemes),
+    customUiThemes: normalizeCustomUiThemes(stored.customUiThemes),
     uiLanguage: normalizeUiLanguage(stored.uiLanguage)
   }
   if (

@@ -7,6 +7,7 @@ import type { KeybindingOverrides, TerminalShortcutPolicy } from './keybindings'
 import type { AppIconId } from './app-icon'
 import type { SourceControlAiSettings } from './source-control-ai-types'
 import type { ClaudeAgentTeamsMode } from './claude-agent-teams-tmux-compat'
+import type { CustomUiTheme } from './custom-ui-themes'
 import type { TerminalCustomTheme } from './terminal-custom-themes'
 import type { UiLanguage } from './ui-language'
 import type { GlobalWindowsRuntimeDefault } from './project-execution-runtime'
@@ -74,6 +75,10 @@ export type GlobalSettings = {
   branchPrefix: BranchPrefixStrategy
   branchPrefixCustom: string
   theme: 'system' | 'dark' | 'light'
+  /** Imported shadcn/Tweakcn palettes, applied over the built-in tokens. */
+  customUiThemes?: CustomUiTheme[]
+  /** Id of the applied entry in `customUiThemes`; empty means the built-in palette. */
+  activeCustomUiThemeId?: string
   /** Controls the left sidebar surface without changing terminal brightness. */
   leftSidebarAppearanceMode: LeftSidebarAppearanceMode
   leftSidebarTintColor?: string
