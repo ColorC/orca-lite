@@ -395,6 +395,7 @@ import {
   setDefaultProxySessionResolver
 } from './network/proxy-settings'
 import { handleElectronProxyLogin } from './network/electron-proxy-credentials'
+import { installElectronProxyRequestGuard } from './network/electron-proxy-request-guard'
 import { preserveAgentAuthBeforeRestart } from './agent-auth-restart-preservation'
 import { CliInstaller } from './cli/cli-installer'
 import { installLinuxBareOrcaDispatcher } from './cli/linux-bare-orca-dispatcher'
@@ -2269,7 +2270,17 @@ function shouldSuppressCodexAutoApprovalSyntheticTitleFromHook(args: {
 
 void app.whenReady().then(async () => {
   logStartupMilestone('app-ready')
-  app.on('login', handleElectronProxyLogin)
+  installElectronProxyRequestGuard(session.defaultSession)
+  app.on('login', (event, webContents, details, authInfo, callback) => {
+    handleElectronProxyLogin(
+      event,
+      webContents,
+      details,
+      authInfo,
+      callback,
+      session.defaultSession
+    )
+  })
   installMainThreadHangWatchdog({ userDataPath: getCanonicalUserDataPath() })
   const hangDetection = consumeHangDetectionMarker(
     hangDetectionMarkerPath(getCanonicalUserDataPath())
