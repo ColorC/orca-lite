@@ -1,4 +1,4 @@
-import { cp, mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
+import { cp, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -8,6 +8,7 @@ import {
   pluginMarketplaceSchema
 } from '../../shared/plugins/plugin-marketplace'
 import { bootstrapBundledPlugins, resolveBundledPluginRoot } from './plugin-bundled-bootstrap'
+import { hashPluginTree } from './plugin-content-hash'
 import { inspectPluginInstallTree } from './plugin-install-staging'
 
 const launchRoot = join(process.cwd(), 'resources', 'plugins', 'launch')
@@ -98,6 +99,31 @@ describe('Phase 1 launch plugin content', () => {
     expect(result.errors).toEqual([])
     expect(result.installed.length).toBeGreaterThanOrEqual(1)
     expect(result.installed.every(isOfficialPluginIdentity)).toBe(true)
+  })
+
+  it('publishes the bundled Neo Brutalism pack from its exact release bytes', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'orca-neobrutalism-bundle-'))
+    const userDataPath = await mkdtemp(join(tmpdir(), 'orca-neobrutalism-user-data-'))
+    temporaryRoots.push(root, userDataPath)
+    const pluginKey = 'stablyai.orca-neobrutalism-theme'
+    const pluginRoot = join(root, pluginKey)
+    await cp(join(launchRoot, pluginKey), pluginRoot, { recursive: true })
+    const hashed = await hashPluginTree(pluginRoot)
+    expect(hashed.ok).toBe(true)
+    if (!hashed.ok) {
+      return
+    }
+    await writeFile(
+      join(root, 'bundled-plugins.json'),
+      JSON.stringify({
+        version: 1,
+        plugins: [{ pluginKey, path: pluginKey, contentHash: hashed.hash }]
+      })
+    )
+
+    await expect(
+      bootstrapBundledPlugins({ root, userDataPath, hostVersion: '0.1.2' })
+    ).resolves.toMatchObject({ installed: [pluginKey], errors: [] })
   })
 
   it('boots release-indexed content from the packaged resources layout', async () => {

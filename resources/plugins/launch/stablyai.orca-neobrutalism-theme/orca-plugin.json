@@ -10,7 +10,7 @@
     "url": "https://github.com/neobrutalism/neobrutalism"
   },
   "repository": "https://github.com/neobrutalism/neobrutalism",
-  "engines": { "orca": ">=1.4.0" },
+  "engines": { "orca": ">=0.1.0" },
   "pluginApi": 1,
   "contributes": {
     "themes": [
