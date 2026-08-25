@@ -1,4 +1,5 @@
 import { cp, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -180,6 +181,50 @@ describe('Phase 1 launch plugin content', () => {
           hexContrastRatio(theme.tokens[surface]!, theme.tokens[foreground]!)
         ).toBeGreaterThanOrEqual(4.5)
       }
+    }
+  )
+
+  it('keeps iGame green on CTA roles and uses Common charcoal for selected controls', async () => {
+    const theme = (await readJson(
+      join(launchRoot, 'stablyai.orca-neobrutalism-theme', 'themes', 'igame-paper-stage.json')
+    )) as { terminalThemeContributionId: string; tokens: Record<string, string> }
+
+    expect(theme.terminalThemeContributionId).toBe('igame-paper-terminal')
+    expect(theme.tokens['--primary']).toBe('#23591D')
+    expect(theme.tokens['--appearance-state-selected']).toBe('#262626')
+    expect(theme.tokens['--appearance-state-selected-foreground']).toBe('#ECE7DC')
+  })
+
+  it('uses the checked-in iGame dark stripe texture without recoloring it', async () => {
+    const texture = await readFile(
+      join(
+        launchRoot,
+        'stablyai.orca-neobrutalism-theme',
+        'textures',
+        'spui_common_pattern_4_ep2.png'
+      )
+    )
+    expect(createHash('sha256').update(texture).digest('hex')).toBe(
+      '26660e41ccbf3c4971e4313e8ce9542c3846ed0693172b131bc6cebf6b9254b9'
+    )
+  })
+
+  it.each([
+    ['igame-paper-stage.json', '#ECE7DC', '#262626'],
+    ['igame-stage-dark.json', '#262626', '#ECE7DC']
+  ] as const)(
+    'ships linked iGame terminal colors in %s',
+    async (fileName, background, foreground) => {
+      const theme = (await readJson(
+        join(launchRoot, 'stablyai.orca-neobrutalism-theme', 'terminal', fileName)
+      )) as { terminal: Record<string, string> }
+
+      expect(theme.terminal.background).toBe(background)
+      expect(theme.terminal.foreground).toBe(foreground)
+      expect(hexContrastRatio(background, foreground)).toBeGreaterThanOrEqual(7)
+      expect(
+        hexContrastRatio(theme.terminal.selectionBackground!, theme.terminal.selectionForeground!)
+      ).toBeGreaterThanOrEqual(7)
     }
   )
 

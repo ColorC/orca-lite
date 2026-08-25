@@ -65,7 +65,19 @@ export class PluginThemeRegistry {
               if (!parsed.ok) {
                 throw new Error(`theme "${contribution.id}" ${parsed.error}`)
               }
-              const { textureAssets, ...theme } = parsed.theme
+              const { terminalThemeContributionId, textureAssets, ...theme } = parsed.theme
+              const terminalThemeId = terminalThemeContributionId
+                ? plugin.manifest.contributes.terminalThemes.some(
+                    (terminalTheme) => terminalTheme.id === terminalThemeContributionId
+                  )
+                  ? (`plugin:${plugin.pluginKey}/${terminalThemeContributionId}` as const)
+                  : null
+                : undefined
+              if (terminalThemeId === null) {
+                throw new Error(
+                  `theme "${contribution.id}" links undeclared terminal theme "${terminalThemeContributionId}"`
+                )
+              }
               const textureDataUrls: Record<string, string> = {}
               const loaded = new Map<string, Buffer>()
               let totalBytes = 0
@@ -89,6 +101,7 @@ export class PluginThemeRegistry {
                 contributionId: contribution.id,
                 label: contribution.label,
                 ...theme,
+                ...(terminalThemeId ? { terminalThemeId } : {}),
                 ...(Object.keys(textureDataUrls).length > 0 ? { textureDataUrls } : {})
               }
             })

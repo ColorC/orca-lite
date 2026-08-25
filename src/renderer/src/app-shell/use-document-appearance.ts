@@ -6,6 +6,7 @@ import {
   applyPluginAppTheme,
   resolveDocumentTheme
 } from '../lib/document-theme'
+import { getPluginThemeSettingsUpdate } from '../lib/plugin-theme-terminal-link'
 import { scheduleRuntimeGraphSync } from '../runtime/sync-runtime-graph'
 import { useAppStore } from '../store'
 import { usePluginIconThemeStore, usePluginIconThemes } from '../store/plugin-icon-themes'
@@ -20,16 +21,50 @@ export function useDocumentAppearance(): void {
   const pluginIconTheme = useAppStore((s) => s.settings?.pluginIconTheme)
   const theme = useAppStore((s) => s.settings?.theme)
   const appFontFamily = useAppStore((s) => s.settings?.appFontFamily)
+  const terminalThemeDark = useAppStore((s) => s.settings?.terminalThemeDark)
+  const terminalThemeLight = useAppStore((s) => s.settings?.terminalThemeLight)
+  const terminalUseSeparateLightTheme = useAppStore(
+    (s) => s.settings?.terminalUseSeparateLightTheme
+  )
   const pluginThemes = usePluginThemes()
   usePluginIconThemes()
   const pluginTerminalThemes = usePluginTerminalThemes()
   const setActivePluginIconTheme = usePluginIconThemeStore((state) => state.setActiveId)
+  const updateSettings = useAppStore((state) => state.updateSettings)
   const activePluginTheme =
     pluginThemes.find((pluginTheme) => pluginTheme.id === pluginAppTheme) ?? null
 
   useEffect(() => {
     setActivePluginIconTheme(pluginIconTheme ?? null)
   }, [pluginIconTheme, setActivePluginIconTheme])
+
+  useEffect(() => {
+    if (
+      !activePluginTheme ||
+      !theme ||
+      !terminalThemeDark ||
+      !terminalThemeLight ||
+      terminalUseSeparateLightTheme === undefined
+    ) {
+      return
+    }
+    const linkedSettings = getPluginThemeSettingsUpdate(activePluginTheme, {
+      theme,
+      terminalThemeDark,
+      terminalThemeLight,
+      terminalUseSeparateLightTheme
+    })
+    if (linkedSettings) {
+      void updateSettings(linkedSettings)
+    }
+  }, [
+    activePluginTheme,
+    terminalThemeDark,
+    terminalThemeLight,
+    terminalUseSeparateLightTheme,
+    theme,
+    updateSettings
+  ])
 
   useEffect(() => {
     // Plugin palettes do not mutate settings, so hidden terminals need an explicit refresh.

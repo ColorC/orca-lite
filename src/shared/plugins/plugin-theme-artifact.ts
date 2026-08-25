@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { isSafeThemeGradient } from './plugin-theme-gradient-value'
+import { pluginIdSchema } from './plugin-manifest-fields'
 
 export const PLUGIN_APP_THEME_COLOR_TOKENS = [
   '--background',
@@ -182,10 +183,13 @@ const themeTexturePathSchema = z.string().trim().min(1).max(240)
 
 export const pluginAppThemeArtifactSchema = z
   .object({
-    schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).default(1),
+    schemaVersion: z
+      .union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5)])
+      .default(1),
     base: z.enum(['light', 'dark']),
     tokens: z.record(z.string(), themeTokenValueSchema),
-    textureAssets: z.record(z.string(), themeTexturePathSchema).optional()
+    textureAssets: z.record(z.string(), themeTexturePathSchema).optional(),
+    terminalThemeContributionId: pluginIdSchema.optional()
   })
   .strict()
   .superRefine((theme, context) => {
@@ -256,6 +260,13 @@ export const pluginAppThemeArtifactSchema = z
         })
       }
     }
+    if (theme.terminalThemeContributionId && theme.schemaVersion < 5) {
+      context.addIssue({
+        code: 'custom',
+        path: ['terminalThemeContributionId'],
+        message: 'requires appearance theme schemaVersion 5'
+      })
+    }
   })
 
 export type PluginAppThemeArtifact = z.infer<typeof pluginAppThemeArtifactSchema>
@@ -263,11 +274,15 @@ export type PluginAppThemeArtifact = z.infer<typeof pluginAppThemeArtifactSchema
 export type PluginAppThemeTextureToken = (typeof PLUGIN_APP_THEME_TEXTURE_TOKENS)[number]
 export type PluginThemeTextureDataUrls = Partial<Record<PluginAppThemeTextureToken, string>>
 
-export type PluginThemeRegistration = Omit<PluginAppThemeArtifact, 'textureAssets'> & {
+export type PluginThemeRegistration = Omit<
+  PluginAppThemeArtifact,
+  'textureAssets' | 'terminalThemeContributionId'
+> & {
   id: `plugin:${string}`
   pluginKey: string
   contributionId: string
   label: string
+  terminalThemeId?: `plugin:${string}`
   textureDataUrls?: PluginThemeTextureDataUrls
 }
 

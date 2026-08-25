@@ -100,6 +100,35 @@ describe('plugin app theme artifacts', () => {
     })
   })
 
+  it('accepts schema version 5 links to a terminal theme contribution', () => {
+    expect(
+      parsePluginAppThemeArtifact(
+        JSON.stringify({
+          schemaVersion: 5,
+          base: 'dark',
+          tokens: { '--background': '#262626' },
+          terminalThemeContributionId: 'stage-terminal'
+        })
+      )
+    ).toMatchObject({
+      ok: true,
+      theme: { terminalThemeContributionId: 'stage-terminal' }
+    })
+  })
+
+  it('requires schema version 5 for terminal theme links', () => {
+    expect(
+      parsePluginAppThemeArtifact(
+        JSON.stringify({
+          schemaVersion: 4,
+          base: 'dark',
+          tokens: { '--background': '#262626' },
+          terminalThemeContributionId: 'stage-terminal'
+        })
+      )
+    ).toMatchObject({ ok: false, error: expect.stringContaining('schemaVersion 5') })
+  })
+
   it.each([
     {
       schemaVersion: 3,
