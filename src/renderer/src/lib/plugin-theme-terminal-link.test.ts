@@ -4,6 +4,7 @@ import { getPluginThemeSettingsUpdate } from './plugin-theme-terminal-link'
 
 const settings = {
   theme: 'dark' as const,
+  pluginAppTheme: null,
   terminalThemeDark: 'Ghostty Default Style Dark',
   terminalThemeLight: 'Builtin Tango Light',
   terminalUseSeparateLightTheme: false
@@ -52,9 +53,22 @@ describe('plugin appearance terminal links', () => {
     expect(
       getPluginThemeSettingsUpdate(theme('light', 'plugin:stablyai.appearance/paper-terminal'), {
         ...settings,
+        pluginAppTheme: 'plugin:stablyai.appearance/light',
         theme: 'light',
         terminalUseSeparateLightTheme: true,
         terminalThemeLight: 'plugin:stablyai.appearance/paper-terminal'
+      })
+    ).toBeNull()
+  })
+
+  it('preserves a terminal theme selected after the appearance plugin', () => {
+    expect(
+      getPluginThemeSettingsUpdate(theme('light', 'plugin:stablyai.appearance/paper-terminal'), {
+        ...settings,
+        pluginAppTheme: 'plugin:stablyai.appearance/light',
+        theme: 'light',
+        terminalUseSeparateLightTheme: true,
+        terminalThemeLight: 'Builtin Tango Light'
       })
     ).toBeNull()
   })

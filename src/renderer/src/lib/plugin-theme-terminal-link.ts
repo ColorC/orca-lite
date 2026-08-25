@@ -3,13 +3,21 @@ import type { PluginThemeRegistration } from '../../../shared/plugins/plugin-the
 
 type LinkedThemeSettings = Pick<
   GlobalSettings,
-  'theme' | 'terminalThemeDark' | 'terminalThemeLight' | 'terminalUseSeparateLightTheme'
+  | 'theme'
+  | 'pluginAppTheme'
+  | 'terminalThemeDark'
+  | 'terminalThemeLight'
+  | 'terminalUseSeparateLightTheme'
 >
 
 export function getPluginThemeSettingsUpdate(
   theme: PluginThemeRegistration,
   settings: LinkedThemeSettings
 ): Partial<LinkedThemeSettings> | null {
+  if (settings.pluginAppTheme === theme.id) {
+    return null
+  }
+
   const updates: Partial<LinkedThemeSettings> = {}
   if (settings.theme !== theme.base) {
     updates.theme = theme.base
