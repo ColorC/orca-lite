@@ -1,0 +1,34 @@
+{
+  "manifestVersion": 1,
+  "id": "orca-neobrutalism-theme",
+  "publisher": "stablyai",
+  "name": "Neo Brutalism Appearance Pack",
+  "version": "1.0.0",
+  "description": "A square, high-contrast retro appearance pack adapted from NeoBrutalism.",
+  "author": {
+    "name": "LiTeWork",
+    "url": "https://github.com/neobrutalism/neobrutalism"
+  },
+  "repository": "https://github.com/neobrutalism/neobrutalism",
+  "engines": { "orca": ">=1.4.0" },
+  "pluginApi": 1,
+  "contributes": {
+    "themes": [
+      { "id": "neo-light", "label": "Neo Brutalism Light", "path": "themes/neo-light.json" },
+      { "id": "neo-dark", "label": "Neo Brutalism Dark", "path": "themes/neo-dark.json" }
+    ],
+    "terminalThemes": [
+      {
+        "id": "neo-terminal-light",
+        "label": "Neo Brutalism Light",
+        "path": "terminal/neo-light.json"
+      },
+      {
+        "id": "neo-terminal-dark",
+        "label": "Neo Brutalism Dark",
+        "path": "terminal/neo-dark.json"
+      }
+    ]
+  },
+  "capabilities": []
+}

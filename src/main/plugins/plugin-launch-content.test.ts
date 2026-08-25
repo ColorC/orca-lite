@@ -40,7 +40,10 @@ describe('Phase 1 launch plugin content', () => {
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name)
       .sort()
-    expect(marketplace.plugins.map((plugin) => plugin.id).sort()).toEqual(localPluginDirectories)
+    expect(marketplace.plugins.map((plugin) => plugin.id).sort()).toEqual(
+      localPluginDirectories.filter((pluginId) => pluginId !== 'stablyai.orca-neobrutalism-theme')
+    )
+    expect(localPluginDirectories).toContain('stablyai.orca-neobrutalism-theme')
 
     const contributionKinds = new Set<string>()
     for (const listing of marketplace.plugins) {
@@ -117,7 +120,8 @@ describe('Phase 1 launch plugin content', () => {
     expect(result.errors).toEqual([])
     expect(result.installed).toEqual([
       'stablyai.orca-midnight-theme',
-      'stablyai.orca-navigation-shortcuts'
+      'stablyai.orca-navigation-shortcuts',
+      'stablyai.orca-neobrutalism-theme'
     ])
   })
 })

@@ -10,6 +10,11 @@
       "pluginKey": "stablyai.orca-navigation-shortcuts",
       "path": "stablyai.orca-navigation-shortcuts",
       "contentHash": "ce3a146bae9e121a18cb86a710973422be749a25da5a1c21a8911e2e98cc3a77"
+    },
+    {
+      "pluginKey": "stablyai.orca-neobrutalism-theme",
+      "path": "stablyai.orca-neobrutalism-theme",
+      "contentHash": "e3449983d70d2037431e193ec4d92b97f4524b64e3afc44cf0b2f274af99aaa4"
     }
   ]
 }
