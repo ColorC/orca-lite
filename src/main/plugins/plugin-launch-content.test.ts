@@ -184,15 +184,18 @@ describe('Phase 1 launch plugin content', () => {
     }
   )
 
-  it('keeps iGame green on CTA roles and uses Common charcoal for selected controls', async () => {
+  it('uses iGame green for selection and orange for focus and current context', async () => {
     const theme = (await readJson(
       join(launchRoot, 'stablyai.orca-neobrutalism-theme', 'themes', 'igame-paper-stage.json')
     )) as { terminalThemeContributionId: string; tokens: Record<string, string> }
 
     expect(theme.terminalThemeContributionId).toBe('igame-paper-terminal')
-    expect(theme.tokens['--primary']).toBe('#23591D')
-    expect(theme.tokens['--appearance-state-selected']).toBe('#262626')
-    expect(theme.tokens['--appearance-state-selected-foreground']).toBe('#ECE7DC')
+    expect(theme.tokens['--primary']).toBe('#669B5B')
+    expect(theme.tokens['--appearance-state-selected']).toBe('#669B5B')
+    expect(theme.tokens['--appearance-state-selected-foreground']).toBe('#102015')
+    expect(theme.tokens['--appearance-state-current']).toBe('#E4A83B')
+    expect(theme.tokens['--ring']).toBe('#D19A34')
+    expect(theme.tokens['--appearance-state-hover-border']).toBe('#D19A34')
   })
 
   it('uses the checked-in iGame dark stripe texture without recoloring it', async () => {
