@@ -78,6 +78,57 @@ describe('plugin app theme artifacts', () => {
     ).toMatchObject({ ok: false, error: expect.stringContaining('schemaVersion 3') })
   })
 
+  it('accepts schema version 4 plugin-local PNG texture references', () => {
+    expect(
+      parsePluginAppThemeArtifact(
+        JSON.stringify({
+          schemaVersion: 4,
+          base: 'light',
+          tokens: { '--background': '#f7ecdd' },
+          textureAssets: {
+            '--appearance-worktree-sidebar-background-image': 'textures/paper.png'
+          }
+        })
+      )
+    ).toMatchObject({
+      ok: true,
+      theme: {
+        textureAssets: {
+          '--appearance-worktree-sidebar-background-image': 'textures/paper.png'
+        }
+      }
+    })
+  })
+
+  it.each([
+    {
+      schemaVersion: 3,
+      textureAssets: { '--appearance-canvas-background-image': 'textures/paper.png' },
+      error: 'schemaVersion 4'
+    },
+    {
+      schemaVersion: 4,
+      textureAssets: { '--background': 'textures/paper.png' },
+      error: 'not a public appearance texture target'
+    },
+    {
+      schemaVersion: 4,
+      textureAssets: { '--appearance-canvas-background-image': 'textures/paper.svg' },
+      error: 'PNG file'
+    }
+  ])('rejects invalid plugin-local texture reference $textureAssets', (input) => {
+    expect(
+      parsePluginAppThemeArtifact(
+        JSON.stringify({
+          schemaVersion: input.schemaVersion,
+          base: 'light',
+          tokens: { '--background': '#fff' },
+          textureAssets: input.textureAssets
+        })
+      )
+    ).toMatchObject({ ok: false, error: expect.stringContaining(input.error) })
+  })
+
   it.each([
     'url(https://attacker.invalid/texture)',
     'linear-gradient(var(--foreground), #000000)',

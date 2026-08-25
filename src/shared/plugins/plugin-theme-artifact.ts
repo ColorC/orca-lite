@@ -81,6 +81,8 @@ export const PLUGIN_APP_THEME_GRADIENT_TOKENS = [
   '--appearance-right-sidebar-background-image'
 ] as const
 
+export const PLUGIN_APP_THEME_TEXTURE_TOKENS = PLUGIN_APP_THEME_GRADIENT_TOKENS
+
 export const PLUGIN_APP_THEME_DURATION_TOKENS = [
   '--motion-instant',
   '--motion-fast',
@@ -176,12 +178,14 @@ function isSafeTokenValue(token: string, value: string): boolean {
 }
 
 const themeTokenValueSchema = z.string().min(1).max(512)
+const themeTexturePathSchema = z.string().trim().min(1).max(240)
 
 export const pluginAppThemeArtifactSchema = z
   .object({
-    schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]).default(1),
+    schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).default(1),
     base: z.enum(['light', 'dark']),
-    tokens: z.record(z.string(), themeTokenValueSchema)
+    tokens: z.record(z.string(), themeTokenValueSchema),
+    textureAssets: z.record(z.string(), themeTexturePathSchema).optional()
   })
   .strict()
   .superRefine((theme, context) => {
@@ -223,15 +227,48 @@ export const pluginAppThemeArtifactSchema = z
         })
       }
     }
+    const textureEntries = Object.entries(theme.textureAssets ?? {})
+    if (textureEntries.length > PLUGIN_APP_THEME_TEXTURE_TOKENS.length) {
+      context.addIssue({
+        code: 'custom',
+        path: ['textureAssets'],
+        message: 'contains too many texture assets'
+      })
+    }
+    for (const [token, path] of textureEntries) {
+      if (theme.schemaVersion < 4) {
+        context.addIssue({
+          code: 'custom',
+          path: ['textureAssets', token],
+          message: 'requires appearance theme schemaVersion 4'
+        })
+      } else if (!GRADIENT_TOKENS.has(token)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['textureAssets', token],
+          message: 'is not a public appearance texture target'
+        })
+      } else if (!/\.png$/i.test(path)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['textureAssets', token],
+          message: 'must reference a PNG file'
+        })
+      }
+    }
   })
 
 export type PluginAppThemeArtifact = z.infer<typeof pluginAppThemeArtifactSchema>
 
-export type PluginThemeRegistration = PluginAppThemeArtifact & {
+export type PluginAppThemeTextureToken = (typeof PLUGIN_APP_THEME_TEXTURE_TOKENS)[number]
+export type PluginThemeTextureDataUrls = Partial<Record<PluginAppThemeTextureToken, string>>
+
+export type PluginThemeRegistration = Omit<PluginAppThemeArtifact, 'textureAssets'> & {
   id: `plugin:${string}`
   pluginKey: string
   contributionId: string
   label: string
+  textureDataUrls?: PluginThemeTextureDataUrls
 }
 
 export type PluginThemeArtifactParseResult =
