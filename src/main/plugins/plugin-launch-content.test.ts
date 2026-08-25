@@ -80,6 +80,12 @@ describe('Phase 1 launch plugin content', () => {
       if (contributes.commands.length > 0 && contributes.keybindings.length > 0) {
         contributionKinds.add('command-keybinding')
       }
+      if (listing.id === 'stablyai.orca-neobrutalism-theme') {
+        expect(contributes.themes.map((theme) => theme.id)).toContain('igame-paper-stage')
+        expect(contributes.terminalThemes.map((theme) => theme.id)).toContain(
+          'igame-paper-terminal'
+        )
+      }
     }
     expect(contributionKinds).toEqual(
       new Set(['theme', 'language', 'icon', 'terminal-theme', 'vm-recipe', 'command-keybinding'])

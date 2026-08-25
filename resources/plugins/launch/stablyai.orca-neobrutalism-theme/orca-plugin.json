@@ -3,8 +3,8 @@
   "id": "orca-neobrutalism-theme",
   "publisher": "stablyai",
   "name": "LiTeWork Curated Appearance Pack",
-  "version": "1.1.0",
-  "description": "Declarative Neo, cartoon, future, and glass appearances with matching terminal palettes.",
+  "version": "1.2.0",
+  "description": "Declarative Neo, cartoon, future, glass, and iGame-inspired appearances with matching terminal palettes.",
   "author": {
     "name": "LiTeWork",
     "url": "https://github.com/neobrutalism/neobrutalism"
@@ -26,7 +26,12 @@
         "label": "Synthwave Future",
         "path": "themes/synthwave-future.json"
       },
-      { "id": "aurora-glass", "label": "Aurora Glass", "path": "themes/aurora-glass.json" }
+      { "id": "aurora-glass", "label": "Aurora Glass", "path": "themes/aurora-glass.json" },
+      {
+        "id": "igame-paper-stage",
+        "label": "iGame Paper Stage",
+        "path": "themes/igame-paper-stage.json"
+      }
     ],
     "terminalThemes": [
       {
@@ -53,6 +58,11 @@
         "id": "aurora-terminal",
         "label": "Aurora Glass",
         "path": "terminal/aurora-glass.json"
+      },
+      {
+        "id": "igame-paper-terminal",
+        "label": "iGame Paper Stage",
+        "path": "terminal/igame-paper-stage.json"
       }
     ]
   },
