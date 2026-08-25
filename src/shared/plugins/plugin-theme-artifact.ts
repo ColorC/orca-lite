@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { isSafeThemeGradient } from './plugin-theme-gradient-value'
 
 export const PLUGIN_APP_THEME_COLOR_TOKENS = [
   '--background',
@@ -54,7 +55,10 @@ export const PLUGIN_APP_THEME_COLOR_TOKENS = [
   '--appearance-state-selected',
   '--appearance-state-selected-foreground',
   '--appearance-state-current',
-  '--appearance-state-current-foreground'
+  '--appearance-state-current-foreground',
+  '--appearance-state-hover-border',
+  '--appearance-state-selected-border',
+  '--appearance-state-current-border'
 ] as const
 
 export const PLUGIN_APP_THEME_LENGTH_TOKENS = [
@@ -65,9 +69,16 @@ export const PLUGIN_APP_THEME_LENGTH_TOKENS = [
   '--appearance-pill-radius',
   '--appearance-border-width',
   '--appearance-control-border-width',
+  '--appearance-state-border-width',
   '--appearance-control-hover-offset',
   '--appearance-control-active-offset',
   '--appearance-motion-distance'
+] as const
+
+export const PLUGIN_APP_THEME_GRADIENT_TOKENS = [
+  '--appearance-canvas-background-image',
+  '--appearance-worktree-sidebar-background-image',
+  '--appearance-right-sidebar-background-image'
 ] as const
 
 export const PLUGIN_APP_THEME_DURATION_TOKENS = [
@@ -104,7 +115,8 @@ export const PLUGIN_APP_THEME_TOKENS = [
   ...PLUGIN_APP_THEME_DURATION_TOKENS,
   ...PLUGIN_APP_THEME_EASING_TOKENS,
   ...PLUGIN_APP_THEME_NUMBER_TOKENS,
-  ...PLUGIN_APP_THEME_SHADOW_TOKENS
+  ...PLUGIN_APP_THEME_SHADOW_TOKENS,
+  ...PLUGIN_APP_THEME_GRADIENT_TOKENS
 ] as const
 
 export type PluginAppThemeToken = (typeof PLUGIN_APP_THEME_TOKENS)[number]
@@ -119,6 +131,7 @@ const DURATION_TOKENS = new Set<string>(PLUGIN_APP_THEME_DURATION_TOKENS)
 const EASING_TOKENS = new Set<string>(PLUGIN_APP_THEME_EASING_TOKENS)
 const NUMBER_TOKENS = new Set<string>(PLUGIN_APP_THEME_NUMBER_TOKENS)
 const SHADOW_TOKENS = new Set<string>(PLUGIN_APP_THEME_SHADOW_TOKENS)
+const GRADIENT_TOKENS = new Set<string>(PLUGIN_APP_THEME_GRADIENT_TOKENS)
 const THEME_TOKENS = new Set<string>(PLUGIN_APP_THEME_TOKENS)
 
 function hasUnsafeCss(value: string): boolean {
@@ -135,7 +148,7 @@ function hasUnsafeCss(value: string): boolean {
 function isSafeTokenValue(token: string, value: string): boolean {
   const trimmed = value.trim()
   if (!trimmed || hasUnsafeCss(trimmed)) {
-    return false
+    return GRADIENT_TOKENS.has(token) && isSafeThemeGradient(trimmed)
   }
   if (COLOR_TOKENS.has(token)) {
     return true
@@ -156,14 +169,17 @@ function isSafeTokenValue(token: string, value: string): boolean {
     const number = Number(trimmed)
     return Number.isFinite(number) && number >= 0 && number <= 1
   }
+  if (GRADIENT_TOKENS.has(token)) {
+    return isSafeThemeGradient(trimmed)
+  }
   return SHADOW_TOKENS.has(token)
 }
 
-const themeTokenValueSchema = z.string().min(1).max(192)
+const themeTokenValueSchema = z.string().min(1).max(512)
 
 export const pluginAppThemeArtifactSchema = z
   .object({
-    schemaVersion: z.union([z.literal(1), z.literal(2)]).default(1),
+    schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]).default(1),
     base: z.enum(['light', 'dark']),
     tokens: z.record(z.string(), themeTokenValueSchema)
   })
@@ -192,6 +208,12 @@ export const pluginAppThemeArtifactSchema = z
           code: 'custom',
           path: ['tokens', token],
           message: 'requires appearance theme schemaVersion 2'
+        })
+      } else if (theme.schemaVersion < 3 && GRADIENT_TOKENS.has(token)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['tokens', token],
+          message: 'requires appearance theme schemaVersion 3'
         })
       } else if (!isSafeTokenValue(token, value)) {
         context.addIssue({

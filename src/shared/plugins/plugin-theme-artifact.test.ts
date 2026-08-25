@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest'
 import { parsePluginAppThemeArtifact, PLUGIN_APP_THEME_TOKENS } from './plugin-theme-artifact'
 
 describe('plugin app theme artifacts', () => {
-  it('accepts color, region, geometry, state, and motion tokens', () => {
+  it('accepts color, region, geometry, state, texture, and motion tokens', () => {
     expect(
       parsePluginAppThemeArtifact(
         JSON.stringify({
-          schemaVersion: 2,
+          schemaVersion: 3,
           base: 'dark',
           tokens: {
             '--background': '#101010',
@@ -16,6 +16,10 @@ describe('plugin app theme artifacts', () => {
             '--appearance-shadow-control': '3px 3px 0 0 #000000',
             '--appearance-state-selected': '#304050',
             '--appearance-state-selected-foreground': '#ffffff',
+            '--appearance-state-selected-border': '#000000',
+            '--appearance-state-border-width': '2px',
+            '--appearance-worktree-sidebar-background-image':
+              'repeating-linear-gradient(45deg, #ffffff08 0px, #ffffff08 1px, transparent 1px, transparent 8px)',
             '--motion-enter': '260ms',
             '--motion-ease-out': 'cubic-bezier(0.2, 1.4, 0.4, 1)'
           }
@@ -24,13 +28,18 @@ describe('plugin app theme artifacts', () => {
     ).toMatchObject({
       ok: true,
       theme: {
-        schemaVersion: 2,
+        schemaVersion: 3,
         base: 'dark',
         tokens: {
           '--appearance-panel-radius': '0px',
           '--appearance-control-hover-offset': '-1px',
           '--appearance-shadow-control': '3px 3px 0 0 #000000',
           '--appearance-state-selected-foreground': '#ffffff',
+          '--appearance-state-selected-border': '#000000',
+          '--appearance-state-border-width': '2px',
+          '--appearance-worktree-sidebar-background-image': expect.stringContaining(
+            'repeating-linear-gradient'
+          ),
           '--motion-enter': '260ms'
         }
       }
@@ -52,6 +61,38 @@ describe('plugin app theme artifacts', () => {
         JSON.stringify({ base: 'dark', tokens: { '--appearance-control-radius': '0px' } })
       )
     ).toMatchObject({ ok: false, error: expect.stringContaining('schemaVersion 2') })
+  })
+
+  it('requires schema version 3 for surface textures', () => {
+    expect(
+      parsePluginAppThemeArtifact(
+        JSON.stringify({
+          schemaVersion: 2,
+          base: 'dark',
+          tokens: {
+            '--appearance-right-sidebar-background-image':
+              'linear-gradient(135deg, #101010, #202020)'
+          }
+        })
+      )
+    ).toMatchObject({ ok: false, error: expect.stringContaining('schemaVersion 3') })
+  })
+
+  it.each([
+    'url(https://attacker.invalid/texture)',
+    'linear-gradient(var(--foreground), #000000)',
+    'paint(attacker)',
+    'linear-gradient(#fff, #000); color: red'
+  ])('rejects unsafe gradient value %s', (value) => {
+    expect(
+      parsePluginAppThemeArtifact(
+        JSON.stringify({
+          schemaVersion: 3,
+          base: 'dark',
+          tokens: { '--appearance-canvas-background-image': value }
+        })
+      ).ok
+    ).toBe(false)
   })
 
   it('rejects negative geometry outside interaction offsets', () => {

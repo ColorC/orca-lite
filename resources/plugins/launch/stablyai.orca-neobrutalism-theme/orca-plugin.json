@@ -2,9 +2,9 @@
   "manifestVersion": 1,
   "id": "orca-neobrutalism-theme",
   "publisher": "stablyai",
-  "name": "Neo Brutalism Appearance Pack",
-  "version": "1.0.0",
-  "description": "A square, high-contrast retro appearance pack adapted from NeoBrutalism.",
+  "name": "LiTeWork Curated Appearance Pack",
+  "version": "1.1.0",
+  "description": "Declarative Neo, cartoon, future, and glass appearances with matching terminal palettes.",
   "author": {
     "name": "LiTeWork",
     "url": "https://github.com/neobrutalism/neobrutalism"
@@ -15,7 +15,18 @@
   "contributes": {
     "themes": [
       { "id": "neo-light", "label": "Neo Brutalism Light", "path": "themes/neo-light.json" },
-      { "id": "neo-dark", "label": "Neo Brutalism Dark", "path": "themes/neo-dark.json" }
+      { "id": "neo-dark", "label": "Neo Brutalism Dark", "path": "themes/neo-dark.json" },
+      {
+        "id": "cupcake-cartoon",
+        "label": "Cupcake Cartoon",
+        "path": "themes/cupcake-cartoon.json"
+      },
+      {
+        "id": "synthwave-future",
+        "label": "Synthwave Future",
+        "path": "themes/synthwave-future.json"
+      },
+      { "id": "aurora-glass", "label": "Aurora Glass", "path": "themes/aurora-glass.json" }
     ],
     "terminalThemes": [
       {
@@ -27,6 +38,21 @@
         "id": "neo-terminal-dark",
         "label": "Neo Brutalism Dark",
         "path": "terminal/neo-dark.json"
+      },
+      {
+        "id": "cupcake-terminal",
+        "label": "Cupcake Cartoon",
+        "path": "terminal/cupcake-cartoon.json"
+      },
+      {
+        "id": "synthwave-terminal",
+        "label": "Synthwave Future",
+        "path": "terminal/synthwave-future.json"
+      },
+      {
+        "id": "aurora-terminal",
+        "label": "Aurora Glass",
+        "path": "terminal/aurora-glass.json"
       }
     ]
   },

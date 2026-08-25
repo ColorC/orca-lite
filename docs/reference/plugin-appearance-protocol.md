@@ -18,11 +18,11 @@ Contribution IDs are plugin-local. The host exposes them as `plugin:<publisher>.
 
 ## Application theme artifact
 
-Schema version 1 is compatible with upstream Orca and accepts color tokens only. Schema version 2 adds region, geometry, component-state, shadow, and motion tokens.
+Schema version 1 is compatible with upstream Orca and accepts color tokens only. Schema version 2 adds region, geometry, component-state, shadow, and motion tokens. Schema version 3 adds bounded canvas/sidebar gradient layers; it still cannot inject selectors, URLs, arbitrary functions, or declarations.
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "base": "dark",
   "tokens": {
     "--background": "#101010",
@@ -32,6 +32,9 @@ Schema version 1 is compatible with upstream Orca and accepts color tokens only.
     "--appearance-control-active-offset": "2px",
     "--appearance-state-selected": "#304050",
     "--appearance-state-selected-foreground": "#ffffff",
+    "--appearance-state-selected-border": "#000000",
+    "--appearance-state-border-width": "2px",
+    "--appearance-worktree-sidebar-background-image": "repeating-linear-gradient(45deg, #ffffff08 0px, #ffffff08 1px, transparent 1px, transparent 8px)",
     "--motion-enter": "260ms",
     "--motion-ease-out": "cubic-bezier(0.2, 1.4, 0.4, 1)"
   }
@@ -43,6 +46,7 @@ The exact public allowlist is `PLUGIN_APP_THEME_TOKENS` in `src/shared/plugins/p
 - semantic shadcn colors and editor/settings surfaces;
 - left, worktree, and right sidebar surfaces, foregrounds, accents, borders, and focus rings;
 - hover, selected, and current component background/foreground states;
+- optional solid state borders and bounded canvas, worktree-sidebar, and right-sidebar gradient layers;
 - control, panel, overlay, and pill radius, plus border widths and shadows;
 - bounded control hover/press offsets and base, hover, and active control shadows;
 - fast/base/enter/exit/spinner durations, movement distance and scale, and easing curves.
@@ -53,10 +57,11 @@ If a plugin omits right-sidebar slots but supplies matching sidebar slots, the r
 
 ### Bundled Neo Brutalism pack
 
-LiTeWork includes `stablyai.orca-neobrutalism-theme` as an enabled, declarative reference pack.
-It adapts the MIT-licensed [NeoBrutalism](https://github.com/neobrutalism/neobrutalism)
-palette, square geometry, hard shadows, and press interaction into schema version 2. The pack contributes
-separate light and dark application themes plus matching terminal themes; it carries no executable entry
+LiTeWork includes `stablyai.orca-neobrutalism-theme` as an enabled, declarative appearance sampler.
+It adapts the MIT-licensed [NeoBrutalism](https://github.com/neobrutalism/neobrutalism),
+[daisyUI](https://github.com/saadeghi/daisyui), and [Magic UI](https://github.com/magicuidesign/magicui)
+visual conventions into schema version 3. The pack contributes Neo light/dark, cartoon, future, and glass
+application themes plus matching terminal themes; it carries no executable entry
 point or capabilities. Application themes are selected under Settings → Appearance → Appearance Plugin,
 while terminal themes remain explicit in the terminal light/dark selectors so the pack never overwrites a
 user's terminal preference implicitly.

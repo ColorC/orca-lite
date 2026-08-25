@@ -280,6 +280,13 @@
   --appearance-state-selected-foreground: var(--foreground);
   --appearance-state-current: color-mix(in srgb, var(--primary) 22%, var(--background));
   --appearance-state-current-foreground: var(--foreground);
+  --appearance-state-hover-border: transparent;
+  --appearance-state-selected-border: transparent;
+  --appearance-state-current-border: transparent;
+  --appearance-state-border-width: 0px;
+  --appearance-canvas-background-image: none;
+  --appearance-worktree-sidebar-background-image: none;
+  --appearance-right-sidebar-background-image: none;
   --terminal-pane-title-on-dark-fg: rgb(255 255 255 / 0.52);
   --terminal-pane-title-on-dark-input-fg: rgb(255 255 255 / 0.7);
   --terminal-pane-title-on-dark-placeholder: rgb(255 255 255 / 0.38);
@@ -462,6 +469,32 @@
   --tab-group-split-divider-strong: #71717a;
 }
 
+.worktree-sidebar-surface {
+  --background: var(--worktree-sidebar);
+  --foreground: var(--worktree-sidebar-foreground);
+  --sidebar: var(--worktree-sidebar);
+  --sidebar-foreground: var(--worktree-sidebar-foreground);
+  --sidebar-accent: var(--worktree-sidebar-accent);
+  --sidebar-accent-foreground: var(--worktree-sidebar-accent-foreground);
+  --sidebar-border: var(--worktree-sidebar-border);
+  --sidebar-ring: var(--worktree-sidebar-ring);
+  --card: color-mix(in srgb, var(--worktree-sidebar-foreground) 4%, var(--worktree-sidebar));
+  --card-foreground: var(--worktree-sidebar-foreground);
+  --primary: var(--sidebar-primary);
+  --primary-foreground: var(--sidebar-primary-foreground);
+  --muted: color-mix(in srgb, var(--worktree-sidebar-foreground) 9%, var(--worktree-sidebar));
+  --muted-foreground: color-mix(
+    in srgb,
+    var(--worktree-sidebar-foreground) 68%,
+    var(--worktree-sidebar)
+  );
+  --accent: var(--worktree-sidebar-accent);
+  --accent-foreground: var(--worktree-sidebar-accent-foreground);
+  --border: var(--worktree-sidebar-border);
+  --input: var(--worktree-sidebar-accent);
+  --ring: var(--worktree-sidebar-ring);
+  background-image: var(--appearance-worktree-sidebar-background-image);
+}
 .right-sidebar-surface {
   --background: var(--right-sidebar);
   --foreground: var(--right-sidebar-foreground);
@@ -473,8 +506,16 @@
   --sidebar-ring: var(--right-sidebar-ring);
   --accent: var(--right-sidebar-accent);
   --accent-foreground: var(--right-sidebar-accent-foreground);
+  --card: color-mix(in srgb, var(--right-sidebar-foreground) 4%, var(--right-sidebar));
+  --card-foreground: var(--right-sidebar-foreground);
+  --primary: var(--sidebar-primary);
+  --primary-foreground: var(--sidebar-primary-foreground);
+  --muted: color-mix(in srgb, var(--right-sidebar-foreground) 9%, var(--right-sidebar));
+  --muted-foreground: color-mix(in srgb, var(--right-sidebar-foreground) 68%, var(--right-sidebar));
   --border: var(--right-sidebar-border);
+  --input: var(--right-sidebar-accent);
   --ring: var(--right-sidebar-ring);
+  background-image: var(--appearance-right-sidebar-background-image);
 }
 .plugin-security-chrome {
   /* Why: plugin themes may style the app, but provenance and consent must
@@ -527,6 +568,13 @@
   --appearance-state-selected-foreground: var(--orca-security-secondary-foreground);
   --appearance-state-current: var(--orca-security-accent);
   --appearance-state-current-foreground: var(--orca-security-accent-foreground);
+  --appearance-state-hover-border: transparent;
+  --appearance-state-selected-border: transparent;
+  --appearance-state-current-border: transparent;
+  --appearance-state-border-width: 0px;
+  --appearance-canvas-background-image: none;
+  --appearance-worktree-sidebar-background-image: none;
+  --appearance-right-sidebar-background-image: none;
 }
 
 [data-slot='button'],
@@ -675,6 +723,7 @@
 [data-slot='command-item'][data-selected='true'] {
   background: var(--appearance-state-hover);
   color: var(--appearance-state-hover-foreground);
+  box-shadow: inset 0 0 0 var(--appearance-state-border-width) var(--appearance-state-hover-border);
 }
 
 [data-slot='tabs-trigger'][data-state='active'],
@@ -682,6 +731,8 @@
 [data-slot='toggle-group-item'][data-state='on'] {
   background: var(--appearance-state-selected);
   color: var(--appearance-state-selected-foreground);
+  box-shadow: inset 0 0 0 var(--appearance-state-border-width)
+    var(--appearance-state-selected-border);
 }
 
 [data-slot='button']:disabled,
@@ -794,6 +845,7 @@
 
   body {
     @apply bg-background text-foreground;
+    background-image: var(--appearance-canvas-background-image);
     margin: 0;
     padding: 0;
     overflow: hidden;
@@ -1159,6 +1211,7 @@ html.native-shell .app-layout {
   /* Why: in workspace view this strip sits directly above the worktree
      sidebar — match its surface so the left column reads as one panel. */
   background: var(--worktree-sidebar);
+  background-image: var(--appearance-worktree-sidebar-background-image);
   /* Why: draw the divider via inset shadow instead of border-bottom so the
      flex content area spans the full 36px. With border-bottom + border-box,
      the content area shrinks to 35px and flex-centered controls land at
@@ -1167,7 +1220,7 @@ html.native-shell .app-layout {
      paints the same 1px seam without stealing layout space, so the sidebar
      toggle, agent badge, and back/forward arrows align pixel-perfectly
      with the traffic lights. */
-  box-shadow: inset 0 -1px 0 var(--border);
+  box-shadow: inset 0 -1px 0 var(--worktree-sidebar-border);
   -webkit-app-region: drag;
   user-select: none;
 }
@@ -1180,6 +1233,7 @@ html.native-shell .app-layout {
   width: max-content;
   min-width: 0;
   background: var(--bg-titlebar, var(--card));
+  background-image: none;
   /* Why: floating, this strip sits inside the tab band rather than above a
      sidebar, so .titlebar-left's seam would draw a stray rule under the
      collapse button instead of continuing the column divider. */
@@ -1500,7 +1554,8 @@ html.native-shell .app-layout {
   /* Why: flat bg-accent ≈ panel background in light mode, so selection mixes
      foreground into accent and adds an inset ring to stay legible in both themes. */
   background: var(--appearance-state-selected);
-  box-shadow: inset 0 0 0 1px var(--border);
+  box-shadow: inset 0 0 0 var(--appearance-state-border-width)
+    var(--appearance-state-selected-border);
   color: var(--appearance-state-selected-foreground);
 }
 
@@ -1535,6 +1590,28 @@ html.native-shell .app-layout {
   background: color-mix(in srgb, var(--sidebar-foreground) 4%, transparent);
 }
 
+:root[data-custom-ui-theme^='plugin:'] .worktree-sidebar-card-hover:hover,
+:root[data-custom-ui-theme^='plugin:'] .worktree-agent-row-hover:hover {
+  background: var(--appearance-state-hover);
+  box-shadow: inset 0 0 0 var(--appearance-state-border-width) var(--appearance-state-hover-border);
+  color: var(--appearance-state-hover-foreground);
+}
+
+:root[data-custom-ui-theme^='plugin:']
+  [data-contextual-tour-target='sidebar-navigation']
+  button:hover {
+  background: var(--appearance-state-hover);
+  box-shadow: inset 0 0 0 var(--appearance-state-border-width) var(--appearance-state-hover-border);
+  color: var(--appearance-state-hover-foreground);
+}
+
+:root[data-custom-ui-theme^='plugin:'] .worktree-sidebar-surface [aria-current='page'] {
+  background: var(--appearance-state-selected);
+  box-shadow: inset 0 0 0 var(--appearance-state-border-width)
+    var(--appearance-state-selected-border);
+  color: var(--appearance-state-selected-foreground);
+}
+
 .dark .worktree-sidebar-card-hover:hover {
   background: color-mix(in srgb, var(--sidebar-accent) 40%, transparent);
 }
@@ -1550,6 +1627,15 @@ html.native-shell .app-layout {
   box-shadow: none;
 }
 
+:root[data-custom-ui-theme^='plugin:']
+  [data-worktree-card-surface][data-worktree-card-active='primary'] {
+  border-color: transparent;
+  background: var(--appearance-state-selected);
+  box-shadow: inset 0 0 0 var(--appearance-state-border-width)
+    var(--appearance-state-selected-border);
+  color: var(--appearance-state-selected-foreground);
+}
+
 .dark [data-worktree-card-surface][data-worktree-card-active='primary'] {
   border-color: transparent;
   background: color-mix(in srgb, var(--worktree-sidebar-foreground) 7%, transparent);
@@ -1560,6 +1646,16 @@ html.native-shell .app-layout {
   border-color: transparent;
   background: color-mix(in srgb, var(--worktree-sidebar-foreground) 4%, transparent);
   box-shadow: none;
+}
+
+:root[data-custom-ui-theme^='plugin:']
+  [data-worktree-card-surface][data-worktree-card-active='secondary'],
+:root[data-custom-ui-theme^='plugin:'] .worktree-agent-row-hover[data-focused-agent-pane='true'] {
+  border-color: transparent;
+  background: var(--appearance-state-current);
+  box-shadow: inset 0 0 0 var(--appearance-state-border-width)
+    var(--appearance-state-current-border);
+  color: var(--appearance-state-current-foreground);
 }
 
 .dark [data-worktree-card-surface][data-worktree-card-active='secondary'] {
