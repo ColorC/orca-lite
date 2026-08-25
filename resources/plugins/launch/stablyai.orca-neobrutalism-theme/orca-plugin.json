@@ -3,8 +3,8 @@
   "id": "orca-neobrutalism-theme",
   "publisher": "stablyai",
   "name": "LiTeWork Curated Appearance Pack",
-  "version": "1.2.0",
-  "description": "Declarative Neo, cartoon, future, glass, and iGame-inspired appearances with matching terminal palettes.",
+  "version": "1.3.0",
+  "description": "Declarative Neo, cartoon, future, glass, and evidence-based iGame appearances with matching terminal palettes.",
   "author": {
     "name": "LiTeWork",
     "url": "https://github.com/neobrutalism/neobrutalism"
@@ -29,8 +29,13 @@
       { "id": "aurora-glass", "label": "Aurora Glass", "path": "themes/aurora-glass.json" },
       {
         "id": "igame-paper-stage",
-        "label": "iGame Paper Stage",
+        "label": "iGame Paper Light",
         "path": "themes/igame-paper-stage.json"
+      },
+      {
+        "id": "igame-stage-dark",
+        "label": "iGame Stage Dark",
+        "path": "themes/igame-stage-dark.json"
       }
     ],
     "terminalThemes": [
@@ -61,8 +66,13 @@
       },
       {
         "id": "igame-paper-terminal",
-        "label": "iGame Paper Stage",
+        "label": "iGame Paper Light",
         "path": "terminal/igame-paper-stage.json"
+      },
+      {
+        "id": "igame-stage-terminal",
+        "label": "iGame Stage Dark",
+        "path": "terminal/igame-stage-dark.json"
       }
     ]
   },

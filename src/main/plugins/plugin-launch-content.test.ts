@@ -18,6 +18,22 @@ async function readJson(path: string): Promise<unknown> {
   return JSON.parse(await readFile(path, 'utf8'))
 }
 
+function hexRelativeLuminance(value: string): number {
+  const channels = value
+    .slice(1)
+    .match(/.{2}/g)!
+    .map((channel) => Number.parseInt(channel, 16) / 255)
+    .map((channel) => (channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4))
+  return 0.2126 * channels[0]! + 0.7152 * channels[1]! + 0.0722 * channels[2]!
+}
+
+function hexContrastRatio(first: string, second: string): number {
+  const luminances = [hexRelativeLuminance(first), hexRelativeLuminance(second)].sort(
+    (left, right) => right - left
+  )
+  return (luminances[0]! + 0.05) / (luminances[1]! + 0.05)
+}
+
 afterEach(async () => {
   await Promise.all(
     temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true }))
@@ -82,8 +98,12 @@ describe('Phase 1 launch plugin content', () => {
       }
       if (listing.id === 'stablyai.orca-neobrutalism-theme') {
         expect(contributes.themes.map((theme) => theme.id)).toContain('igame-paper-stage')
+        expect(contributes.themes.map((theme) => theme.id)).toContain('igame-stage-dark')
         expect(contributes.terminalThemes.map((theme) => theme.id)).toContain(
           'igame-paper-terminal'
+        )
+        expect(contributes.terminalThemes.map((theme) => theme.id)).toContain(
+          'igame-stage-terminal'
         )
       }
     }
@@ -131,6 +151,37 @@ describe('Phase 1 launch plugin content', () => {
       bootstrapBundledPlugins({ root, userDataPath, hostVersion: '0.1.2' })
     ).resolves.toMatchObject({ installed: [pluginKey], errors: [] })
   })
+
+  it.each(['igame-paper-stage.json', 'igame-stage-dark.json'])(
+    'keeps iGame theme foreground pairs readable in %s',
+    async (fileName) => {
+      const theme = (await readJson(
+        join(launchRoot, 'stablyai.orca-neobrutalism-theme', 'themes', fileName)
+      )) as { tokens: Record<string, string> }
+      const pairs = [
+        ['--background', '--foreground'],
+        ['--card', '--card-foreground'],
+        ['--popover', '--popover-foreground'],
+        ['--primary', '--primary-foreground'],
+        ['--secondary', '--secondary-foreground'],
+        ['--muted', '--muted-foreground'],
+        ['--accent', '--accent-foreground'],
+        ['--destructive', '--destructive-foreground'],
+        ['--sidebar', '--sidebar-foreground'],
+        ['--worktree-sidebar', '--worktree-sidebar-foreground'],
+        ['--right-sidebar', '--right-sidebar-foreground'],
+        ['--appearance-state-hover', '--appearance-state-hover-foreground'],
+        ['--appearance-state-selected', '--appearance-state-selected-foreground'],
+        ['--appearance-state-current', '--appearance-state-current-foreground']
+      ] as const
+
+      for (const [surface, foreground] of pairs) {
+        expect(
+          hexContrastRatio(theme.tokens[surface]!, theme.tokens[foreground]!)
+        ).toBeGreaterThanOrEqual(4.5)
+      }
+    }
+  )
 
   it('boots release-indexed content from the packaged resources layout', async () => {
     const resourcesPath = await mkdtemp(join(tmpdir(), 'orca-packaged-resources-'))
