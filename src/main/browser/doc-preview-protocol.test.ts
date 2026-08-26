@@ -21,7 +21,11 @@ import {
   revokeAllDocPreviewGrants,
   revokeDocPreviewGrant
 } from './doc-preview-grant-registry'
-import { buildDocPreviewUrl } from '../../shared/doc-preview-scheme'
+import {
+  buildDocPreviewUrl,
+  DOC_PREVIEW_LOAD_FAILURE_CHANNEL
+} from '../../shared/doc-preview-scheme'
+import { setDocPreviewFailureSink } from './doc-preview-failure-notice'
 
 function mintGrant(): ReturnType<typeof mintDocPreviewGrant> {
   return mintDocPreviewGrant({
@@ -34,6 +38,7 @@ function mintGrant(): ReturnType<typeof mintDocPreviewGrant> {
 beforeEach(() => {
   vi.clearAllMocks()
   revokeAllDocPreviewGrants()
+  setDocPreviewFailureSink(null)
   mocks.readDocPreviewFile.mockResolvedValue({
     ok: true,
     bytes: Buffer.from('<h1>hi</h1>', 'utf8'),
@@ -114,6 +119,33 @@ describe('handleDocPreviewRequest', () => {
 
     expect(response.status).toBe(415)
     expect(await response.text()).toBe('needs a newer server')
+  })
+
+  // Why: the guest paints a 4xx body as if it were the document, so the shell only learns the
+  // reason from this push.
+  it('pushes the failure reason for the requested path', async () => {
+    const send = vi.fn()
+    setDocPreviewFailureSink({ send })
+    const grant = mintGrant()
+    mocks.readDocPreviewFile.mockResolvedValue({ ok: false, status: 413, message: 'too large' })
+
+    await handleDocPreviewRequest(new Request(buildDocPreviewUrl(grant.id, 'index.html')))
+
+    expect(send).toHaveBeenCalledWith(DOC_PREVIEW_LOAD_FAILURE_CHANNEL, {
+      grantId: grant.id,
+      relativePath: 'index.html',
+      reason: 'too-large'
+    })
+  })
+
+  it('pushes nothing when the document is served', async () => {
+    const send = vi.fn()
+    setDocPreviewFailureSink({ send })
+    const grant = mintGrant()
+
+    await handleDocPreviewRequest(new Request(buildDocPreviewUrl(grant.id, 'index.html')))
+
+    expect(send).not.toHaveBeenCalled()
   })
 })
 

@@ -7,6 +7,7 @@ import { basename, getRelativePathInsideRoot } from '@/lib/path'
 import { getConnectionIdForFile } from '@/lib/connection-context'
 import { getConnectionIdForFileFromState } from '@/lib/connection-owner-resolution'
 import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
+import { translate } from '@/i18n/i18n'
 import { useAppStore } from '@/store'
 import type { AppState } from '@/store/types'
 import { findSiblingGroupId } from '@/store/slices/tabs'
@@ -15,6 +16,14 @@ export type PreviewableLanguage = 'html'
 /** Still the answer for flows that need a real `file://` URL (e.g. dropping a file on a browser pane). */
 export const REMOTE_FILE_BROWSER_UNSUPPORTED_MESSAGE =
   'Open in Orca Browser is only available for local files.'
+
+/** Localized lazily: a module constant would freeze the language at import time. */
+function pairedOutsideWorktreeMessage(): string {
+  return translate(
+    'auto.lib.file.preview.pairedOutsideWorktree',
+    "Files outside the workspace can't be previewed on a paired server yet."
+  )
+}
 
 type WorkspaceFileBrowserActionMode = 'local-client' | 'paired-runtime' | null
 
@@ -46,7 +55,7 @@ function getWorkspaceFileBrowserActionMode(
 export type WorkspaceFilePreviewPlan =
   | { status: 'browser-tab'; url: string; title: string }
   | { status: 'doc-preview' }
-  | { status: 'unsupported'; message: string }
+  | { status: 'unsupported'; message: string; reason: 'no-channel' | 'outside-worktree' }
 
 export function getWorkspaceFilePreviewPlan(
   state: AppState,
@@ -57,7 +66,11 @@ export function getWorkspaceFilePreviewPlan(
   if (connectionId === undefined) {
     // Why: an unresolved owner can't pick a channel — reading it locally would hand a
     // remote path to this machine's filesystem.
-    return { status: 'unsupported', message: REMOTE_FILE_BROWSER_UNSUPPORTED_MESSAGE }
+    return {
+      status: 'unsupported',
+      message: REMOTE_FILE_BROWSER_UNSUPPORTED_MESSAGE,
+      reason: 'no-channel'
+    }
   }
   if (connectionId !== null) {
     return { status: 'doc-preview' }
@@ -65,11 +78,21 @@ export function getWorkspaceFilePreviewPlan(
   // Why: the doc preview needs no browser at all, so a paired runtime without the
   // screencast capability still previews documents.
   if (getRuntimeEnvironmentIdForWorktree(state, worktreeId)) {
+    const worktreeRoot = state.getKnownWorktreeById(worktreeId)?.path ?? null
+    if (worktreeRoot && !getRelativePathInsideRoot(filePath, worktreeRoot)) {
+      // Why: the host's files.read is worktree-scoped, so this would 404 at request time with
+      // nothing telling the user which boundary they hit.
+      return {
+        status: 'unsupported',
+        message: pairedOutsideWorktreeMessage(),
+        reason: 'outside-worktree'
+      }
+    }
     return { status: 'doc-preview' }
   }
   const availability = getClientCreationActionPolicy(state, worktreeId)['managed-browser']
   if (availability.state !== 'enabled') {
-    return { status: 'unsupported', message: availability.reason }
+    return { status: 'unsupported', message: availability.reason, reason: 'no-channel' }
   }
   return {
     status: 'browser-tab',
@@ -83,7 +106,10 @@ export function canShowWorkspaceFileBrowserAction(
   worktreeId: string,
   filePath: string
 ): boolean {
-  return getWorkspaceFilePreviewPlan(state, worktreeId, filePath).status !== 'unsupported'
+  const plan = getWorkspaceFilePreviewPlan(state, worktreeId, filePath)
+  // Why: an out-of-worktree paired doc keeps its action so activating it can say why it cannot
+  // render; hiding the control would leave the limitation unexplained.
+  return plan.status !== 'unsupported' || plan.reason === 'outside-worktree'
 }
 
 export function useWorkspaceFileBrowserActionPredicate(

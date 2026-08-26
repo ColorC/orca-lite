@@ -12,6 +12,17 @@ export const DOC_PREVIEW_PARTITION = 'orca-doc-preview'
 export const DOC_PREVIEW_MINT_GRANT_CHANNEL = 'docPreview:mintGrant'
 export const DOC_PREVIEW_REVOKE_GRANT_CHANNEL = 'docPreview:revokeGrant'
 export const DOC_PREVIEW_EXTERNAL_LINK_CHANNEL = 'docPreview:externalLink'
+export const DOC_PREVIEW_LOAD_FAILURE_CHANNEL = 'docPreview:loadFailure'
+
+/** Why: an unreadable document still answers with a real HTTP status, so the guest paints the
+ *  handler's plain-text body instead of failing to load. The shell needs the reason out-of-band. */
+export type DocPreviewFailureReason = 'too-large' | 'unsupported-binary' | 'unreadable'
+
+export type DocPreviewFailure = {
+  grantId: string
+  relativePath: string
+  reason: DocPreviewFailureReason
+}
 
 export const DOC_PREVIEW_GRANT_ID_PATTERN = /^[0-9a-f]{32}$/
 

@@ -14,6 +14,7 @@ vi.mock('../providers/ssh-filesystem-dispatch', () => ({
   requireSshFilesystemProvider: mocks.requireSshFilesystemProvider
 }))
 
+import { FileReadCapExceededError } from '../ssh/ssh-filesystem-stream-reader'
 import { docPreviewContentType, readDocPreviewFile } from './doc-preview-file-reader'
 import { mintDocPreviewGrant, revokeAllDocPreviewGrants } from './doc-preview-grant-registry'
 
@@ -77,6 +78,14 @@ describe('readDocPreviewFile — ssh owner', () => {
     expect(outcome).toEqual({ ok: true, bytes: png, contentType: 'image/png' })
   })
 
+  // Why: the SSH reader rejects an over-cap file rather than clamping it, so a completed read is
+  // always whole and needs no truncation flag.
+  it('serves a whole SSH read that carries no truncation flag', async () => {
+    mocks.readFile.mockResolvedValue({ content: '<h1>whole</h1>', isBinary: false })
+
+    expect(await readDocPreviewFile(sshGrant(), 'index.html')).toMatchObject({ ok: true })
+  })
+
   it('reports an unservable binary rather than an empty asset', async () => {
     mocks.readFile.mockResolvedValue({ content: '', isBinary: true })
 
@@ -90,6 +99,15 @@ describe('readDocPreviewFile — ssh owner', () => {
 
     expect(outcome).toMatchObject({ ok: false, status: 404 })
     expect(mocks.requireSshFilesystemProvider).not.toHaveBeenCalled()
+  })
+
+  it('reports an over-cap SSH file as too large rather than unreadable', async () => {
+    mocks.readFile.mockRejectedValue(new FileReadCapExceededError('exceeds client cap'))
+
+    expect(await readDocPreviewFile(sshGrant(), 'huge.html')).toMatchObject({
+      ok: false,
+      status: 413
+    })
   })
 
   it('404s when the provider read fails', async () => {
@@ -165,7 +183,48 @@ describe('readDocPreviewFile — paired runtime owner', () => {
 
     expect(await readDocPreviewFile(runtimeGrant(), 'assets/logo.png')).toMatchObject({
       ok: false,
-      status: 404
+      status: 415
+    })
+  })
+
+  // Why: files.read clamps text at the host cap and only says so in `truncated`; serving the
+  // clamped bytes renders a document that silently stops halfway.
+  it('refuses a truncated text read instead of serving the clamped bytes', async () => {
+    mocks.callRuntimeEnvironment.mockResolvedValue({
+      ok: true,
+      result: { content: '<h1>half of', truncated: true, byteLength: 40_000_000 }
+    })
+
+    const outcome = await readDocPreviewFile(runtimeGrant(), 'index.html')
+
+    expect(outcome).toMatchObject({ ok: false, status: 413 })
+    expect(outcome).not.toMatchObject({ ok: true })
+  })
+
+  it('serves a read the host reports as complete', async () => {
+    mocks.callRuntimeEnvironment.mockResolvedValue({
+      ok: true,
+      result: { content: '<h1>all</h1>', truncated: false, byteLength: 12 }
+    })
+
+    expect(await readDocPreviewFile(runtimeGrant(), 'index.html')).toMatchObject({ ok: true })
+  })
+
+  // Why: the binary RPC has no `truncated` field — it rejects an over-cap asset with this error.
+  it('reports the host rejecting an over-cap binary as too large', async () => {
+    mocks.callRuntimeEnvironment
+      .mockResolvedValueOnce({
+        ok: false,
+        error: { code: 'runtime_error', message: 'binary_file' }
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        error: { code: 'runtime_error', message: 'file_too_large' }
+      })
+
+    expect(await readDocPreviewFile(runtimeGrant(), 'assets/huge.png')).toMatchObject({
+      ok: false,
+      status: 413
     })
   })
 

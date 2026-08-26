@@ -11,7 +11,8 @@ import { folderWorkspaceKey } from '../../../shared/workspace-scope'
 function browserActionState(connectionId: string | null = null): never {
   return {
     repos: [{ id: 'repo-1', connectionId }],
-    worktreesByRepo: { 'repo-1': [{ id: 'wt-1', repoId: 'repo-1' }] }
+    worktreesByRepo: { 'repo-1': [{ id: 'wt-1', repoId: 'repo-1' }] },
+    getKnownWorktreeById: () => ({ id: 'wt-1', path: '/repo' })
   } as never
 }
 
@@ -181,6 +182,39 @@ describe('openFileInBrowserTab', () => {
     expect(mocks.openHtmlDocPreview).not.toHaveBeenCalled()
   })
 
+  // Why: the host's files.read is worktree-scoped, so this path would otherwise 404 inside the
+  // preview with nothing naming the boundary the user hit.
+  it('names the worktree boundary for a paired document outside the workspace', () => {
+    mocks.environmentId = 'runtime-1'
+    mocks.browserAvailability = { state: 'enabled', provider: 'paired-runtime' }
+
+    openFilePreviewToSide({
+      language: 'html',
+      filePath: '/tmp/agent-scratch/report.html',
+      worktreeId: 'wt-1',
+      sourceGroupId: 'group-1'
+    })
+
+    expect(mocks.toastError).toHaveBeenCalledWith(
+      "Files outside the workspace can't be previewed on a paired server yet."
+    )
+    expect(mocks.createEmptySplitGroup).not.toHaveBeenCalled()
+    expect(mocks.openHtmlDocPreview).not.toHaveBeenCalled()
+  })
+
+  it('keeps previewing an SSH document outside the worktree root', () => {
+    mocks.connectionId = 'ssh-1'
+
+    const plan = openFileInBrowserTab({
+      filePath: '/tmp/agent-scratch/report.html',
+      worktreeId: 'wt-1'
+    })
+
+    expect(plan).toEqual({ status: 'doc-preview' })
+    expect(mocks.openHtmlDocPreview).toHaveBeenCalledOnce()
+    expect(mocks.toastError).not.toHaveBeenCalled()
+  })
+
   it('ignores languages that have no preview surface', () => {
     openFilePreviewToSide({
       language: 'typescript',
@@ -205,6 +239,16 @@ describe('canShowWorkspaceFileBrowserAction', () => {
     mocks.browserAvailability = { state: 'enabled', provider: 'paired-runtime' }
     expect(
       canShowWorkspaceFileBrowserAction(browserActionState(), 'wt-1', '/repo/report.html')
+    ).toBe(true)
+  })
+
+  // Why: hiding it would leave the limitation unexplained; activating it is what surfaces the
+  // worktree-boundary message.
+  it('keeps the action visible for a paired document outside the worktree', () => {
+    mocks.environmentId = 'runtime-1'
+
+    expect(
+      canShowWorkspaceFileBrowserAction(browserActionState(), 'wt-1', '/tmp/outside/report.html')
     ).toBe(true)
   })
 

@@ -925,6 +925,11 @@
       },
       "ephemeralVmWorktreeCreation": {
         "sparseCheckoutUnsupported": "Provisioned-root recipes do not support sparse checkout."
+      },
+      "file": {
+        "preview": {
+          "pairedOutsideWorktree": "Files outside the workspace can't be previewed on a paired server yet."
+        }
       }
     },
     "hooks": {
@@ -14747,7 +14752,9 @@
           "a1f0c3d29b": "HTML preview",
           "5c8b7e41a0": "Reload preview",
           "7d2e90b6c4": "Preview unavailable",
-          "b93a6f1e75": "Orca could not read this file from the workspace."
+          "b93a6f1e75": "Orca could not read this file from the workspace.",
+          "4e17b0c8da": "This document is too large to preview. Open it in the editor instead.",
+          "2b6ad4f019": "This document needs a newer Orca server to render one of its assets."
         }
       },
       "diff": {

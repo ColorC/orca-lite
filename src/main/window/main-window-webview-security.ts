@@ -14,6 +14,7 @@ import {
 } from '../browser/browser-route-session-runtime'
 import { ORCA_BROWSER_BLANK_URL } from '../../shared/constants'
 import { DOC_PREVIEW_PARTITION, parseDocPreviewUrl } from '../../shared/doc-preview-scheme'
+import { setDocPreviewFailureSink } from '../browser/doc-preview-failure-notice'
 import { installDocPreviewGuestPolicy } from '../browser/doc-preview-guest-policy'
 import { getDocPreviewGrant } from '../browser/doc-preview-grant-registry'
 import { isDocPreviewSession } from '../browser/doc-preview-protocol'
@@ -90,6 +91,8 @@ export function installMainWindowWebviewSecurity(mainWindow: BrowserWindow): voi
   mainWindow.webContents.on('did-attach-webview', (_event, guest) => {
     if (isDocPreviewSession(guest.session)) {
       // Why: preview guests never join browser-tab routing, popups or anti-detection; they get their own grant-scoped policy.
+      // The attach is also the point a live window exists to receive read failures for that guest.
+      setDocPreviewFailureSink(mainWindow.webContents)
       installDocPreviewGuestPolicy(guest, mainWindow.webContents)
       return
     }

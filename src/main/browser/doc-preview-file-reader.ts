@@ -4,6 +4,7 @@ import type {
   RuntimeFileReadResult
 } from '../../shared/runtime-file-contracts'
 import { callRuntimeEnvironment } from '../ipc/runtime-environment-transport-routing'
+import { FileReadCapExceededError } from '../ssh/ssh-filesystem-stream-reader'
 import { getCanonicalUserDataPath } from '../persistence'
 import { requireSshFilesystemProvider } from '../providers/ssh-filesystem-dispatch'
 import {
@@ -14,9 +15,25 @@ import {
 
 const DOC_PREVIEW_READ_TIMEOUT_MS = 15_000
 
-/** Old servers signal "binary I cannot serve" with an empty, metadata-free preview result. */
+/** An empty binary body means the host would not serve those bytes — an old server answering a
+ *  format it has no preview for, most often. */
 const UNSUPPORTED_BINARY_PREVIEW_MESSAGE =
   'This asset needs a newer Orca server to render in a preview.'
+
+/** `files.read` clamps text at the host's cap and reports it; serving the clamped bytes would
+ *  render a silently half-finished document. */
+const TRUNCATED_PREVIEW_MESSAGE = 'This document is too large for the server to send in full.'
+
+/** The paired host rejects an over-cap asset outright instead of clamping it. */
+const RUNTIME_TOO_LARGE_ERROR = 'file_too_large'
+
+/** Both owners refuse an over-cap file; only their error shapes differ. */
+function isTooLargeReadError(error: unknown): boolean {
+  return (
+    error instanceof FileReadCapExceededError ||
+    (error instanceof Error && error.message === RUNTIME_TOO_LARGE_ERROR)
+  )
+}
 
 export type DocPreviewReadOutcome =
   | { ok: true; bytes: Buffer; contentType: string }
@@ -53,7 +70,7 @@ export function docPreviewContentType(relativePath: string): string {
   )
 }
 
-type PreviewFileBytes = { content: string; isBinary: boolean }
+type PreviewFileBytes = { content: string; isBinary: boolean; truncated?: boolean }
 
 function toBytes(result: PreviewFileBytes): Buffer | null {
   if (!result.isBinary) {
@@ -61,6 +78,16 @@ function toBytes(result: PreviewFileBytes): Buffer | null {
   }
   // Why: a binary result with no content is the "cannot serve this" signal on every owner kind.
   return result.content ? Buffer.from(result.content, 'base64') : null
+}
+
+function toOutcome(source: PreviewFileBytes, contentType: string): DocPreviewReadOutcome {
+  if (source.truncated) {
+    return { ok: false, status: 413, message: TRUNCATED_PREVIEW_MESSAGE }
+  }
+  const bytes = toBytes(source)
+  return bytes
+    ? { ok: true, bytes, contentType }
+    : { ok: false, status: 415, message: UNSUPPORTED_BINARY_PREVIEW_MESSAGE }
 }
 
 async function readRuntimeDocPreviewFile(
@@ -78,7 +105,7 @@ async function readRuntimeDocPreviewFile(
   )
   if (response.ok) {
     const result = response.result as RuntimeFileReadResult
-    return { content: result.content, isBinary: false }
+    return { content: result.content, isBinary: false, truncated: result.truncated === true }
   }
   // Why: files.read rejects binaries with a typed error; the base64 preview RPC serves
   // images and fonts the same way it does for markdown previews. Match the exact
@@ -97,9 +124,8 @@ async function readRuntimeDocPreviewFile(
     throw new Error(previewResponse.error.message)
   }
   const preview = previewResponse.result as RuntimeFilePreviewResult
-  if (preview.isBinary && !preview.content && !preview.isImage && !preview.mimeType) {
-    throw new Error(UNSUPPORTED_BINARY_PREVIEW_MESSAGE)
-  }
+  // Why: readPreview never clamps — it rejects an over-cap asset — so an empty binary body here
+  // is the host declining the format, which toOutcome reports as unsupported.
   return { content: preview.content, isBinary: preview.isBinary }
 }
 
@@ -116,10 +142,8 @@ export async function readDocPreviewFile(
   try {
     if (grant.owner.kind === 'ssh') {
       const provider = requireSshFilesystemProvider(grant.owner.connectionId)
-      const bytes = toBytes(await provider.readFile(absolutePath))
-      return bytes
-        ? { ok: true, bytes, contentType }
-        : { ok: false, status: 415, message: UNSUPPORTED_BINARY_PREVIEW_MESSAGE }
+      // Why: the SSH reader rejects an over-cap file outright, so its result is never partial.
+      return toOutcome(await provider.readFile(absolutePath), contentType)
     }
     const worktreeRelativePath = toRuntimeWorktreeRelativePath(
       grant.owner.worktreeRoot,
@@ -129,17 +153,21 @@ export async function readDocPreviewFile(
       // Why: files.read is worktree-scoped, so a doc outside the worktree has no client-side channel.
       return { ok: false, status: 404, message: 'Not found' }
     }
-    const bytes = toBytes(
+    return toOutcome(
       await readRuntimeDocPreviewFile(
         grant.owner.environmentId,
         grant.owner.worktreeSelector,
         worktreeRelativePath
-      )
+      ),
+      contentType
     )
-    return bytes
-      ? { ok: true, bytes, contentType }
-      : { ok: false, status: 415, message: UNSUPPORTED_BINARY_PREVIEW_MESSAGE }
   } catch (error) {
-    return { ok: false, status: 404, message: error instanceof Error ? error.message : 'Not found' }
+    return isTooLargeReadError(error)
+      ? { ok: false, status: 413, message: TRUNCATED_PREVIEW_MESSAGE }
+      : {
+          ok: false,
+          status: 404,
+          message: error instanceof Error ? error.message : 'Not found'
+        }
   }
 }

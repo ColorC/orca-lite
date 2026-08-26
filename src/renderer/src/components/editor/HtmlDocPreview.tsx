@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertCircle, Loader2, RotateCw } from 'lucide-react'
-import { DOC_PREVIEW_PARTITION } from '../../../../shared/doc-preview-scheme'
+import {
+  DOC_PREVIEW_PARTITION,
+  type DocPreviewFailureReason
+} from '../../../../shared/doc-preview-scheme'
 import { ORCA_BROWSER_GUEST_WEB_PREFERENCES_ATTRIBUTE } from '../../../../shared/browser-guest-web-preferences'
 import { moveFocusToRendererBeforeWebviewDetach } from '@/components/browser-pane/host-guest/webview-registry'
 import { Button } from '@/components/ui/button'
@@ -9,6 +12,25 @@ import { translate } from '@/i18n/i18n'
 import { useAppStore } from '@/store'
 
 type PreviewState = 'loading' | 'ready' | 'unavailable'
+
+function docPreviewFailureDetail(reason: DocPreviewFailureReason | null): string {
+  if (reason === 'too-large') {
+    return translate(
+      'auto.components.editor.HtmlDocPreview.4e17b0c8da',
+      'This document is too large to preview. Open it in the editor instead.'
+    )
+  }
+  if (reason === 'unsupported-binary') {
+    return translate(
+      'auto.components.editor.HtmlDocPreview.2b6ad4f019',
+      'This document needs a newer Orca server to render one of its assets.'
+    )
+  }
+  return translate(
+    'auto.components.editor.HtmlDocPreview.b93a6f1e75',
+    'Orca could not read this file from the workspace.'
+  )
+}
 
 function attachDocPreviewWebview({
   container,
@@ -70,6 +92,7 @@ export function HtmlDocPreview({
   const containerRef = useRef<HTMLDivElement>(null)
   const reloadRef = useRef<(() => void) | null>(null)
   const [state, setState] = useState<PreviewState>('loading')
+  const [failureReason, setFailureReason] = useState<DocPreviewFailureReason | null>(null)
 
   useEffect(() => {
     let disposed = false
@@ -77,6 +100,7 @@ export function HtmlDocPreview({
     let loadFailed = false
     const onLoadStarted = (): void => {
       loadFailed = false
+      setFailureReason(null)
       setState('loading')
     }
     const onLoadStopped = (): void => {
@@ -93,6 +117,7 @@ export function HtmlDocPreview({
     }
 
     setState('loading')
+    setFailureReason(null)
     const request = buildDocPreviewGrantRequest(useAppStore.getState(), worktreeId, filePath)
     if (!request) {
       setState('unavailable')
@@ -100,8 +125,22 @@ export function HtmlDocPreview({
         disposed = true
       }
     }
+    // Why: an unreadable document answers with a status the guest renders as text, so the reason
+    // arrives out-of-band. Subscribe before minting so the entry document's failure cannot be missed.
+    let boundGrantId: string | null = null
+    const unsubscribeFailure = window.api.docPreview?.onLoadFailure?.((payload) => {
+      if (
+        disposed ||
+        payload.grantId !== boundGrantId ||
+        payload.relativePath !== request.entryRelativePath
+      ) {
+        return
+      }
+      setFailureReason(payload.reason)
+    })
     void ensureDocPreviewGrant(previewId, request)
       .then((handle) => {
+        boundGrantId = handle.grantId
         if (disposed || !containerRef.current) {
           return
         }
@@ -125,6 +164,7 @@ export function HtmlDocPreview({
     return () => {
       disposed = true
       reloadRef.current = null
+      unsubscribeFailure?.()
       detach?.()
     }
   }, [filePath, previewId, worktreeId])
@@ -151,22 +191,19 @@ export function HtmlDocPreview({
         </Button>
       </div>
       <div className="relative flex min-h-0 flex-1 overflow-hidden" ref={containerRef}>
-        {state === 'loading' ? (
+        {state === 'loading' && failureReason === null ? (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-editor-surface">
             <Loader2 className="size-5 animate-spin text-muted-foreground" />
           </div>
         ) : null}
-        {state === 'unavailable' ? (
+        {state === 'unavailable' || failureReason !== null ? (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-editor-surface px-6 text-center">
             <AlertCircle className="size-6 text-muted-foreground" />
             <p className="text-sm font-medium">
               {translate('auto.components.editor.HtmlDocPreview.7d2e90b6c4', 'Preview unavailable')}
             </p>
             <p className="max-w-sm text-xs text-muted-foreground">
-              {translate(
-                'auto.components.editor.HtmlDocPreview.b93a6f1e75',
-                'Orca could not read this file from the workspace.'
-              )}
+              {docPreviewFailureDetail(failureReason)}
             </p>
           </div>
         ) : null}

@@ -5,6 +5,7 @@ import {
   parseDocPreviewUrl
 } from '../../shared/doc-preview-scheme'
 import { readDocPreviewFile } from './doc-preview-file-reader'
+import { publishDocPreviewFailure } from './doc-preview-failure-notice'
 import { getDocPreviewGrant } from './doc-preview-grant-registry'
 
 /** Must run before `app.whenReady()`; Electron freezes the privileged scheme table at ready. */
@@ -56,6 +57,7 @@ export async function handleDocPreviewRequest(request: Request): Promise<Respons
   const relativePath = target.relativePath || grant.entryRelativePath
   const outcome = await readDocPreviewFile(grant, relativePath)
   if (!outcome.ok) {
+    publishDocPreviewFailure(target.grantId, relativePath, outcome.status)
     return new Response(outcome.message, {
       status: outcome.status,
       headers: { 'Content-Type': 'text/plain; charset=utf-8' }

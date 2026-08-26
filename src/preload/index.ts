@@ -10,8 +10,10 @@ import type {
 } from '../shared/skill-delete-contract'
 import {
   DOC_PREVIEW_EXTERNAL_LINK_CHANNEL,
+  DOC_PREVIEW_LOAD_FAILURE_CHANNEL,
   DOC_PREVIEW_MINT_GRANT_CHANNEL,
-  DOC_PREVIEW_REVOKE_GRANT_CHANNEL
+  DOC_PREVIEW_REVOKE_GRANT_CHANNEL,
+  type DocPreviewFailure
 } from '../shared/doc-preview-scheme'
 import type { DocPreviewGrantRequest } from './api/doc-preview-api'
 import type { AppIdentity } from '../shared/app-identity'
@@ -3332,6 +3334,12 @@ const api = {
         callback(payload)
       ipcRenderer.on(DOC_PREVIEW_EXTERNAL_LINK_CHANNEL, listener)
       return () => ipcRenderer.removeListener(DOC_PREVIEW_EXTERNAL_LINK_CHANNEL, listener)
+    },
+    onLoadFailure: (callback: (payload: DocPreviewFailure) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: DocPreviewFailure): void =>
+        callback(payload)
+      ipcRenderer.on(DOC_PREVIEW_LOAD_FAILURE_CHANNEL, listener)
+      return () => ipcRenderer.removeListener(DOC_PREVIEW_LOAD_FAILURE_CHANNEL, listener)
     }
   },
 
