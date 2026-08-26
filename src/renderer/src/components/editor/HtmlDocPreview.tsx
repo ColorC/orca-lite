@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertCircle, Loader2, RotateCw } from 'lucide-react'
 import {
   DOC_PREVIEW_PARTITION,
+  type DocPreviewFailure,
   type DocPreviewFailureReason
 } from '../../../../shared/doc-preview-scheme'
 import { ORCA_BROWSER_GUEST_WEB_PREFERENCES_ATTRIBUTE } from '../../../../shared/browser-guest-web-preferences'
@@ -24,15 +25,49 @@ function docPreviewFailureDetail(reason: DocPreviewFailureReason | null): string
       'This document is too large to preview. Open it in the editor instead.'
     )
   }
-  if (reason === 'unsupported-asset') {
-    return translate(
-      'auto.components.editor.HtmlDocPreview.7a4c1de35f',
-      'This workspace cannot send this file type to a preview.'
-    )
-  }
+  // Why no 'unsupported-asset' sentence here: the entry document is served as text by every owner
+  // — only a subresource can be refused for its format, and that failure is a notice, not a panel.
   return translate(
     'auto.components.editor.HtmlDocPreview.b93a6f1e75',
     'Orca could not read this file from the workspace.'
+  )
+}
+
+/**
+ * Why a notice and not the failure panel: only the entry document's failure leaves the reader with
+ * nothing to look at. A stylesheet, image or font the workspace would not send is a document that
+ * rendered — degraded, and the reader deserves to know which piece is missing, but rendered.
+ */
+function docPreviewAssetNotice(failures: DocPreviewFailure[]): string | null {
+  const [first] = failures
+  if (!first) {
+    return null
+  }
+  if (failures.length > 1) {
+    return translate(
+      'auto.components.editor.HtmlDocPreview.9b2c7fa350',
+      '{{value0}} files in this document could not be loaded.',
+      { value0: failures.length }
+    )
+  }
+  if (first.reason === 'too-large') {
+    return translate(
+      'auto.components.editor.HtmlDocPreview.a3d5f21c07',
+      '{{value0}} is too large to load in this preview.',
+      { value0: first.relativePath }
+    )
+  }
+  if (first.reason === 'unsupported-asset') {
+    return translate(
+      'auto.components.editor.HtmlDocPreview.c41e08b6da',
+      'This workspace cannot send {{value0}} to a preview.',
+      { value0: first.relativePath }
+    )
+  }
+  return translate(
+    'auto.components.editor.HtmlDocPreview.de70b921f4',
+    'Orca could not read {{value0}} from the workspace.',
+    { value0: first.relativePath }
   )
 }
 
@@ -101,6 +136,7 @@ export function HtmlDocPreview({
   const reloadRef = useRef<(() => void) | null>(null)
   const [state, setState] = useState<PreviewState>('loading')
   const [failureReason, setFailureReason] = useState<DocPreviewFailureReason | null>(null)
+  const [assetFailures, setAssetFailures] = useState<DocPreviewFailure[]>([])
   const [remintCount, setRemintCount] = useState(0)
 
   useEffect(() => {
@@ -110,6 +146,7 @@ export function HtmlDocPreview({
     const onLoadStarted = (): void => {
       loadFailed = false
       setFailureReason(null)
+      setAssetFailures([])
       setState('loading')
     }
     const onLoadStopped = (): void => {
@@ -127,6 +164,7 @@ export function HtmlDocPreview({
 
     setState('loading')
     setFailureReason(null)
+    setAssetFailures([])
     const request = buildDocPreviewGrantRequest(useAppStore.getState(), worktreeId, filePath)
     if (!request) {
       setState('unavailable')
@@ -138,14 +176,18 @@ export function HtmlDocPreview({
     // arrives out-of-band. Subscribe before minting so the entry document's failure cannot be missed.
     let boundGrantId: string | null = null
     const unsubscribeFailure = window.api.docPreview?.onLoadFailure?.((payload) => {
-      if (
-        disposed ||
-        payload.grantId !== boundGrantId ||
-        payload.relativePath !== request.entryRelativePath
-      ) {
+      if (disposed || payload.grantId !== boundGrantId) {
         return
       }
-      setFailureReason(payload.reason)
+      if (payload.relativePath === request.entryRelativePath) {
+        setFailureReason(payload.reason)
+        return
+      }
+      setAssetFailures((current) =>
+        current.some((failure) => failure.relativePath === payload.relativePath)
+          ? current
+          : [...current, payload]
+      )
     })
     void ensureDocPreviewGrant(previewId, request)
       .then((handle) => {
@@ -190,6 +232,9 @@ export function HtmlDocPreview({
     reloadRef.current?.()
   }, [failureReason, previewId, state])
 
+  const isUnavailable = state === 'unavailable' || failureReason !== null
+  const assetNotice = isUnavailable ? null : docPreviewAssetNotice(assetFailures)
+
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-editor-surface">
       <div className="flex h-8 shrink-0 items-center justify-end gap-1 border-b px-2">
@@ -207,13 +252,23 @@ export function HtmlDocPreview({
           <RotateCw className="size-3.5" />
         </Button>
       </div>
+      {assetNotice ? (
+        <div
+          className="flex shrink-0 items-center gap-1.5 border-b px-2 py-1 text-xs text-muted-foreground"
+          role="status"
+          title={assetNotice}
+        >
+          <AlertCircle className="size-3.5 shrink-0" />
+          <span className="min-w-0 flex-1 truncate">{assetNotice}</span>
+        </div>
+      ) : null}
       <div className="relative flex min-h-0 flex-1 overflow-hidden" ref={containerRef}>
         {state === 'loading' && failureReason === null ? (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-editor-surface">
             <Loader2 className="size-5 animate-spin text-muted-foreground" />
           </div>
         ) : null}
-        {state === 'unavailable' || failureReason !== null ? (
+        {isUnavailable ? (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-editor-surface px-6 text-center">
             <AlertCircle className="size-6 text-muted-foreground" />
             <p className="text-sm font-medium">

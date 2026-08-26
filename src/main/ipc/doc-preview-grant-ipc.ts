@@ -9,6 +9,7 @@ import {
   revokeDocPreviewGrant,
   type DocPreviewOwner
 } from '../browser/doc-preview-grant-registry'
+import { isTrustedBrowserRenderer } from './browser-renderer-trust'
 
 export type DocPreviewGrantRequest = {
   owner: DocPreviewOwner
@@ -42,7 +43,13 @@ function isValidGrantRequest(request: DocPreviewGrantRequest): boolean {
 export function registerDocPreviewGrantHandlers(): void {
   ipcMain.handle(
     DOC_PREVIEW_MINT_GRANT_CHANNEL,
-    (_event, request: DocPreviewGrantRequest): DocPreviewGrantResult => {
+    (event, request: DocPreviewGrantRequest): DocPreviewGrantResult => {
+      // Why gate a channel guests cannot reach today: this one hands out filesystem-read
+      // authority, so it holds the same sender check its sibling browser channels do rather than
+      // relying on guests never gaining an ipcRenderer.
+      if (!isTrustedBrowserRenderer(event.sender)) {
+        throw new Error('Untrusted document preview grant request')
+      }
       if (!isValidGrantRequest(request)) {
         throw new Error('Invalid document preview grant request')
       }
@@ -58,7 +65,7 @@ export function registerDocPreviewGrantHandlers(): void {
     }
   )
 
-  ipcMain.handle(DOC_PREVIEW_REVOKE_GRANT_CHANNEL, (_event, grantId: string): boolean =>
-    revokeDocPreviewGrant(grantId)
+  ipcMain.handle(DOC_PREVIEW_REVOKE_GRANT_CHANNEL, (event, grantId: string): boolean =>
+    isTrustedBrowserRenderer(event.sender) ? revokeDocPreviewGrant(grantId) : false
   )
 }

@@ -14761,8 +14761,10 @@
           "7d2e90b6c4": "Preview unavailable",
           "b93a6f1e75": "Orca could not read this file from the workspace.",
           "4e17b0c8da": "This document is too large to preview. Open it in the editor instead.",
-          "2b6ad4f019": "This document needs a newer Orca server to render one of its assets.",
-          "7a4c1de35f": "This workspace cannot send this file type to a preview."
+          "9b2c7fa350": "{{value0}} files in this document could not be loaded.",
+          "a3d5f21c07": "{{value0}} is too large to load in this preview.",
+          "c41e08b6da": "This workspace cannot send {{value0}} to a preview.",
+          "de70b921f4": "Orca could not read {{value0}} from the workspace."
         }
       },
       "diff": {

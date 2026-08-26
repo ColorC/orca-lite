@@ -37,6 +37,11 @@ function normalizeRootPath(root: string): string {
   const flavor = pathFlavorFor(root)
   const normalized =
     flavor === win32 ? flavor.normalize(root.replace(/\//g, '\\')) : flavor.normalize(root)
+  // Why: `C:\` is the whole root, and trimming its separator would make win32.join answer the
+  // drive-relative `C:x`, which resolves against the host's cwd instead of inside the grant.
+  if (flavor === win32 && /^[a-zA-Z]:\\$/.test(normalized)) {
+    return normalized
+  }
   // Why: a trailing separator would make the containment prefix check accept a sibling directory.
   return normalized.length > 1 && normalized.endsWith(flavor.sep)
     ? normalized.slice(0, -1)

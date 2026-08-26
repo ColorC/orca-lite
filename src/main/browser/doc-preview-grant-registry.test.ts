@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import {
   getDocPreviewGrant,
   mintDocPreviewGrant,
+  resolveCanonicalDocPreviewPath,
   resolveDocPreviewTargetPath,
   revokeAllDocPreviewGrants,
   revokeDocPreviewGrant,
@@ -66,15 +67,24 @@ describe('resolveDocPreviewTargetPath', () => {
     expect(resolveDocPreviewTargetPath(grant, 'index.html\0.png')).toBeNull()
   })
 
-  it('does not accept a sibling directory that shares the root prefix', () => {
+  // Why this is a traversal test and not a containment test: every request path that names a
+  // sibling directory has to climb out of the root first, so the `..` segment guard answers it
+  // before the prefix check runs. Sibling containment is exercised where it is reachable —
+  // against a canonicalized path, below.
+  it('refuses a sibling directory by refusing the traversal that reaches it', () => {
+    const grant = mintPosixGrant()
+
+    expect(resolveDocPreviewTargetPath(grant, '../docs-private/secret.html')).toBeNull()
+  })
+
+  it('keeps a Windows drive root addressable instead of turning it drive-relative', () => {
     const grant = mintDocPreviewGrant({
       owner: sshOwner,
-      root: '/srv/repo/docs',
+      root: 'C:\\',
       entryRelativePath: 'index.html'
     })
 
-    // `/srv/repo/docs-private` must not resolve through the `/srv/repo/docs` grant.
-    expect(resolveDocPreviewTargetPath(grant, '../docs-private/secret.html')).toBeNull()
+    expect(resolveDocPreviewTargetPath(grant, 'index.html')).toBe('C:\\index.html')
   })
 
   it('follows the owning host path flavor rather than this process platform', () => {
@@ -99,6 +109,29 @@ describe('resolveDocPreviewTargetPath', () => {
 
     expect(resolveDocPreviewTargetPath(grant, 'index.html')).toBe('/srv/repo/docs/index.html')
     expect(resolveDocPreviewTargetPath(grant, '../secret.env')).toBeNull()
+  })
+})
+
+describe('resolveCanonicalDocPreviewPath', () => {
+  // Why here and not above: a canonical path is the one input that can name a sibling directory
+  // without traversing — the host resolved a symlink to it — so this is where the prefix check
+  // is the only thing standing between the grant and `/srv/repo/docs-private`.
+  it('refuses a canonical path in a sibling directory that shares the root prefix', async () => {
+    const grant = mintPosixGrant()
+
+    await expect(
+      resolveCanonicalDocPreviewPath(grant, '/srv/repo/docs/report.html', async (path) =>
+        path === grant.root ? path : '/srv/repo/docs-private/secret.html'
+      )
+    ).resolves.toBeNull()
+  })
+
+  it('answers the canonical path when it stays inside the canonical root', async () => {
+    const grant = mintPosixGrant()
+
+    await expect(
+      resolveCanonicalDocPreviewPath(grant, '/srv/repo/docs/report.html', async (path) => path)
+    ).resolves.toBe('/srv/repo/docs/report.html')
   })
 })
 

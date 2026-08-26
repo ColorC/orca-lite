@@ -96,6 +96,31 @@ describe('buildMobileSessionTabSnapshots', () => {
     expect(snapshot?.activeTabType).toBeNull()
   })
 
+  // Why: an HTML preview is served to one desktop guest through a grant no mobile client holds, so
+  // publishing it would show a second, plain copy of a file the reader already has a tab for.
+  it('omits client-local HTML preview tabs from mobile file snapshots', () => {
+    const previewId = 'wt-1::html-preview::docs/report.html'
+    const state = makeState({
+      browserTabsByWorktree: {},
+      tabBarOrderByWorktree: { 'wt-1': [previewId] },
+      openFiles: [
+        {
+          id: previewId,
+          filePath: '/repo/docs/report.html',
+          relativePath: 'docs/report.html',
+          worktreeId: 'wt-1',
+          language: 'html',
+          mode: 'html-preview',
+          isDirty: false
+        }
+      ]
+    })
+
+    const snapshot = buildMobileSessionTabSnapshots(state)[0]
+
+    expect(snapshot?.tabs).toEqual([])
+  })
+
   it('does not recover unsupported combined diff tabs through split-group fallback', () => {
     const combinedId = 'wt-1::all-diffs::branch::main'
     const state = makeState({

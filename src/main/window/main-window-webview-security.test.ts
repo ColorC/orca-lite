@@ -132,8 +132,9 @@ describe('orca-preview scheme admission', () => {
   })
 
   it('admits a preview URL only on the preview partition and only with a live grant', () => {
-    const grant = mintPreviewGrant()
+    // Install first, as the window does: installation itself clears the registry.
     const { handlers } = installOnFakeWindow()
+    const grant = mintPreviewGrant()
     mocks.isAllowedPartition.mockReturnValue(false)
     const preventDefault = vi.fn()
     const preferences: Record<string, unknown> = {
@@ -174,8 +175,8 @@ describe('orca-preview scheme admission', () => {
   })
 
   it('denies a preview URL smuggled onto a browsing partition', () => {
-    const grant = mintPreviewGrant()
     const { handlers } = installOnFakeWindow()
+    const grant = mintPreviewGrant()
     // Even an allowlisted browsing partition must not load the preview scheme.
     mocks.isAllowedPartition.mockReturnValue(true)
     const preventDefault = vi.fn()
@@ -243,5 +244,34 @@ describe('orca-preview scheme admission', () => {
 
     expect(getDocPreviewGrant(grant.id)).toBeNull()
     expect(send).not.toHaveBeenCalled()
+  })
+
+  // Why: the renderer is the only side that remembers which preview owns which grant, so a grant
+  // that outlives its renderer is a read authority nobody can release.
+  it('clears grants a previous renderer left behind when the window is created', () => {
+    const stranded = mintPreviewGrant()
+
+    installOnFakeWindow()
+
+    expect(getDocPreviewGrant(stranded.id)).toBeNull()
+  })
+
+  it('clears grants the renderer forgot across a reload', () => {
+    const { handlers } = installOnFakeWindow()
+    const grant = mintPreviewGrant()
+
+    handlers['did-start-navigation']?.({ isMainFrame: true, isSameDocument: false } as never)
+
+    expect(getDocPreviewGrant(grant.id)).toBeNull()
+  })
+
+  it('keeps grants across an in-document or subframe navigation, which keeps the renderer', () => {
+    const { handlers } = installOnFakeWindow()
+    const grant = mintPreviewGrant()
+
+    handlers['did-start-navigation']?.({ isMainFrame: true, isSameDocument: true } as never)
+    handlers['did-start-navigation']?.({ isMainFrame: false, isSameDocument: false } as never)
+
+    expect(getDocPreviewGrant(grant.id)).not.toBeNull()
   })
 })

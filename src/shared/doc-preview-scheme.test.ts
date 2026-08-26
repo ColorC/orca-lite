@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildDocPreviewUrl, isDocPreviewUrl, parseDocPreviewUrl } from './doc-preview-scheme'
+import { buildDocPreviewUrl, parseDocPreviewUrl } from './doc-preview-scheme'
 
 const GRANT = 'a'.repeat(32)
 
@@ -41,10 +41,5 @@ describe('doc preview URLs', () => {
 
   it('rejects an undecodable percent sequence rather than passing raw bytes through', () => {
     expect(parseDocPreviewUrl(`orca-preview://${GRANT}/%E0%A4%A.html`)).toBeNull()
-  })
-
-  it('recognizes preview URLs by prefix', () => {
-    expect(isDocPreviewUrl(buildDocPreviewUrl(GRANT, 'index.html'))).toBe(true)
-    expect(isDocPreviewUrl('https://example.com')).toBe(false)
   })
 })

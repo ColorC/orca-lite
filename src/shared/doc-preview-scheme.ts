@@ -75,7 +75,3 @@ export function parseDocPreviewUrl(rawUrl: string): DocPreviewUrlTarget | null {
   }
   return { grantId, relativePath: segments.join('/') }
 }
-
-export function isDocPreviewUrl(rawUrl: string): boolean {
-  return rawUrl.startsWith(`${DOC_PREVIEW_SCHEME}://`)
-}

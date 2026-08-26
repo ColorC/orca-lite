@@ -5,25 +5,48 @@ const mocks = vi.hoisted(() => ({
   installBrowserSessionPartitionPolicies: vi.fn()
 }))
 
-const previewSession = {
-  protocol: { isProtocolHandled: () => false, handle: vi.fn() },
-  webRequest: { onBeforeRequest: vi.fn() }
+function createFakeSession(): {
+  protocol: { isProtocolHandled: () => boolean; handle: ReturnType<typeof vi.fn> }
+  webRequest: { onBeforeRequest: ReturnType<typeof vi.fn> }
+} {
+  return {
+    protocol: { isProtocolHandled: () => false, handle: vi.fn() },
+    webRequest: { onBeforeRequest: vi.fn() }
+  }
 }
+
+// Why one session per partition and a distinct default: installing the handler on the default
+// session instead of the preview session is otherwise invisible — every read would come back
+// from the same object.
+const previewSession = createFakeSession()
+const defaultSession = createFakeSession()
 vi.mock('electron', () => ({
   protocol: { registerSchemesAsPrivileged: vi.fn() },
-  session: { fromPartition: () => previewSession }
+  session: {
+    get defaultSession() {
+      return defaultSession
+    },
+    fromPartition: (partition: string) => {
+      if (partition !== 'orca-doc-preview') {
+        throw new Error(`unexpected partition ${partition}`)
+      }
+      return previewSession
+    }
+  }
 }))
 vi.mock('./doc-preview-file-reader', () => ({ readDocPreviewFile: mocks.readDocPreviewFile }))
 vi.mock('./browser-session-partition-policies', () => ({
   installBrowserSessionPartitionPolicies: mocks.installBrowserSessionPartitionPolicies
 }))
 
+import { protocol } from 'electron'
 import {
   getDocPreviewSession,
   handleDocPreviewRequest,
   installDocPreviewProtocolHandler,
   isAllowedDocPreviewRequestUrl,
-  isDocPreviewSession
+  isDocPreviewSession,
+  registerDocPreviewSchemePrivileges
 } from './doc-preview-protocol'
 import {
   mintDocPreviewGrant,
@@ -199,6 +222,20 @@ describe('handleDocPreviewRequest', () => {
 })
 
 describe('installDocPreviewProtocolHandler', () => {
+  // Why the default session is named here: it is the session every other Electron API reaches for
+  // by default, and handling the scheme there would serve preview bytes to ordinary browsing.
+  it('handles the scheme on the preview session and nowhere else', () => {
+    installDocPreviewProtocolHandler()
+
+    expect(previewSession.protocol.handle).toHaveBeenCalledWith(
+      'orca-preview',
+      handleDocPreviewRequest
+    )
+    expect(previewSession.webRequest.onBeforeRequest).toHaveBeenCalled()
+    expect(defaultSession.protocol.handle).not.toHaveBeenCalled()
+    expect(defaultSession.webRequest.onBeforeRequest).not.toHaveBeenCalled()
+  })
+
   it('cancels every request the preview session should never carry', () => {
     installDocPreviewProtocolHandler()
 
@@ -226,6 +263,28 @@ describe('installDocPreviewProtocolHandler', () => {
     expect(mocks.installBrowserSessionPartitionPolicies).toHaveBeenCalledWith(
       expect.objectContaining({ partition: 'orca-doc-preview', userAgentMode: 'clean' })
     )
+  })
+})
+
+describe('registerDocPreviewSchemePrivileges', () => {
+  // Why the whole literal and not a subset: every privilege this scheme does not claim is one the
+  // document cannot use to escape it. `allowServiceWorkers` would outlive the tab that was granted
+  // the read, and `bypassCSP` would undo the self-only policy the handler serves with.
+  it('claims exactly the privileges the preview document needs', () => {
+    registerDocPreviewSchemePrivileges()
+
+    expect(protocol.registerSchemesAsPrivileged).toHaveBeenCalledWith([
+      {
+        scheme: 'orca-preview',
+        privileges: {
+          standard: true,
+          secure: true,
+          supportFetchAPI: true,
+          corsEnabled: true,
+          stream: true
+        }
+      }
+    ])
   })
 })
 

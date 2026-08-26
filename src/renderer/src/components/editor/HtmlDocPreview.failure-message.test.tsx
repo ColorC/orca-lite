@@ -3,6 +3,11 @@
 // The preview guest paints the handler's error body as if it were the document, so every
 // unreadable outcome arrives out-of-band on the failure channel. These pin that each reason
 // reaches the reader as its own sentence, and that a broken subresource cannot blank the page.
+//
+// The payloads here are the ones the reader can actually produce. The entry document is served as
+// text by every owner, so it fails only as too-large (a host-reported truncation) or unreadable (a
+// read error or a revoked grant); 'unsupported-asset' comes from a subresource whose format the
+// host declined to send — a font, say — and never from the document itself.
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -110,22 +115,70 @@ describe('HtmlDocPreview failure messages', () => {
     )
   })
 
-  // Why not "needs a newer server": SSH previews refuse fonts by design, at any server version.
-  it('names the file type when the workspace will not send it', async () => {
+  // Why a notice and not the panel: the document rendered. Hiding it behind a failure screen would
+  // take away a page the reader can use over one asset the workspace would not send.
+  it('names the asset the workspace refused without hiding the document', async () => {
     await renderPreview(container, root)
 
     await act(async () => {
       emitFailure({
         grantId: GRANT_ID,
-        relativePath: ENTRY_RELATIVE_PATH,
+        relativePath: 'assets/inter.woff2',
         reason: 'unsupported-asset'
       })
     })
 
     expect(container.textContent).toContain(
-      'This workspace cannot send this file type to a preview.'
+      'This workspace cannot send assets/inter.woff2 to a preview.'
     )
-    expect(container.textContent).not.toContain('too large')
+    expect(container.textContent).not.toContain('Preview unavailable')
+    expect(container.querySelector('webview')).not.toBeNull()
+  })
+
+  it('names an unreadable or over-cap asset by path', async () => {
+    await renderPreview(container, root)
+
+    await act(async () => {
+      emitFailure({ grantId: GRANT_ID, relativePath: 'assets/logo.png', reason: 'unreadable' })
+    })
+
+    expect(container.textContent).toContain(
+      'Orca could not read assets/logo.png from the workspace.'
+    )
+
+    await act(async () => {
+      emitFailure({ grantId: GRANT_ID, relativePath: 'assets/data.json', reason: 'too-large' })
+    })
+
+    expect(container.textContent).toContain('2 files in this document could not be loaded.')
+    expect(container.textContent).not.toContain('Preview unavailable')
+  })
+
+  it('counts each failing asset once, however often the guest retries it', async () => {
+    await renderPreview(container, root)
+
+    await act(async () => {
+      emitFailure({ grantId: GRANT_ID, relativePath: 'assets/logo.png', reason: 'unreadable' })
+      emitFailure({ grantId: GRANT_ID, relativePath: 'assets/logo.png', reason: 'unreadable' })
+    })
+
+    expect(container.textContent).toContain(
+      'Orca could not read assets/logo.png from the workspace.'
+    )
+    expect(container.textContent).not.toContain('files in this document')
+  })
+
+  // Why: nothing rendered, so the notice strip would be a footnote on a blank page.
+  it('replaces the asset notice with the failure panel when the document itself fails', async () => {
+    await renderPreview(container, root)
+
+    await act(async () => {
+      emitFailure({ grantId: GRANT_ID, relativePath: 'assets/logo.png', reason: 'unreadable' })
+      emitFailure({ grantId: GRANT_ID, relativePath: ENTRY_RELATIVE_PATH, reason: 'too-large' })
+    })
+
+    expect(container.textContent).toContain('Preview unavailable')
+    expect(container.textContent).not.toContain('assets/logo.png')
   })
 
   it('falls back to the read failure for any other unreadable document', async () => {
@@ -136,16 +189,6 @@ describe('HtmlDocPreview failure messages', () => {
     })
 
     expect(container.textContent).toContain('Orca could not read this file from the workspace.')
-  })
-
-  it('keeps rendering when a subresource fails, since the document itself arrived', async () => {
-    await renderPreview(container, root)
-
-    await act(async () => {
-      emitFailure({ grantId: GRANT_ID, relativePath: 'assets/logo.png', reason: 'unreadable' })
-    })
-
-    expect(container.textContent).not.toContain('Preview unavailable')
   })
 
   it('ignores a failure minted for another preview tab', async () => {

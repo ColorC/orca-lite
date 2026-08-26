@@ -40,6 +40,15 @@ function isAdmissibleDocPreviewAttach(partition: string, src: string): boolean {
 
 export function installMainWindowWebviewSecurity(mainWindow: BrowserWindow): void {
   installPrivilegedWindowNavigationPolicy(mainWindow.webContents)
+  // Why here and on every fresh shell document: the renderer holds the only record of which
+  // preview owns which grant, and a reload throws that record away. Grants it can no longer
+  // release would stay live read authorities for the rest of the process.
+  revokeAllDocPreviewGrants()
+  mainWindow.webContents.on('did-start-navigation', (details) => {
+    if (details.isMainFrame && !details.isSameDocument) {
+      revokeAllDocPreviewGrants()
+    }
+  })
   // Why these contents and not the window: every live preview is a guest of this WebContents, and
   // it is also the failure sink itself — once it is destroyed no grant it minted has a reader left.
   mainWindow.webContents.on('destroyed', () => {

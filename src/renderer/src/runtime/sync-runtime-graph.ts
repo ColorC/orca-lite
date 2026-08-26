@@ -2111,7 +2111,9 @@ function isMobileUnsupportedCombinedDiffSource(
 
 function isMobilePublishableOpenFile(file: AppState['openFiles'][number]): boolean {
   // Why: combined diff tabs use display labels as paths and need the desktop renderer; mobile would mis-call files.read.
-  return !isMobileUnsupportedCombinedDiffSource(file.diffSource)
+  // An HTML preview is client-local by definition — its document is served to one desktop guest
+  // over a grant, and publishing it would put a second, plain copy of the file on the mobile client.
+  return !isMobileUnsupportedCombinedDiffSource(file.diffSource) && file.mode !== 'html-preview'
 }
 
 // Why: the store buckets a workspace under its own worktreeId, so this worktree's scoped inputs are the workspace's own scope.

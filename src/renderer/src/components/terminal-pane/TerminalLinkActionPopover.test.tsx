@@ -244,6 +244,43 @@ describe('TerminalLinkActionPopover', () => {
     expect(screen.queryByRole('button', { name: 'Copy link' })).toBeNull()
   })
 
+  // Why: the extra rows are the terminal's entry point into surfaces that have no click-modifier
+  // shortcut at all — the HTML preview among them — so a dropped `extra` block would leave the
+  // feature unreachable from a terminal path with every other row still on screen.
+  it('renders every extra action, without a shortcut it does not have', () => {
+    vi.stubGlobal('navigator', { userAgent: 'Macintosh' })
+    const onClose = vi.fn()
+    const focusTerminal = vi.fn()
+    const previewRun = vi.fn()
+    const request: TerminalLinkActionRequest = {
+      paneId: 1,
+      anchorX: 100,
+      anchorY: 200,
+      destination: '/repo/docs/report.html',
+      kind: 'file',
+      primary: { label: 'Open file', run: vi.fn() },
+      alternate: { external: true, label: 'System Browser', run: vi.fn() },
+      extra: [
+        { label: 'Preview HTML', run: previewRun },
+        { external: true, label: 'Download & open with default app', run: vi.fn() }
+      ],
+      focusTerminal
+    }
+
+    render(<TerminalLinkActionPopover request={request} onClose={onClose} />)
+
+    const previewRow = screen.getByText('Preview HTML').closest('button')
+    expect(screen.getByText('Download & open with default app')).toBeTruthy()
+    expect(previewRow?.textContent).toBe('Preview HTML')
+    // Only the primary and alternate rows carry a click-modifier keycap.
+    expect(screen.getAllByText('Click')).toHaveLength(2)
+
+    fireEvent.click(screen.getByText('Preview HTML'))
+    expect(previewRun).toHaveBeenCalledOnce()
+    expect(onClose).toHaveBeenCalledOnce()
+    expect(focusTerminal).toHaveBeenCalledOnce()
+  })
+
   it('opens the terminal link setting from the compact settings button', () => {
     vi.stubGlobal('navigator', { userAgent: 'Macintosh' })
     const onClose = vi.fn()
