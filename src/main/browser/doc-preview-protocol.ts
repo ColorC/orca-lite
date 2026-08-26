@@ -53,6 +53,11 @@ const DOC_PREVIEW_CONTENT_SECURITY_POLICY = [
   "connect-src 'self'",
   "frame-src 'self'",
   "object-src 'none'"
+  // Why no `webrtc 'block'` here, though a peer connection is exactly the outbound channel this
+  // policy is meant to close: Chromium 43-era answers that directive with "Unrecognized
+  // Content-Security-Policy directive 'webrtc'" and gathers candidates anyway, so listing it would
+  // read as a fence while fencing nothing. The guest's IP-handling policy is the one that holds —
+  // see `installDocPreviewGuestPolicy`.
 ].join('; ')
 
 function notFound(message: string): Response {

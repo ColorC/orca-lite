@@ -169,6 +169,11 @@ describe('handleDocPreviewRequest', () => {
     expect(policy).toContain("object-src 'none'")
     expect(policy).toContain("img-src 'self' data:")
     expect(policy).not.toContain('https:')
+    // Why assert an absence: `webrtc 'block'` is the obvious directive to reach for here and this
+    // Chromium does not implement it — it logs "Unrecognized Content-Security-Policy directive
+    // 'webrtc'" and gathers candidates regardless. Adding it back would document a fence that is
+    // not there; the guest's IP-handling policy is what actually refuses.
+    expect(policy).not.toContain('webrtc')
   })
 
   // Why: the guest paints a 4xx body as if it were the document, so the shell only learns the

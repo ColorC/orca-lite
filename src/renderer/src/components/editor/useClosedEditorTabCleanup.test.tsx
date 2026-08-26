@@ -76,9 +76,9 @@ describe('useClosedEditorTabCleanup', () => {
     expect(mocks.releaseDocPreviewGrant).not.toHaveBeenCalled()
   })
 
-  // Why: the grant id is the preview tab's id, so releasing on any other tab's close would revoke
-  // a live preview's authority out from under it.
-  it('revokes nothing when a tab of another kind closes', () => {
+  // Why: the grant id is the preview tab's id, so a release fired for the edit tab's close would
+  // revoke a live preview's authority out from under it. Closing both must still release once.
+  it('releases only the preview grant when an edit tab closes alongside it', () => {
     const { rerender } = renderHook(
       ({ files }: { files: OpenFile[] }) => useClosedEditorTabCleanup(files),
       {

