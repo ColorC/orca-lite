@@ -92,6 +92,9 @@ function attachDocPreviewWebview({
   webview.setAttribute('partition', DOC_PREVIEW_PARTITION)
   webview.setAttribute('webpreferences', ORCA_BROWSER_GUEST_WEB_PREFERENCES_ATTRIBUTE)
   webview.setAttribute('aria-label', ariaLabel)
+  // Browsers paint an undeclared page canvas white; the guest is transparent, so without this the
+  // editor's dark surface shows through and default black text becomes unreadable.
+  webview.style.backgroundColor = '#fff'
   webview.style.display = 'flex'
   webview.style.width = '100%'
   webview.style.height = '100%'

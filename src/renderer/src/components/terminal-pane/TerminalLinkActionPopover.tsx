@@ -133,7 +133,7 @@ export function TerminalLinkActionPopover({
           side="top"
           sideOffset={6}
           collisionPadding={8}
-          className="w-max min-w-52 max-w-[min(17rem,calc(100vw-1rem))] p-1"
+          className="w-max min-w-52 max-w-[min(21rem,calc(100vw-1rem))] p-1"
           data-terminal-link-action-popover
           onOpenAutoFocus={(event) => event.preventDefault()}
           onCloseAutoFocus={(event) => event.preventDefault()}
