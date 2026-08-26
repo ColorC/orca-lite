@@ -1087,6 +1087,13 @@
         "description": "Running Orca terminals are hosted by a daemon started by a previous Orca installation. macOS may not apply Orca’s Accessibility, Automation, or protected-file permissions to them. Restart the daemon from Manage Sessions to restore access. This will close all running Orca terminals.",
         "openManageSessions": "Open Manage Sessions",
         "dismiss": "Dismiss"
+      },
+      "ipc": {
+        "events": {
+          "browserStateIpcBridge": {
+            "docPreviewLinkFailed": "Could not open this link in Orca Browser."
+          }
+        }
       }
     },
     "components": {
@@ -14754,7 +14761,8 @@
           "7d2e90b6c4": "Preview unavailable",
           "b93a6f1e75": "Orca could not read this file from the workspace.",
           "4e17b0c8da": "This document is too large to preview. Open it in the editor instead.",
-          "2b6ad4f019": "This document needs a newer Orca server to render one of its assets."
+          "2b6ad4f019": "This document needs a newer Orca server to render one of its assets.",
+          "7a4c1de35f": "This workspace cannot send this file type to a preview."
         }
       },
       "diff": {

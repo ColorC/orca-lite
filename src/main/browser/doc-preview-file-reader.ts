@@ -3,11 +3,13 @@ import type {
   RuntimeFilePreviewResult,
   RuntimeFileReadResult
 } from '../../shared/runtime-file-contracts'
+import type { DocPreviewFailureReason } from '../../shared/doc-preview-scheme'
 import { callRuntimeEnvironment } from '../ipc/runtime-environment-transport-routing'
 import { FileReadCapExceededError } from '../ssh/ssh-filesystem-stream-reader'
 import { getCanonicalUserDataPath } from '../persistence'
 import { requireSshFilesystemProvider } from '../providers/ssh-filesystem-dispatch'
 import {
+  resolveCanonicalDocPreviewPath,
   resolveDocPreviewTargetPath,
   toRuntimeWorktreeRelativePath,
   type DocPreviewGrant
@@ -15,10 +17,9 @@ import {
 
 const DOC_PREVIEW_READ_TIMEOUT_MS = 15_000
 
-/** An empty binary body means the host would not serve those bytes — an old server answering a
- *  format it has no preview for, most often. */
-const UNSUPPORTED_BINARY_PREVIEW_MESSAGE =
-  'This asset needs a newer Orca server to render in a preview.'
+/** Why not "needs a newer server": the SSH read path only ever serves images and PDFs as bytes, so
+ *  a font is refused there by design, not by version. Name the file type, not the host's age. */
+const UNSERVABLE_ASSET_PREVIEW_MESSAGE = 'This workspace cannot send this file type to a preview.'
 
 /** `files.read` clamps text at the host's cap and reports it; serving the clamped bytes would
  *  render a silently half-finished document. */
@@ -37,7 +38,7 @@ function isTooLargeReadError(error: unknown): boolean {
 
 export type DocPreviewReadOutcome =
   | { ok: true; bytes: Buffer; contentType: string }
-  | { ok: false; status: number; message: string }
+  | { ok: false; status: number; reason: DocPreviewFailureReason; message: string }
 
 const DOC_PREVIEW_CONTENT_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -70,24 +71,35 @@ export function docPreviewContentType(relativePath: string): string {
   )
 }
 
-type PreviewFileBytes = { content: string; isBinary: boolean; truncated?: boolean }
-
-function toBytes(result: PreviewFileBytes): Buffer | null {
-  if (!result.isBinary) {
-    return Buffer.from(result.content, 'utf8')
-  }
-  // Why: a binary result with no content is the "cannot serve this" signal on every owner kind.
-  return result.content ? Buffer.from(result.content, 'base64') : null
+type PreviewFileBytes = {
+  content: string
+  isBinary: boolean
+  truncated?: boolean
+  /** Set by every owner that agreed to serve the bytes, so it also survives a 0-byte file. */
+  mimeType?: string
 }
 
 function toOutcome(source: PreviewFileBytes, contentType: string): DocPreviewReadOutcome {
   if (source.truncated) {
-    return { ok: false, status: 413, message: TRUNCATED_PREVIEW_MESSAGE }
+    return { ok: false, status: 413, reason: 'too-large', message: TRUNCATED_PREVIEW_MESSAGE }
   }
-  const bytes = toBytes(source)
-  return bytes
-    ? { ok: true, bytes, contentType }
-    : { ok: false, status: 415, message: UNSUPPORTED_BINARY_PREVIEW_MESSAGE }
+  if (!source.isBinary) {
+    return { ok: true, bytes: Buffer.from(source.content, 'utf8'), contentType }
+  }
+  if (source.content) {
+    return { ok: true, bytes: Buffer.from(source.content, 'base64'), contentType }
+  }
+  // Why: an empty binary body is two different answers. A host that still named the file's type
+  // read a 0-byte file, and 0 bytes is what it should serve; a host that named no type declined
+  // the format outright and has nothing to send.
+  return source.mimeType
+    ? { ok: true, bytes: Buffer.alloc(0), contentType }
+    : {
+        ok: false,
+        status: 415,
+        reason: 'unsupported-asset',
+        message: UNSERVABLE_ASSET_PREVIEW_MESSAGE
+      }
 }
 
 async function readRuntimeDocPreviewFile(
@@ -124,9 +136,16 @@ async function readRuntimeDocPreviewFile(
     throw new Error(previewResponse.error.message)
   }
   const preview = previewResponse.result as RuntimeFilePreviewResult
-  // Why: readPreview never clamps — it rejects an over-cap asset — so an empty binary body here
-  // is the host declining the format, which toOutcome reports as unsupported.
-  return { content: preview.content, isBinary: preview.isBinary }
+  // Why: readPreview never clamps — it rejects an over-cap asset — so its body is whole or absent.
+  return {
+    content: preview.content,
+    isBinary: preview.isBinary,
+    ...(preview.mimeType ? { mimeType: preview.mimeType } : {})
+  }
+}
+
+function notFoundOutcome(message = 'Not found'): DocPreviewReadOutcome {
+  return { ok: false, status: 404, reason: 'unreadable', message }
 }
 
 /** Reads one in-grant path over the same channel the editor uses for that owner. */
@@ -136,14 +155,22 @@ export async function readDocPreviewFile(
 ): Promise<DocPreviewReadOutcome> {
   const absolutePath = resolveDocPreviewTargetPath(grant, relativePath)
   if (!absolutePath) {
-    return { ok: false, status: 404, message: 'Not found' }
+    return notFoundOutcome()
   }
   const contentType = docPreviewContentType(relativePath)
   try {
     if (grant.owner.kind === 'ssh') {
       const provider = requireSshFilesystemProvider(grant.owner.connectionId)
+      // Why: the SSH read RPC enforces no root of its own, so containment has to survive a symlink
+      // before the read — the lexical check above only proves the requested path looked contained.
+      const canonicalPath = await resolveCanonicalDocPreviewPath(grant, absolutePath, (path) =>
+        provider.realpath(path)
+      )
+      if (!canonicalPath) {
+        return notFoundOutcome()
+      }
       // Why: the SSH reader rejects an over-cap file outright, so its result is never partial.
-      return toOutcome(await provider.readFile(absolutePath), contentType)
+      return toOutcome(await provider.readFile(canonicalPath), contentType)
     }
     const worktreeRelativePath = toRuntimeWorktreeRelativePath(
       grant.owner.worktreeRoot,
@@ -151,8 +178,10 @@ export async function readDocPreviewFile(
     )
     if (!worktreeRelativePath) {
       // Why: files.read is worktree-scoped, so a doc outside the worktree has no client-side channel.
-      return { ok: false, status: 404, message: 'Not found' }
+      return notFoundOutcome()
     }
+    // Why no realpath pass here: the host resolves this path through resolveAuthorizedPath, which
+    // canonicalizes and re-checks the worktree root server-side before reading.
     return toOutcome(
       await readRuntimeDocPreviewFile(
         grant.owner.environmentId,
@@ -163,11 +192,7 @@ export async function readDocPreviewFile(
     )
   } catch (error) {
     return isTooLargeReadError(error)
-      ? { ok: false, status: 413, message: TRUNCATED_PREVIEW_MESSAGE }
-      : {
-          ok: false,
-          status: 404,
-          message: error instanceof Error ? error.message : 'Not found'
-        }
+      ? { ok: false, status: 413, reason: 'too-large', message: TRUNCATED_PREVIEW_MESSAGE }
+      : notFoundOutcome(error instanceof Error ? error.message : undefined)
   }
 }

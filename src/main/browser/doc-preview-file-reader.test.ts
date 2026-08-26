@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   callRuntimeEnvironment: vi.fn(),
   readFile: vi.fn(),
+  realpath: vi.fn(),
   requireSshFilesystemProvider: vi.fn()
 }))
 
@@ -42,7 +43,12 @@ function runtimeGrant(root = '/srv/repo/docs'): ReturnType<typeof mintDocPreview
 beforeEach(() => {
   vi.clearAllMocks()
   revokeAllDocPreviewGrants()
-  mocks.requireSshFilesystemProvider.mockReturnValue({ readFile: mocks.readFile })
+  // Why: an unsymlinked host canonicalizes to the path it was given.
+  mocks.realpath.mockImplementation((path: string) => Promise.resolve(path))
+  mocks.requireSshFilesystemProvider.mockReturnValue({
+    readFile: mocks.readFile,
+    realpath: mocks.realpath
+  })
 })
 
 describe('docPreviewContentType', () => {
@@ -86,12 +92,68 @@ describe('readDocPreviewFile — ssh owner', () => {
     expect(await readDocPreviewFile(sshGrant(), 'index.html')).toMatchObject({ ok: true })
   })
 
-  it('reports an unservable binary rather than an empty asset', async () => {
+  // Why: the SSH read path only serves images and PDFs as bytes, so a font is refused there by
+  // design — the failure must name the file type, not a stale server.
+  it('reports a file type the host will not send as unsupported-asset', async () => {
     mocks.readFile.mockResolvedValue({ content: '', isBinary: true })
 
-    const outcome = await readDocPreviewFile(sshGrant(), 'assets/archive.zip')
+    const outcome = await readDocPreviewFile(sshGrant(), 'assets/font.woff2')
 
-    expect(outcome).toMatchObject({ ok: false, status: 415 })
+    expect(outcome).toMatchObject({ ok: false, status: 415, reason: 'unsupported-asset' })
+  })
+
+  // Why: a host that still named the type read a 0-byte file, so 0 bytes is the honest answer —
+  // reporting it as a refused format would be a failure the workspace never reported.
+  it('serves an empty file the host still typed instead of calling it unsupported', async () => {
+    mocks.readFile.mockResolvedValue({ content: '', isBinary: true, mimeType: 'image/png' })
+
+    const outcome = await readDocPreviewFile(sshGrant(), 'assets/logo.png')
+
+    expect(outcome).toEqual({ ok: true, bytes: Buffer.alloc(0), contentType: 'image/png' })
+  })
+
+  // Why: containment above is lexical, and the SSH read RPC enforces no root of its own, so a
+  // symlink inside the grant would otherwise read anything the account can reach.
+  it('404s a path that canonicalizes outside the grant root', async () => {
+    mocks.realpath.mockImplementation((path: string) =>
+      Promise.resolve(path === '/home/alice/docs/escape.html' ? '/etc/shadow' : path)
+    )
+
+    const outcome = await readDocPreviewFile(sshGrant(), 'escape.html')
+
+    expect(outcome).toMatchObject({ ok: false, status: 404 })
+    expect(mocks.readFile).not.toHaveBeenCalled()
+  })
+
+  it('reads the canonical path once containment holds', async () => {
+    mocks.realpath.mockImplementation((path: string) =>
+      Promise.resolve(path === '/home/alice/docs/link.html' ? '/home/alice/docs/real.html' : path)
+    )
+    mocks.readFile.mockResolvedValue({ content: '<h1>real</h1>', isBinary: false })
+
+    expect(await readDocPreviewFile(sshGrant(), 'link.html')).toMatchObject({ ok: true })
+    expect(mocks.readFile).toHaveBeenCalledWith('/home/alice/docs/real.html')
+  })
+
+  // Why: a symlinked root is legitimate; containment must be judged on what both sides resolve to.
+  it('keeps serving a grant whose own root is a symlink', async () => {
+    mocks.realpath.mockImplementation((path: string) =>
+      Promise.resolve(path.replace('/home/alice/docs', '/mnt/data/docs'))
+    )
+    mocks.readFile.mockResolvedValue({ content: '<h1>hi</h1>', isBinary: false })
+
+    expect(await readDocPreviewFile(sshGrant(), 'index.html')).toMatchObject({ ok: true })
+    expect(mocks.readFile).toHaveBeenCalledWith('/mnt/data/docs/index.html')
+  })
+
+  it('404s when the host cannot canonicalize the path at all', async () => {
+    mocks.realpath.mockRejectedValue(new Error('no such file'))
+
+    expect(await readDocPreviewFile(sshGrant(), 'index.html')).toMatchObject({
+      ok: false,
+      status: 404
+    })
+    expect(mocks.readFile).not.toHaveBeenCalled()
   })
 
   it('404s a path outside the grant root without touching the provider', async () => {
@@ -183,7 +245,26 @@ describe('readDocPreviewFile — paired runtime owner', () => {
 
     expect(await readDocPreviewFile(runtimeGrant(), 'assets/logo.png')).toMatchObject({
       ok: false,
-      status: 415
+      status: 415,
+      reason: 'unsupported-asset'
+    })
+  })
+
+  it('serves an empty paired asset the host typed rather than reporting a refusal', async () => {
+    mocks.callRuntimeEnvironment
+      .mockResolvedValueOnce({
+        ok: false,
+        error: { code: 'runtime_error', message: 'binary_file' }
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        result: { content: '', isBinary: true, isImage: true, mimeType: 'image/png' }
+      })
+
+    expect(await readDocPreviewFile(runtimeGrant(), 'assets/logo.png')).toEqual({
+      ok: true,
+      bytes: Buffer.alloc(0),
+      contentType: 'image/png'
     })
   })
 

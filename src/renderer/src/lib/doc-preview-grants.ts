@@ -1,5 +1,5 @@
 import type { DocPreviewGrantRequest } from '../../../preload/api/doc-preview-api'
-import { basename, dirname } from '@/lib/path'
+import { basename, dirname, getRelativePathInsideRoot } from '@/lib/path'
 import { getConnectionIdForFileFromState } from '@/lib/connection-owner-resolution'
 import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
 import { toRuntimeWorktreeSelector } from '@/runtime/runtime-worktree-selector'
@@ -19,18 +19,24 @@ export function buildDocPreviewGrantRequest(
   worktreeId: string,
   filePath: string
 ): DocPreviewGrantRequest | null {
-  const root = dirname(filePath)
-  const entryRelativePath = basename(filePath)
+  const worktreeRoot = state.getKnownWorktreeById(worktreeId)?.path ?? null
+  // Why the workspace root and not the document's folder: reports keep their assets in a sibling
+  // directory (`../assets/app.css`), which a folder-rooted grant refuses. This is no wider than the
+  // channel already allows — files.read is worktree-scoped on paired hosts either way.
+  const worktreeRelativePath = getRelativePathInsideRoot(filePath, worktreeRoot)
+  const root = worktreeRoot && worktreeRelativePath ? worktreeRoot : dirname(filePath)
+  const entryRelativePath = worktreeRelativePath ?? basename(filePath)
   if (!root || !entryRelativePath) {
     return null
   }
   const connectionId = getConnectionIdForFileFromState(state, worktreeId, filePath)
   if (connectionId) {
+    // Why SSH keeps a document-folder root when the file sits outside the workspace: those previews
+    // are unrestricted by design, and there is no workspace boundary to root them in.
     return { owner: { kind: 'ssh', connectionId }, root, entryRelativePath }
   }
   const environmentId = getRuntimeEnvironmentIdForWorktree(state, worktreeId)
-  const worktreeRoot = state.getKnownWorktreeById(worktreeId)?.path
-  if (!environmentId || !worktreeRoot) {
+  if (!environmentId || !worktreeRoot || !worktreeRelativePath) {
     return null
   }
   return {

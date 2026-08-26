@@ -132,7 +132,9 @@ describe('openFileInBrowserTab', () => {
     expect(mocks.openHtmlDocPreview).toHaveBeenCalledOnce()
   })
 
-  it('creates paired-runtime side previews in an activated right-hand split', () => {
+  // Why the unfocused split: the preview opens in the background, and a host snapshot reads an
+  // activated empty group as a terminal pane.
+  it('creates paired-runtime side previews in an unfocused right-hand split', () => {
     mocks.environmentId = 'runtime-1'
     mocks.browserAvailability = { state: 'enabled', provider: 'paired-runtime' }
 
@@ -143,7 +145,9 @@ describe('openFileInBrowserTab', () => {
       sourceGroupId: 'group-1'
     })
 
-    expect(mocks.createEmptySplitGroup).toHaveBeenCalledWith('wt-1', 'group-1', 'right')
+    expect(mocks.createEmptySplitGroup).toHaveBeenCalledWith('wt-1', 'group-1', 'right', {
+      activate: false
+    })
     expect(mocks.openHtmlDocPreview).toHaveBeenCalledWith(expect.anything(), {
       targetGroupId: 'group-2'
     })

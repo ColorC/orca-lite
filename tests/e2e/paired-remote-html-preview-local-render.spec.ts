@@ -8,14 +8,18 @@ import {
   type PairedElectronClient
 } from './helpers/paired-electron-client'
 import {
+  armPairedHtmlPreviewLinkRouting,
+  readDocPreviewElementCenter,
   readDocPreviewGuestUrl,
   readDocPreviewRenderedText,
-  readPairedHtmlPreviewInventory
+  readPairedHtmlPreviewInventory,
+  readPairedHtmlPreviewLinkRouting
 } from './helpers/paired-html-preview-inventory'
 import { ensureTerminalVisible, waitForActiveWorktree, waitForSessionReady } from './helpers/store'
 
 const FIXTURE_NAME = 'paired-html-focus.html'
 const FIXTURE_HEADING = 'paired html preview'
+const EXTERNAL_LINK_URL = 'https://example.com/from-preview'
 
 /**
  * Since STA-5557 a paired HTML preview renders locally from the workspace's disk over the
@@ -30,7 +34,10 @@ test('renders a paired HTML doc locally without creating any browser page', asyn
   test.setTimeout(240_000)
   writeFileSync(
     path.join(testRepoPath, FIXTURE_NAME),
-    `<!doctype html><html><body><h1>${FIXTURE_HEADING}</h1></body></html>\n`
+    `<!doctype html><html><body><h1>${FIXTURE_HEADING}</h1>` +
+      `<p><a id="external" href="${EXTERNAL_LINK_URL}" target="_blank" ` +
+      `style="display:inline-block;padding:24px;font-size:24px">external link</a></p>` +
+      `</body></html>\n`
   )
   await waitForSessionReady(orcaPage)
   await waitForActiveWorktree(orcaPage)
@@ -253,6 +260,73 @@ test('renders a paired HTML doc locally without creating any browser page', asyn
     await expect(
       page.locator(`[data-tab-group-body-id="${sourceGroupId}"] .monaco-editor`)
     ).toBeVisible({ timeout: 30_000 })
+
+    // Why this runs last: it is the one step that is supposed to create a browser tab, so it
+    // cannot share a run phase with the no-browser oracle above. A target="_blank" click is only
+    // routed out if the guest carries allowpopups, and only a real mouse press is a user gesture
+    // Chromium will honour — a scripted click inside the guest is swallowed by the popup blocker.
+    await expect(openPreviewToSide).toBeVisible({ timeout: 30_000 })
+    await openPreviewToSide.click()
+    await expect
+      .poll(() => readDocPreviewRenderedText(page, 'h1'), {
+        timeout: 60_000,
+        message: 'the reopened preview never rendered before the external link click'
+      })
+      .toBe(FIXTURE_HEADING)
+    // Why poll rather than read once: the helper only answers once the guest's own hit test lands
+    // on the link, so the press cannot chase a rect that layout is still settling.
+    await expect
+      .poll(() => readDocPreviewElementCenter(page, '#external'), {
+        timeout: 30_000,
+        message: 'the external link never settled at a clickable point in the preview guest'
+      })
+      .not.toBeNull()
+    // Why record the routing call: the click crosses into a guest process, so a bare "no tab
+    // appeared" cannot say whether the press was swallowed before the handler or the tab was
+    // refused after it. The recorded calls make the failure name itself.
+    await armPairedHtmlPreviewLinkRouting(page)
+    // Why the heading click first: the press that routes the link has to carry user activation in
+    // the guest, and the guest only has it once it holds focus.
+    const headingPoint = await readDocPreviewElementCenter(page, 'h1')
+    if (headingPoint) {
+      await page.mouse.click(headingPoint.x, headingPoint.y)
+    }
+    const linkBaseline = await readPairedHtmlPreviewInventory(page, inventoryArgs)
+    await expect
+      .poll(
+        async () => {
+          const routedCalls = await readPairedHtmlPreviewLinkRouting(page)
+          // Why only while nothing has routed: a retry after a successful route would open a
+          // second tab and turn this oracle into a counter of presses.
+          if (routedCalls.length === 0) {
+            const point = await readDocPreviewElementCenter(page, '#external')
+            if (point) {
+              await page.mouse.click(point.x, point.y)
+            }
+          }
+          const opened = await readPairedHtmlPreviewInventory(page, inventoryArgs)
+          return {
+            routedCalls: await readPairedHtmlPreviewLinkRouting(page),
+            previewTabs: opened.previewTabs.length,
+            openedTab:
+              opened.clientBrowserWorkspaceCountAllWorktrees + opened.hostBrowserTabCount >
+              linkBaseline.clientBrowserWorkspaceCountAllWorktrees +
+                linkBaseline.hostBrowserTabCount
+          }
+        },
+        {
+          timeout: 60_000,
+          intervals: [2_000],
+          message: 'a target=_blank click in the preview never opened an Orca browser tab'
+        }
+      )
+      .toMatchObject({
+        openedTab: true,
+        // Why assert the preview survived: the link leaves the preview for a browser tab; it must
+        // not navigate or close the document the user is reading.
+        previewTabs: 1,
+        routedCalls: [{ url: EXTERNAL_LINK_URL, opened: true }]
+      })
   } finally {
     await client?.dispose()
   }

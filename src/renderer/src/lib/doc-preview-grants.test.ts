@@ -33,13 +33,26 @@ beforeEach(() => {
 })
 
 describe('buildDocPreviewGrantRequest', () => {
-  it('roots an SSH grant at the document directory', () => {
+  // Why: SSH previews are unrestricted by design, and a document outside every workspace has no
+  // boundary to root a grant in.
+  it('roots an SSH grant outside the workspace at the document directory', () => {
     mocks.connectionId = 'ssh-1'
 
     expect(buildDocPreviewGrantRequest(state, 'wt-1', '/home/alice/docs/report.html')).toEqual({
       owner: { kind: 'ssh', connectionId: 'ssh-1' },
       root: '/home/alice/docs',
       entryRelativePath: 'report.html'
+    })
+  })
+
+  // Why: reports keep their assets in a sibling directory, so `../assets/app.css` has to resolve.
+  it('roots a document inside the workspace at the workspace root', () => {
+    mocks.connectionId = 'ssh-1'
+
+    expect(buildDocPreviewGrantRequest(state, 'wt-1', '/srv/repo/docs/report.html')).toEqual({
+      owner: { kind: 'ssh', connectionId: 'ssh-1' },
+      root: '/srv/repo',
+      entryRelativePath: 'docs/report.html'
     })
   })
 
@@ -53,9 +66,16 @@ describe('buildDocPreviewGrantRequest', () => {
         worktreeSelector: 'id:wt-1',
         worktreeRoot: '/srv/repo'
       },
-      root: '/srv/repo/docs',
-      entryRelativePath: 'report.html'
+      root: '/srv/repo',
+      entryRelativePath: 'docs/report.html'
     })
+  })
+
+  // Why: files.read is worktree-scoped, so a paired document outside it has no readable root.
+  it('refuses a paired document outside the workspace', () => {
+    mocks.environmentId = 'env-1'
+
+    expect(buildDocPreviewGrantRequest(state, 'wt-1', '/var/tmp/report.html')).toBeNull()
   })
 
   it('refuses a local workspace, which has no remote channel to read over', () => {

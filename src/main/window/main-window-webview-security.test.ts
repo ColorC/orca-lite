@@ -39,9 +39,14 @@ vi.mock('../browser/doc-preview-guest-policy', () => ({
 
 import { installMainWindowWebviewSecurity } from './main-window-webview-security'
 import {
+  getDocPreviewGrant,
   mintDocPreviewGrant,
   revokeAllDocPreviewGrants
 } from '../browser/doc-preview-grant-registry'
+import {
+  publishDocPreviewFailure,
+  setDocPreviewFailureSink
+} from '../browser/doc-preview-failure-notice'
 import { buildDocPreviewUrl, DOC_PREVIEW_PARTITION } from '../../shared/doc-preview-scheme'
 
 function installOnFakeWindow(): {
@@ -73,13 +78,7 @@ describe('main window webview security', () => {
   })
 
   it('fails closed before applying hardened guest preferences', () => {
-    const handlers: Record<string, (...args: never[]) => void> = {}
-    const webContents = {
-      on: vi.fn((event: string, handler: (...args: never[]) => void) => {
-        handlers[event] = handler
-      })
-    }
-    installMainWindowWebviewSecurity({ webContents } as never)
+    const { handlers, webContents } = installOnFakeWindow()
     mocks.isAllowedPartition.mockReturnValue(false)
     const preventDefault = vi.fn()
 
@@ -95,13 +94,7 @@ describe('main window webview security', () => {
   })
 
   it('removes renderer preload input and restores every hardened preference', () => {
-    const handlers: Record<string, (...args: never[]) => void> = {}
-    const webContents = {
-      on: vi.fn((event: string, handler: (...args: never[]) => void) => {
-        handlers[event] = handler
-      })
-    }
-    installMainWindowWebviewSecurity({ webContents } as never)
+    const { handlers } = installOnFakeWindow()
     mocks.isAllowedPartition.mockReturnValue(true)
     const params = { src: 'https://example.com', preload: 'attacker.js' }
     const preferences: Record<string, unknown> = {
@@ -230,5 +223,25 @@ describe('orca-preview scheme admission', () => {
 
     expect(mocks.installDocPreviewGuestPolicy).not.toHaveBeenCalled()
     expect(mocks.attachGuestPolicies).toHaveBeenCalledOnce()
+  })
+
+  // Why: every live preview belongs to this window, so its teardown is the one moment no grant can
+  // still have a reader — and the failure sink must stop pointing at dead WebContents.
+  it('drops the failure sink and every grant when the window contents are destroyed', () => {
+    const { handlers } = installOnFakeWindow()
+    const grant = mintPreviewGrant()
+    const send = vi.fn()
+    setDocPreviewFailureSink({ send })
+    expect(getDocPreviewGrant(grant.id)).not.toBeNull()
+
+    handlers['destroyed']?.()
+    publishDocPreviewFailure({
+      grantId: grant.id,
+      relativePath: 'index.html',
+      reason: 'unreadable'
+    })
+
+    expect(getDocPreviewGrant(grant.id)).toBeNull()
+    expect(send).not.toHaveBeenCalled()
   })
 })

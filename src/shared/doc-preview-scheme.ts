@@ -16,7 +16,7 @@ export const DOC_PREVIEW_LOAD_FAILURE_CHANNEL = 'docPreview:loadFailure'
 
 /** Why: an unreadable document still answers with a real HTTP status, so the guest paints the
  *  handler's plain-text body instead of failing to load. The shell needs the reason out-of-band. */
-export type DocPreviewFailureReason = 'too-large' | 'unsupported-binary' | 'unreadable'
+export type DocPreviewFailureReason = 'too-large' | 'unsupported-asset' | 'unreadable'
 
 export type DocPreviewFailure = {
   grantId: string

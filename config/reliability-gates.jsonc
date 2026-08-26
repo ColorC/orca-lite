@@ -2726,7 +2726,7 @@
       "providers": ["remote-runtime"],
       "coveredPlatforms": ["macos"],
       "coveredProviders": ["remote-runtime"],
-      "coverageNotes": "A macOS desktop host and a separate paired Electron client exercise the Explorer preview action end to end: the document renders inside the client-local orca-preview guest, neither the client nor the host gains a browser workspace, the split does not take focus from the source editor, an explicit click activates the preview, and closing it leaves the editor and terminal intact. The same journey pins the guest URL to the orca-preview scheme, so a regression back to file:// or to a host browser page is visible. Unit contracts cover grant scoping and path containment, per-owner read routing, refusal of a truncated or over-cap read, the old-server binary degradation, scheme admission on will-attach-webview, the guest navigation policy, the plan layer's local/SSH/paired/out-of-worktree routing, and the distinct sentence the reader sees for each failure reason. The paired browser-creation surfaces this gate still owns — capability rejection cleanup, canonical page identity, reconciliation rollback, close convergence — keep their existing headed and headless journeys. Linux and Windows live journeys remain gaps.",
+      "coverageNotes": "A macOS desktop host and a separate paired Electron client exercise the Explorer preview action end to end: the document renders inside the client-local orca-preview guest, neither the client nor the host gains a browser workspace, the split does not take focus from the source editor, an explicit click activates the preview, and closing it leaves the editor and terminal intact. The same journey pins the guest URL to the orca-preview scheme, so a regression back to file:// or to a host browser page is visible. Unit contracts cover grant scoping and path containment, per-owner read routing, refusal of a truncated or over-cap read, the old-server binary degradation, scheme admission on will-attach-webview, the guest navigation policy, the plan layer's local/SSH/paired/out-of-worktree routing, and the distinct sentence the reader sees for each failure reason. The paired browser-creation surfaces this gate still owns — capability rejection cleanup, canonical page identity, reconciliation rollback, close convergence — keep their existing headed and headless journeys. Linux and Windows live journeys remain gaps. Two command paths this gate used to carry no longer exist, and their structured evidence was retired with them rather than left pointing at files that make the runner exit non-zero. The first is src/renderer/src/lib/file-preview-capability-cleanup.test.ts, deleted in STA-5557 when HTML previews stopped creating paired browser tabs: on 2026-08-12 its five-assertion STA-4063 oracle ran red 5/5 on scan e4c278eb52 and on main bc2e30000b, partially green 2/5 on pre-fix PR #14100, and green 5/5 on candidate 14b5877a75; the surviving half of that oracle is web-runtime-browser-capability-cleanup.test.ts, still commanded above. The second is tests/e2e/paired-remote-html-browser-focus.spec.ts, renamed in STA-5557 to paired-remote-html-preview-local-render.spec.ts because the journey no longer proves anything about browser focus: its 2026-08-12 runs established the owning-runtime routing and no-focus-steal behavior of the then-current browser-tab preview (red on main 346e59c879 and a90a18d43d, green on candidates d05217c40d and b7de9c0961, red again with only the side-preview focus or routing seam disabled), and its 2026-08-26 runs are recorded below under the current path.",
       "motivatingLinks": [
         "https://linear.app/stably/issue/STA-5557/remote-html-preview-render-workspace-files-locally-over-the-file",
         "https://linear.app/stably/issue/STA-3872/unable-to-open-html-files-in-remote-server",
@@ -2736,26 +2736,18 @@
         "https://github.com/stablyai/orca/pull/14363",
         "https://github.com/stablyai/orca/pull/13876"
       ],
-      "invariant": "Opening one HTML preview from a paired client renders the workspace document in exactly one client-local preview tab served over the orca-preview scheme, and creates no browser workspace on either the client or the host. The preview occupies its own split without taking focus from the source editor; an explicit click activates it, and closing it removes only the preview. A read the host reports as truncated or over-cap is refused rather than served partially, and a document outside the paired worktree is refused with a message naming that boundary instead of a bare read failure. For the browser creations this gate still owns, owner-pinned creation returns the canonical host page identity before navigation readiness; delayed navigation cannot turn a created page into an unidentifiable failure or a duplicate retry. Capability rejection before host mutation must preserve the original error, issue no RPC, surface a failure toast, and remove only a caller-declared newly-created empty split. Post-create reconciliation failure requires exact rollback; ambiguous rollback rejects without local fallback.",
-      "oracle": "In paired Electron, write an HTML fixture on the host, invoke the Explorer preview action on the client, and require the document text to be readable out of the orca-preview guest before judging any absence. With that presence established, require the client browser-workspace and host browser-tab counts to equal their pre-action baseline, the guest URL to carry the orca-preview scheme, the preview tab to hold mode html-preview in a group other than the source editor's, and the active group and tab to remain the source editor's. Then click away to the terminal, click the preview tab, require it to reactivate and still render, close it, and require the preview tab and open file to be gone while both browser counts stay at baseline and the source group, source editor, and terminal survive. Prove the absence half is live by making the same preview action additionally create a browser tab and requiring the run to fail on the count. Run the per-owner reader, grant-containment, scheme-admission, guest-policy, and plan-routing contracts as unit oracles, including a host-reported truncation, an over-cap binary, and an out-of-worktree paired path. For the browser creations this gate still owns, run the unchanged contract oracle for direct create and side-preview callers with absent status, unknown capabilities, and a mixed-version host, requiring the original unsupported error or visible toast, zero RPCs, and no retained new split; hold a real navigation response beyond the 15-second client deadline after host creation and require the first RPC to return the exact host inventory page ID, one host page, and no retry; repeat reconciliation faults against headless serve and retain the separate exact-page reconciliation rollback oracle.",
+      "invariant": "Opening one HTML preview from a paired client renders the workspace document in exactly one client-local preview tab served over the orca-preview scheme, and creates no browser workspace on either the client or the host. The preview occupies its own split without taking focus from the source editor; an explicit click activates it, and closing it removes only the preview. A read the host reports as truncated or over-cap is refused rather than served partially, and a document outside the paired worktree is refused with a message naming that boundary instead of a bare read failure. The rendered document reaches nothing off-machine: every served response carries a self-only content security policy, the preview session cancels any request that is not in-document, subframes cannot navigate outside the grant, and an SSH path that canonicalizes outside the grant root is refused before it is read. A target=_blank link inside the document leaves the preview as an Orca browser tab rather than a native window or a dead click. For the browser creations this gate still owns, owner-pinned creation returns the canonical host page identity before navigation readiness; delayed navigation cannot turn a created page into an unidentifiable failure or a duplicate retry. Capability rejection before host mutation must preserve the original error, issue no RPC, surface a failure toast, and remove only a caller-declared newly-created empty split. Post-create reconciliation failure requires exact rollback; ambiguous rollback rejects without local fallback.",
+      "oracle": "In paired Electron, write an HTML fixture on the host, invoke the Explorer preview action on the client, and require the document text to be readable out of the orca-preview guest before judging any absence. With that presence established, require the client browser-workspace and host browser-tab counts to equal their pre-action baseline, the guest URL to carry the orca-preview scheme, the preview tab to hold mode html-preview in a group other than the source editor's, and the active group and tab to remain the source editor's. Then click away to the terminal, click the preview tab, require it to reactivate and still render, close it, and require the preview tab and open file to be gone while both browser counts stay at baseline and the source group, source editor, and terminal survive. Prove the absence half is live by making the same preview action additionally create a browser tab and requiring the run to fail on the count. Then, as a separate phase after the close oracle has already run, press the document's target=_blank link with a real mouse event and require both a recorded routing call that returned success and a browser count above that phase's own baseline, with the preview tab still open. Run the per-owner reader, grant-containment, scheme-admission, guest-policy, and plan-routing contracts as unit oracles, including a host-reported truncation, an over-cap binary, and an out-of-worktree paired path. For the browser creations this gate still owns, run the unchanged contract oracle for direct create and side-preview callers with absent status, unknown capabilities, and a mixed-version host, requiring the original unsupported error or visible toast, zero RPCs, and no retained new split; hold a real navigation response beyond the 15-second client deadline after host creation and require the first RPC to return the exact host inventory page ID, one host page, and no retry; repeat reconciliation faults against headless serve and retain the separate exact-page reconciliation rollback oracle.",
       "commands": [
         "pnpm exec vitest run --config config/vitest.config.ts src/main/runtime/orca-runtime-browser.test.ts src/main/runtime/rpc/methods/browser.test.ts src/renderer/src/lib/file-preview.test.ts src/renderer/src/runtime/web-session-browser-placement.test.ts src/renderer/src/runtime/web-runtime-session.test.ts src/renderer/src/runtime/web-session-tabs-sync.test.ts src/renderer/src/runtime/remote-server-parity.test.ts",
         "pnpm exec vitest run --config config/vitest.config.ts src/renderer/src/runtime/web-runtime-browser-materialization.test.ts",
         "pnpm exec vitest run --config config/vitest.config.ts src/renderer/src/runtime/web-runtime-browser-capability-cleanup.test.ts",
-        // Retained so the 2026-08-12 STA-4063 evidence below still names the command that produced
-        // it: file-preview-capability-cleanup.test.ts was removed in STA-5557 when HTML previews
-        // stopped creating paired browser tabs. The surviving half of that oracle is the command above.
-        "pnpm exec vitest run --config config/vitest.config.ts src/renderer/src/runtime/web-runtime-browser-capability-cleanup.test.ts src/renderer/src/lib/file-preview-capability-cleanup.test.ts",
-        "pnpm exec vitest run --config config/vitest.config.ts src/main/browser/doc-preview-grant-registry.test.ts src/main/browser/doc-preview-file-reader.test.ts src/main/browser/doc-preview-protocol.test.ts src/main/browser/doc-preview-guest-policy.test.ts src/main/browser/doc-preview-failure-notice.test.ts src/shared/doc-preview-scheme.test.ts src/renderer/src/lib/doc-preview-grants.test.ts src/renderer/src/lib/file-preview.test.ts src/main/window/main-window-webview-security.test.ts",
+        "pnpm exec vitest run --config config/vitest.config.ts src/main/browser/doc-preview-grant-registry.test.ts src/main/browser/doc-preview-file-reader.test.ts src/main/browser/doc-preview-protocol.test.ts src/main/browser/doc-preview-guest-policy.test.ts src/main/browser/doc-preview-failure-notice.test.ts src/shared/doc-preview-scheme.test.ts src/renderer/src/lib/doc-preview-grants.test.ts src/renderer/src/lib/file-preview.test.ts src/renderer/src/lib/file-preview-action-visibility.test.tsx src/main/window/main-window-webview-security.test.ts src/renderer/src/components/editor/HtmlDocPreview.failure-message.test.tsx src/renderer/src/hooks/ipc-events/doc-preview-external-link-bridge.test.ts src/renderer/src/components/terminal-pane/terminal-file-link-actions.test.ts",
         "pnpm exec vitest run --config config/vitest.config.ts src/renderer/src/components/editor/HtmlDocPreview.failure-message.test.tsx",
-        "SKIP_BUILD=1 ORCA_E2E_WEB_CLIENT=1 ORCA_E2E_FORCE_HEADFUL=1 pnpm exec playwright test tests/e2e/paired-remote-html-browser-focus.spec.ts --config tests/playwright.config.ts --project electron-headless --workers=1 --reporter=line",
+        "SKIP_BUILD=1 ORCA_E2E_WEB_CLIENT=1 ORCA_E2E_FORCE_HEADFUL=1 pnpm exec playwright test tests/e2e/paired-remote-html-preview-local-render.spec.ts --config tests/playwright.config.ts --project electron-headless --workers=1 --reporter=line",
         "pnpm exec vitest run --config config/vitest.config.ts src/main/runtime/orca-runtime-browser.test.ts src/renderer/src/runtime/web-runtime-session.test.ts",
         "pnpm exec vitest run --config config/vitest.config.ts src/main/runtime/orca-runtime.test.ts src/main/runtime/orca-runtime-browser.test.ts src/renderer/src/hooks/useIpcEvents-browser-tab-create.test.ts src/renderer/src/hooks/useIpcEvents-close-routing-browser-pages.test.ts src/renderer/src/hooks/useIpcEvents-close-routing-session-tabs.test.ts src/renderer/src/store/slices/browser.test.ts src/renderer/src/runtime/web-runtime-session.test.ts",
         "SKIP_BUILD=1 pnpm exec playwright test tests/e2e/paired-browser-create-navigation-deadline.spec.ts --config tests/playwright.config.ts --project electron-headful --workers=1",
-        "ORCA_E2E_WEB_CLIENT=1 ORCA_E2E_FORCE_HEADFUL=1 ORCA_E2E_FORWARD_APP_LOGS=1 pnpm exec playwright test tests/e2e/paired-remote-html-browser-focus.spec.ts --config tests/playwright.config.ts --project electron-headless --workers=1",
-        "ORCA_E2E_WEB_CLIENT=1 ORCA_E2E_FORCE_HEADFUL=1 ORCA_E2E_FORWARD_APP_LOGS=1 pnpm exec playwright test tests/e2e/paired-remote-html-browser-focus.spec.ts --config tests/playwright.config.ts --project electron-headless --workers=1 --repeat-each=3",
-        "SKIP_BUILD=1 ORCA_E2E_WEB_CLIENT=1 ORCA_E2E_FORCE_HEADFUL=1 pnpm exec playwright test tests/e2e/paired-remote-html-browser-focus.spec.ts --config tests/playwright.config.ts --project electron-headless --workers=1",
-        "ORCA_E2E_WEB_CLIENT=1 ORCA_E2E_FORCE_HEADFUL=1 pnpm exec playwright test tests/e2e/paired-remote-html-browser-focus.spec.ts --config tests/playwright.config.ts --project electron-headless --workers=1",
         "SKIP_BUILD=1 ORCA_E2E_FORCE_HEADFUL=1 ORCA_E2E_FORWARD_APP_LOGS=1 pnpm exec playwright test tests/e2e/paired-browser-creation-reconciliation-failure.spec.ts --config tests/playwright.config.ts --project electron-headful --workers=1 --reporter=line",
         "SKIP_BUILD=1 ORCA_E2E_FORCE_HEADFUL=1 ORCA_E2E_FORWARD_APP_LOGS=1 pnpm exec playwright test tests/e2e/paired-browser-creation-reconciliation-failure.spec.ts --config tests/playwright.config.ts --project electron-headless --workers=1 --reporter=line"
       ],
@@ -2782,7 +2774,10 @@
         "src/shared/doc-preview-scheme.test.ts",
         "src/renderer/src/lib/doc-preview-grants.test.ts",
         "src/renderer/src/components/editor/HtmlDocPreview.failure-message.test.tsx",
-        "tests/e2e/paired-remote-html-browser-focus.spec.ts",
+        "src/renderer/src/lib/file-preview-action-visibility.test.tsx",
+        "src/renderer/src/hooks/ipc-events/doc-preview-external-link-bridge.test.ts",
+        "src/renderer/src/components/terminal-pane/terminal-file-link-actions.test.ts",
+        "tests/e2e/paired-remote-html-preview-local-render.spec.ts",
         "tests/e2e/paired-browser-create-navigation-deadline.spec.ts",
         "tests/e2e/paired-browser-creation-reconciliation-failure.spec.ts"
       ],
@@ -2876,12 +2871,13 @@
           ]
         },
         {
-          "file": "tests/e2e/paired-remote-html-browser-focus.spec.ts",
+          "file": "tests/e2e/paired-remote-html-preview-local-render.spec.ts",
           "assertions": [
             "the host's HTML document renders inside the client-local orca-preview guest",
             "neither the client browser-workspace count nor the host browser-tab count moves off baseline",
             "the preview opens in its own split with mode html-preview and leaves the source editor active",
-            "an explicit click reactivates the preview, and closing it preserves the source editor, its group, and the terminal"
+            "an explicit click reactivates the preview, and closing it preserves the source editor, its group, and the terminal",
+            "a real target=_blank press in the rendered document routes out as an Orca browser tab while the preview stays open"
           ]
         },
         {
@@ -2889,7 +2885,9 @@
           "assertions": [
             "a host-reported truncated read is refused instead of served as partial bytes",
             "an over-cap binary and an empty binary body are reported as too-large and unsupported rather than a bare read failure",
-            "a document outside the paired worktree is refused without issuing an RPC"
+            "a document outside the paired worktree is refused without issuing an RPC",
+            "an SSH path that canonicalizes outside the grant root is refused before any read",
+            "a 0-byte file the host still typed is served as 0 bytes rather than reported as a refused format"
           ]
         },
         {
@@ -2903,12 +2901,26 @@
           "file": "src/main/browser/doc-preview-protocol.test.ts",
           "assertions": [
             "an unknown or revoked grant is answered exactly like a missing file, with no read attempted",
-            "a failed read pushes its reason for the requested path while a served document pushes nothing"
+            "a failed read pushes its reason for the requested path while a served document pushes nothing",
+            "every served document carries the self-only content security policy",
+            "the preview session cancels any request that is not in-document"
           ]
         },
         {
           "file": "src/main/browser/doc-preview-failure-notice.test.ts",
           "assertions": ["413 and 415 map to distinct reasons and everything else stays generic"]
+        },
+        {
+          "file": "src/renderer/src/lib/file-preview-action-visibility.test.tsx",
+          "assertions": [
+            "the Explorer row predicate and the preview plan return one answer for the same file"
+          ]
+        },
+        {
+          "file": "src/renderer/src/hooks/ipc-events/doc-preview-external-link-bridge.test.ts",
+          "assertions": [
+            "an external preview link becomes a browser tab, and a refused tab surfaces instead of being dropped"
+          ]
         },
         {
           "file": "src/renderer/src/components/editor/HtmlDocPreview.failure-message.test.tsx",
@@ -2921,7 +2933,8 @@
           "file": "src/main/browser/doc-preview-guest-policy.test.ts",
           "assertions": [
             "the guest may only navigate within its own live grant",
-            "external targets leave as an Orca browser tab instead of navigating the preview"
+            "external targets leave as an Orca browser tab instead of navigating the preview",
+            "a subframe cannot navigate outside the grant, and only the main frame binds the guest to one"
           ]
         },
         {
@@ -2963,28 +2976,28 @@
           "date": "2026-08-26",
           "runner": "local",
           "platform": "macos",
-          "command": "SKIP_BUILD=1 ORCA_E2E_WEB_CLIENT=1 ORCA_E2E_FORCE_HEADFUL=1 pnpm exec playwright test tests/e2e/paired-remote-html-browser-focus.spec.ts --config tests/playwright.config.ts --project electron-headless --workers=1 --reporter=line",
+          "command": "pnpm exec vitest run --config config/vitest.config.ts src/main/browser/doc-preview-grant-registry.test.ts src/main/browser/doc-preview-file-reader.test.ts src/main/browser/doc-preview-protocol.test.ts src/main/browser/doc-preview-guest-policy.test.ts src/main/browser/doc-preview-failure-notice.test.ts src/shared/doc-preview-scheme.test.ts src/renderer/src/lib/doc-preview-grants.test.ts src/renderer/src/lib/file-preview.test.ts src/renderer/src/lib/file-preview-action-visibility.test.tsx src/main/window/main-window-webview-security.test.ts src/renderer/src/components/editor/HtmlDocPreview.failure-message.test.tsx src/renderer/src/hooks/ipc-events/doc-preview-external-link-bridge.test.ts src/renderer/src/components/terminal-pane/terminal-file-link-actions.test.ts",
           "result": "passed",
-          "durationSeconds": 16.5,
-          "summary": "The rewritten STA-5557 journey passed 1/1 on the candidate: a paired Electron client rendered the host's document inside the orca-preview guest, held both browser counts at baseline, kept the source editor active while the preview occupied its own split, reactivated on an explicit click, and closed leaving the editor, its group, and the terminal intact."
+          "durationSeconds": 0.85,
+          "summary": "Thirteen grant, reader, protocol, guest-policy, scheme-admission, plan-routing, action-visibility, failure-message, external-link and terminal-row contract files passed 126/126, including the CSP header and session request filter, the SSH symlink refusal, subframe containment, truncated and over-cap reads, the unservable-asset and empty-file split, out-of-worktree paired refusal with SSH left unrestricted, and reload re-minting a stale grant."
         },
         {
           "date": "2026-08-26",
           "runner": "local",
           "platform": "macos",
-          "command": "SKIP_BUILD=1 ORCA_E2E_WEB_CLIENT=1 ORCA_E2E_FORCE_HEADFUL=1 pnpm exec playwright test tests/e2e/paired-remote-html-browser-focus.spec.ts --config tests/playwright.config.ts --project electron-headless --workers=1 --reporter=line",
+          "command": "SKIP_BUILD=1 ORCA_E2E_WEB_CLIENT=1 ORCA_E2E_FORCE_HEADFUL=1 pnpm exec playwright test tests/e2e/paired-remote-html-preview-local-render.spec.ts --config tests/playwright.config.ts --project electron-headless --workers=1 --reporter=line",
+          "result": "passed",
+          "durationSeconds": 59.7,
+          "summary": "The renamed journey passed 3/3 under --repeat-each=3 on the hardened candidate: the host document rendered in the orca-preview guest, both browser counts held at baseline through the split, focus, reactivation and close phases, and the final phase's real target=_blank press routed out as an Orca browser tab with the routing call recorded as opened while the preview tab stayed open."
+        },
+        {
+          "date": "2026-08-26",
+          "runner": "local",
+          "platform": "macos",
+          "command": "SKIP_BUILD=1 ORCA_E2E_WEB_CLIENT=1 ORCA_E2E_FORCE_HEADFUL=1 pnpm exec playwright test tests/e2e/paired-remote-html-preview-local-render.spec.ts --config tests/playwright.config.ts --project electron-headless --workers=1 --reporter=line",
           "result": "failed",
-          "durationSeconds": 17.1,
-          "summary": "Candidate with the sole delta that the side-preview action also creates a browser tab failed on clientBrowserWorkspaceCount 1 versus the baseline 0, proving the no-browser half of the oracle is live rather than vacuously green."
-        },
-        {
-          "date": "2026-08-26",
-          "runner": "local",
-          "platform": "macos",
-          "command": "pnpm exec vitest run --config config/vitest.config.ts src/main/browser/doc-preview-grant-registry.test.ts src/main/browser/doc-preview-file-reader.test.ts src/main/browser/doc-preview-protocol.test.ts src/main/browser/doc-preview-guest-policy.test.ts src/main/browser/doc-preview-failure-notice.test.ts src/shared/doc-preview-scheme.test.ts src/renderer/src/lib/doc-preview-grants.test.ts src/renderer/src/lib/file-preview.test.ts src/main/window/main-window-webview-security.test.ts",
-          "result": "passed",
-          "durationSeconds": 0.42,
-          "summary": "Nine grant, reader, protocol, guest-policy, scheme-admission, and plan-routing contract files passed 86/86, including truncated and over-cap reads, the old-server binary degradation, and out-of-worktree paired refusal with SSH left unrestricted."
+          "durationSeconds": 61.2,
+          "summary": "Candidate with the sole delta that the preview webview drops its allowpopups attribute failed with zero recorded routing calls and no new browser tab, proving the link phase measures the real popup path rather than passing on any click: without it Chromium discards the target=_blank press before setWindowOpenHandler runs."
         },
         {
           "date": "2026-08-26",
@@ -3003,24 +3016,6 @@
           "result": "failed",
           "durationSeconds": 0.51,
           "summary": "Candidate with two deltas — the unsupported-asset branch collapsed into the generic message and the entry-path filter removed — failed 2/6 on the asset-type sentence and on a subresource blanking the document, proving both halves are live."
-        },
-        {
-          "date": "2026-08-12",
-          "runner": "local",
-          "platform": "macos",
-          "command": "pnpm exec vitest run --config config/vitest.config.ts src/renderer/src/runtime/web-runtime-browser-capability-cleanup.test.ts src/renderer/src/lib/file-preview-capability-cleanup.test.ts",
-          "result": "failed",
-          "durationSeconds": 0.72,
-          "summary": "The unchanged STA-4063 oracle failed 5/5 on scan e4c278eb52 and latest main bc2e30000b: direct create never closed the new split, and side-preview rejection produced neither cleanup nor a toast. Pre-fix PR #14100 passed the two caller cases but still failed all three direct transaction cases."
-        },
-        {
-          "date": "2026-08-12",
-          "runner": "local",
-          "platform": "macos",
-          "command": "pnpm exec vitest run --config config/vitest.config.ts src/renderer/src/runtime/web-runtime-browser-capability-cleanup.test.ts src/renderer/src/lib/file-preview-capability-cleanup.test.ts",
-          "result": "passed",
-          "durationSeconds": 0.7,
-          "summary": "Rebased candidate 14b5877a75 passed 5/5: absent, unknown, mixed-version, preflight-known, and post-preflight capability failures all reported failure and retained no new empty split."
         },
         {
           "date": "2026-08-12",
@@ -3077,78 +3072,6 @@
           "summary": "Seven focused host and renderer contract files passed 183/183 tests, covering owning-runtime routing, focused and unfocused creation, placement, reconciliation, failure cleanup, and teardown."
         },
         {
-          "date": "2026-08-12",
-          "runner": "local",
-          "platform": "macos",
-          "command": "ORCA_E2E_WEB_CLIENT=1 ORCA_E2E_FORCE_HEADFUL=1 ORCA_E2E_FORWARD_APP_LOGS=1 pnpm exec playwright test tests/e2e/paired-remote-html-browser-focus.spec.ts --config tests/playwright.config.ts --project electron-headless --workers=1 --repeat-each=3",
-          "result": "passed",
-          "durationSeconds": 16.1,
-          "summary": "The candidate passed exact host/client cardinality, split stability, rendered DOM, focus authority, close convergence, and surviving editor and terminal."
-        },
-        {
-          "date": "2026-08-12",
-          "runner": "local",
-          "platform": "macos",
-          "command": "SKIP_BUILD=1 ORCA_E2E_WEB_CLIENT=1 ORCA_E2E_FORCE_HEADFUL=1 pnpm exec playwright test tests/e2e/paired-remote-html-browser-focus.spec.ts --config tests/playwright.config.ts --project electron-headless --workers=1",
-          "result": "failed",
-          "durationSeconds": 11.6,
-          "summary": "Latest-main a90a18d43da333e1cc327779a3f9912a78308848 failed the byte-identical 5806b23f oracle because the HTML preview collapsed into the source editor group instead of retaining its requested split."
-        },
-        {
-          "date": "2026-08-12",
-          "runner": "local",
-          "platform": "macos",
-          "command": "ORCA_E2E_WEB_CLIENT=1 ORCA_E2E_FORCE_HEADFUL=1 pnpm exec playwright test tests/e2e/paired-remote-html-browser-focus.spec.ts --config tests/playwright.config.ts --project electron-headless --workers=1",
-          "result": "passed",
-          "durationSeconds": 6.5,
-          "summary": "Rebased candidate b7de9c0961a4edf389a29079b2b4d5250184b57e passed the byte-identical 5806b23f oracle: one host page, one client workspace, requested split, rendered DOM, stable focus, and browser-only close."
-        },
-        {
-          "date": "2026-08-12",
-          "runner": "local",
-          "platform": "macos",
-          "command": "ORCA_E2E_WEB_CLIENT=1 ORCA_E2E_FORCE_HEADFUL=1 pnpm exec playwright test tests/e2e/paired-remote-html-browser-focus.spec.ts --config tests/playwright.config.ts --project electron-headless --workers=1",
-          "result": "failed",
-          "durationSeconds": 10.9,
-          "summary": "Rebased candidate b7de9c0961a4edf389a29079b2b4d5250184b57e with only the side-preview owning-runtime routing seam disabled failed the byte-identical 5806b23f oracle with two client workspaces."
-        },
-        {
-          "date": "2026-08-12",
-          "runner": "local",
-          "platform": "macos",
-          "command": "ORCA_E2E_WEB_CLIENT=1 ORCA_E2E_FORCE_HEADFUL=1 pnpm exec playwright test tests/e2e/paired-remote-html-browser-focus.spec.ts --config tests/playwright.config.ts --project electron-headless --workers=1",
-          "result": "passed",
-          "durationSeconds": 7.6,
-          "summary": "Final candidate d5767481b982b736e7cc5b4653b2a32a61280638 on merge-base 36d45af062ec4022265aabac8fc6a9d36eecedf1 passed the byte-identical 5806b23f oracle after final review and rebase: one host page, one client workspace, requested split, rendered DOM, stable focus, and browser-only close."
-        },
-        {
-          "date": "2026-08-12",
-          "runner": "local",
-          "platform": "macos",
-          "command": "ORCA_E2E_WEB_CLIENT=1 ORCA_E2E_FORCE_HEADFUL=1 pnpm exec playwright test tests/e2e/paired-remote-html-browser-focus.spec.ts --config tests/playwright.config.ts --project electron-headless --workers=1",
-          "result": "failed",
-          "durationSeconds": 11.8,
-          "summary": "Latest-main 346e59c879 failed the byte-identical 2ec1dcf1 oracle with two client HTML browser workspaces instead of one."
-        },
-        {
-          "date": "2026-08-12",
-          "runner": "local",
-          "platform": "macos",
-          "command": "ORCA_E2E_WEB_CLIENT=1 ORCA_E2E_FORCE_HEADFUL=1 pnpm exec playwright test tests/e2e/paired-remote-html-browser-focus.spec.ts --config tests/playwright.config.ts --project electron-headless --workers=1",
-          "result": "passed",
-          "durationSeconds": 8.4,
-          "summary": "Candidate d05217c40d passed the byte-identical 2ec1dcf1 oracle: one host page, one client workspace, stable split, rendered DOM, editor focus after creation, explicit-click browser focus, and browser-only close."
-        },
-        {
-          "date": "2026-08-12",
-          "runner": "local",
-          "platform": "macos",
-          "command": "ORCA_E2E_WEB_CLIENT=1 ORCA_E2E_FORCE_HEADFUL=1 pnpm exec playwright test tests/e2e/paired-remote-html-browser-focus.spec.ts --config tests/playwright.config.ts --project electron-headless --workers=1",
-          "result": "failed",
-          "durationSeconds": 12.3,
-          "summary": "Candidate d05217c40d with only the side-preview focusOnCreate:false call disabled failed the byte-identical 2ec1dcf1 oracle because preview creation activated the browser instead of preserving editor focus."
-        },
-        {
           "date": "2026-08-13",
           "runner": "local",
           "platform": "macos",
@@ -3177,7 +3100,7 @@
       },
       "redGreenEvidence": {
         "status": "complete",
-        "evidence": "The unchanged STA-4063 five-assertion oracle is red 5/5 on scan e4c278eb52 and latest main bc2e30000b, partially green 2/5 on pre-fix PR #14100, green 5/5 on candidate 14b5877a75, and red 3/5 when only the new transaction cleanup boundary is disabled on final candidate a9e6fb7716. The earlier STA-4025 transaction oracle remains red on the post-#13909 base and green on this candidate. The byte-identical STA-4231 headed oracle is red on latest-main b19d99bd00: both 15-second creates return runtime_timeout without a page ID while the host retains two distinct pages after retry. The relevant behavior is unchanged through 0a0ae974d4. The candidate is green with one returned canonical ID, one host/client page, and no retry; disabling only the navigation-independent acknowledgement is red with the same two orphaned pages. The byte-identical 2ec1dcf1 Electron oracle remains red on latest main 346e59c879, green on candidate d05217c40d, and red with only side-preview focus disabled; historical 5806b23f evidence separately proves owning-runtime routing. For the STA-5557 preview behavior the rewritten journey is green 1/1 on the candidate and red when the sole delta makes the same preview action also create a browser tab, failing on clientBrowserWorkspaceCount 1 versus baseline 0. That absence assertion is gated on first reading the rendered document out of the guest, so it cannot pass by the preview never happening. Against pre-STA-5557 builds the journey is red by construction rather than by measurement: those builds have no html-preview tab mode, so the run would fail earlier, at materialization, and it has not been executed against an old build. The reader-facing half is red-green at the unit layer: the failure-message suite is green 6/6 and red 2/6 when the unsupported-asset branch is collapsed into the generic message and the entry-path filter is removed."
+        "evidence": "The unchanged STA-4063 five-assertion oracle is red 5/5 on scan e4c278eb52 and latest main bc2e30000b, partially green 2/5 on pre-fix PR #14100, green 5/5 on candidate 14b5877a75, and red 3/5 when only the new transaction cleanup boundary is disabled on final candidate a9e6fb7716. The earlier STA-4025 transaction oracle remains red on the post-#13909 base and green on this candidate. The byte-identical STA-4231 headed oracle is red on latest-main b19d99bd00: both 15-second creates return runtime_timeout without a page ID while the host retains two distinct pages after retry. The relevant behavior is unchanged through 0a0ae974d4. The candidate is green with one returned canonical ID, one host/client page, and no retry; disabling only the navigation-independent acknowledgement is red with the same two orphaned pages. The byte-identical 2ec1dcf1 Electron oracle remains red on latest main 346e59c879, green on candidate d05217c40d, and red with only side-preview focus disabled; historical 5806b23f evidence separately proves owning-runtime routing. For the STA-5557 preview behavior the rewritten journey is green 1/1 on the candidate and red when the sole delta makes the same preview action also create a browser tab, failing on clientBrowserWorkspaceCount 1 versus baseline 0. That absence assertion is gated on first reading the rendered document out of the guest, so it cannot pass by the preview never happening. Against pre-STA-5557 builds the journey is red by construction rather than by measurement: those builds have no html-preview tab mode, so the run would fail earlier, at materialization, and it has not been executed against an old build. The reader-facing half is red-green at the unit layer: the failure-message suite is green 6/6 and red 2/6 when the unsupported-asset branch is collapsed into the generic message and the entry-path filter is removed. The external-link phase added on 2026-08-26 is red-green by measurement: green 3/3 with the preview webview carrying allowpopups, and red with zero recorded routing calls when only that attribute is dropped, which is also how the dead click it now covers was found. One further run failed in the paired-client harness before reaching any preview step, when the client window never exposed its store within the launch timeout; that is a harness flake, not a preview signal."
       },
       "performanceBudget": {
         "required": true,
@@ -3195,7 +3118,7 @@
         "The preview journey exercises one self-contained document. Relative subresources, reload re-reading the workspace disk, and the truncated and out-of-worktree refusals are covered by unit contracts only.",
         "Grant revocation on tab close is asserted at the unit layer; the journey observes the tab and open file disappearing, not the main-process registry."
       ],
-      "demotionRule": "Demote if a paired HTML preview creates a browser workspace on either side, renders from anything other than the orca-preview scheme, serves a read the host reported as truncated or over-cap, steals focus from the source editor when it opens, or removes unrelated editor or terminal state on close; or if a paired browser creation this gate still owns produces duplicate client or host identities or loses its requested split."
+      "demotionRule": "Demote if a paired HTML preview creates a browser workspace on either side, renders from anything other than the orca-preview scheme, serves a read the host reported as truncated or over-cap, serves a document without the self-only content security policy, lets the preview session carry an off-machine request, reads an SSH path that canonicalizes outside its grant root, steals focus from the source editor when it opens, or removes unrelated editor or terminal state on close; or if a paired browser creation this gate still owns produces duplicate client or host identities or loses its requested split."
     },
     {
       "id": "browser-network-tunnel.bounded-fail-closed-route",

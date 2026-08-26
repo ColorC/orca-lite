@@ -4,6 +4,7 @@ import {
   DOC_PREVIEW_SCHEME,
   parseDocPreviewUrl
 } from '../../shared/doc-preview-scheme'
+import { installBrowserSessionPartitionPolicies } from './browser-session-partition-policies'
 import { readDocPreviewFile } from './doc-preview-file-reader'
 import { publishDocPreviewFailure } from './doc-preview-failure-notice'
 import { getDocPreviewGrant } from './doc-preview-grant-registry'
@@ -37,6 +38,23 @@ export function isDocPreviewSession(candidate: Electron.Session): boolean {
   return docPreviewSession !== null && candidate === docPreviewSession
 }
 
+/**
+ * Product decision, not a hardening default: previewed documents are agent-authored, so any
+ * outbound request they can make is an exfiltration channel for whatever else the page can read.
+ * Self-contained documents — inline CSS/JS/SVG and in-grant assets — render in full; a CDN
+ * stylesheet, font, script, or analytics beacon deliberately does not load.
+ */
+const DOC_PREVIEW_CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data:",
+  "font-src 'self' data:",
+  "connect-src 'self'",
+  "frame-src 'self'",
+  "object-src 'none'"
+].join('; ')
+
 function notFound(message: string): Response {
   return new Response(message, {
     status: 404,
@@ -51,13 +69,19 @@ export async function handleDocPreviewRequest(request: Request): Promise<Respons
   }
   const grant = getDocPreviewGrant(target.grantId)
   if (!grant) {
-    // Why: a revoked or unknown grant is indistinguishable from a missing file by design.
+    // Why: a revoked or unknown grant is indistinguishable from a missing file by design — but the
+    // shell still needs to know, or the guest paints this body where the document should be.
+    publishDocPreviewFailure({
+      grantId: target.grantId,
+      relativePath: target.relativePath,
+      reason: 'unreadable'
+    })
     return notFound('Not found')
   }
   const relativePath = target.relativePath || grant.entryRelativePath
   const outcome = await readDocPreviewFile(grant, relativePath)
   if (!outcome.ok) {
-    publishDocPreviewFailure(target.grantId, relativePath, outcome.status)
+    publishDocPreviewFailure({ grantId: target.grantId, relativePath, reason: outcome.reason })
     return new Response(outcome.message, {
       status: outcome.status,
       headers: { 'Content-Type': 'text/plain; charset=utf-8' }
@@ -67,10 +91,21 @@ export async function handleDocPreviewRequest(request: Request): Promise<Respons
     status: 200,
     headers: {
       'Content-Type': outcome.contentType,
+      'Content-Security-Policy': DOC_PREVIEW_CONTENT_SECURITY_POLICY,
       // Why: reload must re-read the workspace disk, so nothing may be cached.
       'Cache-Control': 'no-store'
     }
   })
+}
+
+/** `data:`/`blob:` never leave the document; every other scheme would reach off-machine. */
+export function isAllowedDocPreviewRequestUrl(url: string): boolean {
+  return (
+    url.startsWith(`${DOC_PREVIEW_SCHEME}://`) ||
+    url.startsWith('devtools://') ||
+    url.startsWith('data:') ||
+    url.startsWith('blob:')
+  )
 }
 
 export function installDocPreviewProtocolHandler(): void {
@@ -79,4 +114,19 @@ export function installDocPreviewProtocolHandler(): void {
     return
   }
   previewSession.protocol.handle(DOC_PREVIEW_SCHEME, handleDocPreviewRequest)
+  // Why: the response CSP is the document's own promise to obey; this is the session refusing to
+  // carry the request at all, so a CSP bypass in one element type still reaches nothing.
+  previewSession.webRequest.onBeforeRequest((details, callback) => {
+    callback({ cancel: !isAllowedDocPreviewRequestUrl(details.url) })
+  })
+  // Why: preview guests are webviews like any other, so they inherit the same deny-by-default
+  // permission, display-media, download and user-agent policy every browser partition gets.
+  installBrowserSessionPartitionPolicies({
+    id: DOC_PREVIEW_PARTITION,
+    scope: 'isolated',
+    partition: DOC_PREVIEW_PARTITION,
+    label: 'Document preview',
+    source: null,
+    userAgentMode: 'clean'
+  })
 }

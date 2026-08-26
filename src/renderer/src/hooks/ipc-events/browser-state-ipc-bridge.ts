@@ -1,4 +1,6 @@
+import { toast } from 'sonner'
 import { rememberLiveBrowserUrl } from '@/components/browser-pane/describe-page/live-browser-url-registry'
+import { translate } from '@/i18n/i18n'
 import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
 import { redactKagiSessionToken } from '../../../../shared/browser-url'
 import { useAppStore } from '../../store'
@@ -98,7 +100,20 @@ export function registerBrowserStateIpcBridge(
       window.api.docPreview.onExternalLink(({ url }) => {
         // Why: an external link in a doc preview leaves the preview entirely — it becomes a normal
         // browser tab through the same path as any other new tab, local or paired.
-        void useAppStore.getState().openBrowserProfileTabInActiveWorkspace(url, null)
+        void useAppStore
+          .getState()
+          .openBrowserProfileTabInActiveWorkspace(url, null)
+          .then((opened) => {
+            // Why: the click already left the preview, so a refused tab is a dead end unless it says so.
+            if (!opened) {
+              toast.error(
+                translate(
+                  'auto.hooks.ipc.events.browserStateIpcBridge.docPreviewLinkFailed',
+                  'Could not open this link in Orca Browser.'
+                )
+              )
+            }
+          })
       })
     )
   }

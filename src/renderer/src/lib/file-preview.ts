@@ -25,24 +25,6 @@ function pairedOutsideWorktreeMessage(): string {
   )
 }
 
-type WorkspaceFileBrowserActionMode = 'local-client' | 'paired-runtime' | null
-
-function getWorkspaceFileBrowserActionMode(
-  state: AppState,
-  worktreeId: string
-): WorkspaceFileBrowserActionMode {
-  const availability = getClientCreationActionPolicy(state, worktreeId)['managed-browser']
-  if (availability.state !== 'enabled') {
-    return null
-  }
-  const environmentId = getRuntimeEnvironmentIdForWorktree(state, worktreeId)
-  return environmentId
-    ? availability.provider === 'paired-runtime'
-      ? 'paired-runtime'
-      : null
-    : 'local-client'
-}
-
 /**
  * How a previewable document should be rendered.
  *
@@ -115,9 +97,15 @@ export function canShowWorkspaceFileBrowserAction(
 export function useWorkspaceFileBrowserActionPredicate(
   worktreeId: string | null
 ): (filePath: string) => boolean {
-  const inputs = useAppStore(
+  // Why this subscribes but does not decide: visibility must come from the same plan the action
+  // itself runs, or the two drift apart — they already disagreed about a local workspace whose
+  // managed browser is disabled. The subscription only re-renders the caller; the predicate reads
+  // the live store, so it stays identity-stable for the memoized handlers that depend on it.
+  useAppStore(
     useShallow((state) => ({
-      mode: worktreeId ? getWorkspaceFileBrowserActionMode(state, worktreeId) : null,
+      managedBrowser: worktreeId
+        ? getClientCreationActionPolicy(state, worktreeId)['managed-browser'].state
+        : null,
       runtimeEnvironmentId: worktreeId
         ? (getRuntimeEnvironmentIdForWorktree(state, worktreeId) ?? null)
         : null,
@@ -128,20 +116,11 @@ export function useWorkspaceFileBrowserActionPredicate(
     }))
   )
   return useCallback(
-    (filePath: string) => {
-      if (!worktreeId) {
-        return false
-      }
-      const connectionId = getConnectionIdForFileFromState(inputs, worktreeId, filePath)
-      if (connectionId === undefined) {
-        return false
-      }
-      if (connectionId !== null) {
-        return true
-      }
-      return inputs.runtimeEnvironmentId !== null || inputs.mode !== null
-    },
-    [inputs, worktreeId]
+    (filePath: string) =>
+      worktreeId
+        ? canShowWorkspaceFileBrowserAction(useAppStore.getState(), worktreeId, filePath)
+        : false,
+    [worktreeId]
   )
 }
 
@@ -262,8 +241,13 @@ export function openFilePreviewToSide(params: {
   const layout = state.layoutByWorktree[worktreeId] ?? null
   const existingSibling = layout ? findSiblingGroupId(layout, sourceGroupId) : null
 
+  // Why the unfocused split on a paired workspace: the preview opens in the background, and a host
+  // snapshot reads an activated empty group as a terminal pane.
   const targetGroupId =
-    existingSibling ?? state.createEmptySplitGroup(worktreeId, sourceGroupId, 'right')
+    existingSibling ??
+    (getRuntimeEnvironmentIdForWorktree(state, worktreeId)
+      ? state.createEmptySplitGroup(worktreeId, sourceGroupId, 'right', { activate: false })
+      : state.createEmptySplitGroup(worktreeId, sourceGroupId, 'right'))
   if (!targetGroupId) {
     return
   }

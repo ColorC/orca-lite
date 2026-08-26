@@ -82,13 +82,18 @@ export function handleTerminalFileLink(
           run: () =>
             openDetectedFilePath(filePath, line, column, { ...deps, openWithSystemDefault: true })
         }
-      : {
-          label: translate(
-            'auto.components.terminal.pane.TerminalLinkActionPopover.downloadOpenWithDefaultApp',
-            'Download & open with default app'
-          ),
-          run: () => downloadAndOpenRemoteTerminalFile(fileContext, mappedPath)
-        }
+      : // Why the path shape and not a stat: the popover is built synchronously on hover, and a
+        // remote stat per link would put a round-trip in front of every terminal path. A directory
+        // that does not announce itself with a separator still fails visibly, in the download toast.
+        /[/\\]$/.test(mappedPath)
+        ? null
+        : {
+            label: translate(
+              'auto.components.terminal.pane.TerminalLinkActionPopover.downloadOpenWithDefaultApp',
+              'Download & open with default app'
+            ),
+            run: () => downloadAndOpenRemoteTerminalFile(fileContext, mappedPath)
+          }
   const previewRow =
     !worktreeRoot && canPreviewLanguage(detectLanguage(mappedPath))
       ? {

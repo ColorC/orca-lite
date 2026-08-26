@@ -13,6 +13,9 @@ export type PairedHtmlPreviewInventory = {
   hostFixtureBrowserTabIds: string[]
   /** Client-side browser workspaces; the old preview path grew this by one. */
   clientBrowserWorkspaceCount: number
+  /** Why every workspace and not just this one: a routed-out link opens in whichever workspace is
+   *  active, so a per-worktree count could miss a tab that really was created. */
+  clientBrowserWorkspaceCountAllWorktrees: number
   clientFixtureBrowserWorkspaceIds: string[]
   previewTabs: { groupId: string; id: string }[]
   previewOpenFileModes: string[]
@@ -49,6 +52,9 @@ export async function readPairedHtmlPreviewInventory(
         .filter((tab) => tab.url.endsWith(`/${fixtureName}`))
         .map((tab) => tab.id),
       clientBrowserWorkspaceCount: clientBrowserWorkspaces.length,
+      clientBrowserWorkspaceCountAllWorktrees: Object.values(
+        state?.browserTabsByWorktree ?? {}
+      ).reduce((total, tabs) => total + tabs.length, 0),
       clientFixtureBrowserWorkspaceIds: clientBrowserWorkspaces
         .filter((tab) => tab.url.endsWith(`/${fixtureName}`))
         .map((tab) => tab.id),
@@ -87,6 +93,83 @@ export async function readDocPreviewRenderedText(
       return null
     }
   }, selector)
+}
+
+/**
+ * Viewport point of an element inside the preview guest. Playwright cannot target a node in a
+ * webview, so the guest reports the rect and the embedder adds the webview's own offset — a real
+ * mouse press there is the only click Chromium treats as a user gesture.
+ *
+ * Returns null until the guest's own hit test at that point resolves to the element, so a caller
+ * polling on it cannot click a rect that layout is still moving.
+ */
+export async function readDocPreviewElementCenter(
+  page: Page,
+  selector: string
+): Promise<{ x: number; y: number } | null> {
+  return page.evaluate(async (targetSelector) => {
+    const guest = document.querySelector('webview[src^="orca-preview://"]') as
+      | (HTMLElement & { executeJavaScript?: (code: string) => Promise<unknown> })
+      | null
+    if (!guest?.executeJavaScript) {
+      return null
+    }
+    try {
+      const rect = (await guest.executeJavaScript(
+        `(() => { const el = document.querySelector(${JSON.stringify(targetSelector)});
+          if (!el) { return null }
+          const r = el.getBoundingClientRect();
+          const x = r.left + r.width / 2;
+          const y = r.top + r.height / 2;
+          return el.contains(document.elementFromPoint(x, y)) ? { x, y } : null })()`
+      )) as { x: number; y: number } | null
+      if (!rect) {
+        return null
+      }
+      const hostRect = guest.getBoundingClientRect()
+      if (hostRect.width === 0 || hostRect.height === 0) {
+        return null
+      }
+      return { x: hostRect.left + rect.x, y: hostRect.top + rect.y }
+    } catch {
+      return null
+    }
+  }, selector)
+}
+
+type RoutedPreviewLink = { url: string; opened: boolean }
+
+/**
+ * Records every external link the preview routes into a browser tab. The click that triggers this
+ * crosses into a guest process, so without the record a missing tab cannot distinguish a press
+ * Chromium swallowed from a tab the workspace refused to create.
+ */
+export async function armPairedHtmlPreviewLinkRouting(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const store = window.__store
+    if (!store) {
+      throw new Error('paired client exposed no store to observe link routing')
+    }
+    const routed: RoutedPreviewLink[] = []
+    ;(window as unknown as { __routedPreviewLinks: RoutedPreviewLink[] }).__routedPreviewLinks =
+      routed
+    const original = store.getState().openBrowserProfileTabInActiveWorkspace
+    store.setState({
+      openBrowserProfileTabInActiveWorkspace: async (url: string, profileId: string | null) => {
+        const opened = await original(url, profileId)
+        routed.push({ url, opened })
+        return opened
+      }
+    } as never)
+  })
+}
+
+export async function readPairedHtmlPreviewLinkRouting(page: Page): Promise<RoutedPreviewLink[]> {
+  return page.evaluate(
+    () =>
+      (window as unknown as { __routedPreviewLinks?: RoutedPreviewLink[] }).__routedPreviewLinks ??
+      []
+  )
 }
 
 export async function readDocPreviewGuestUrl(page: Page): Promise<string | null> {

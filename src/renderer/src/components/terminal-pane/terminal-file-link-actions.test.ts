@@ -183,4 +183,15 @@ describe('terminal file link actions', () => {
 
     expect(request.mock.calls[0][0]).not.toHaveProperty('extra')
   })
+
+  // Why: a directory has nothing to hand the OS, and the download row would offer a transfer that
+  // can only fail. The popover is built on hover, so the path shape decides rather than a stat.
+  it('drops the remote download row for a path that announces itself as a directory', () => {
+    mocks.canOpenWithSystemDefault = false
+    const request = vi.fn()
+
+    handleTerminalFileLink('/repo/docs/', null, null, plainEvent(), deps, context(request))
+
+    expect(request.mock.calls[0][0]).not.toHaveProperty('alternate')
+  })
 })

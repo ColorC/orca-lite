@@ -16,7 +16,10 @@ import { ORCA_BROWSER_BLANK_URL } from '../../shared/constants'
 import { DOC_PREVIEW_PARTITION, parseDocPreviewUrl } from '../../shared/doc-preview-scheme'
 import { setDocPreviewFailureSink } from '../browser/doc-preview-failure-notice'
 import { installDocPreviewGuestPolicy } from '../browser/doc-preview-guest-policy'
-import { getDocPreviewGrant } from '../browser/doc-preview-grant-registry'
+import {
+  getDocPreviewGrant,
+  revokeAllDocPreviewGrants
+} from '../browser/doc-preview-grant-registry'
 import { isDocPreviewSession } from '../browser/doc-preview-protocol'
 import { registerPluginPanelNavigationGuard } from '../plugins/plugin-panel-navigation-guard'
 import { installPrivilegedWindowNavigationPolicy } from './privileged-window-navigation'
@@ -37,6 +40,12 @@ function isAdmissibleDocPreviewAttach(partition: string, src: string): boolean {
 
 export function installMainWindowWebviewSecurity(mainWindow: BrowserWindow): void {
   installPrivilegedWindowNavigationPolicy(mainWindow.webContents)
+  // Why these contents and not the window: every live preview is a guest of this WebContents, and
+  // it is also the failure sink itself — once it is destroyed no grant it minted has a reader left.
+  mainWindow.webContents.on('destroyed', () => {
+    setDocPreviewFailureSink(null)
+    revokeAllDocPreviewGrants()
+  })
   // Why: containment must be listening before any plugin panel frame is created,
   // so register it with the window's other navigation policy.
   registerPluginPanelNavigationGuard(mainWindow.webContents)

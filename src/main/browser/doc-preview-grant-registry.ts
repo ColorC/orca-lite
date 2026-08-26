@@ -63,10 +63,12 @@ export function getDocPreviewGrant(grantId: string): DocPreviewGrant | null {
 }
 
 export function revokeDocPreviewGrant(grantId: string): boolean {
+  canonicalRootByGrantId.delete(grantId)
   return grantsById.delete(grantId)
 }
 
 export function revokeAllDocPreviewGrants(): void {
+  canonicalRootByGrantId.clear()
   grantsById.clear()
 }
 
@@ -99,11 +101,46 @@ export function resolveDocPreviewTargetPath(
   }
   const flavor = pathFlavorFor(grant.root)
   const resolved = flavor.normalize(flavor.join(grant.root, ...segments))
-  const rootPrefix = grant.root.endsWith(flavor.sep) ? grant.root : `${grant.root}${flavor.sep}`
-  if (!resolved.startsWith(rootPrefix)) {
+  return isInsideRoot(grant.root, resolved, flavor) ? resolved : null
+}
+
+function isInsideRoot(
+  root: string,
+  candidate: string,
+  flavor: typeof posix | typeof win32
+): boolean {
+  const rootPrefix = root.endsWith(flavor.sep) ? root : `${root}${flavor.sep}`
+  return candidate.startsWith(rootPrefix)
+}
+
+/** Why: realpath is a host round-trip, and a grant's root is fixed for its lifetime. */
+const canonicalRootByGrantId = new Map<string, Promise<string>>()
+
+/**
+ * Second containment pass for hosts where the lexical one is not enough: a symlink
+ * inside the root can point anywhere, and the SSH read RPC applies no root of its
+ * own. Both sides are canonicalized on the owning host before the prefix re-check;
+ * a host that cannot canonicalize a path answers nothing.
+ */
+export async function resolveCanonicalDocPreviewPath(
+  grant: DocPreviewGrant,
+  absolutePath: string,
+  realpath: (path: string) => Promise<string>
+): Promise<string | null> {
+  try {
+    let canonicalRoot = canonicalRootByGrantId.get(grant.id)
+    if (!canonicalRoot) {
+      canonicalRoot = realpath(grant.root).then(normalizeRootPath)
+      canonicalRootByGrantId.set(grant.id, canonicalRoot)
+    }
+    const [root, canonicalPath] = await Promise.all([canonicalRoot, realpath(absolutePath)])
+    const flavor = pathFlavorFor(root)
+    return isInsideRoot(root, canonicalPath, flavor) ? canonicalPath : null
+  } catch {
+    // Why: a root that no longer canonicalizes must not fall back to the lexical answer.
+    canonicalRootByGrantId.delete(grant.id)
     return null
   }
-  return resolved
 }
 
 /**

@@ -7,7 +7,11 @@ import {
 import { ORCA_BROWSER_GUEST_WEB_PREFERENCES_ATTRIBUTE } from '../../../../shared/browser-guest-web-preferences'
 import { moveFocusToRendererBeforeWebviewDetach } from '@/components/browser-pane/host-guest/webview-registry'
 import { Button } from '@/components/ui/button'
-import { buildDocPreviewGrantRequest, ensureDocPreviewGrant } from '@/lib/doc-preview-grants'
+import {
+  buildDocPreviewGrantRequest,
+  ensureDocPreviewGrant,
+  releaseDocPreviewGrant
+} from '@/lib/doc-preview-grants'
 import { translate } from '@/i18n/i18n'
 import { useAppStore } from '@/store'
 
@@ -20,10 +24,10 @@ function docPreviewFailureDetail(reason: DocPreviewFailureReason | null): string
       'This document is too large to preview. Open it in the editor instead.'
     )
   }
-  if (reason === 'unsupported-binary') {
+  if (reason === 'unsupported-asset') {
     return translate(
-      'auto.components.editor.HtmlDocPreview.2b6ad4f019',
-      'This document needs a newer Orca server to render one of its assets.'
+      'auto.components.editor.HtmlDocPreview.7a4c1de35f',
+      'This workspace cannot send this file type to a preview.'
     )
   }
   return translate(
@@ -48,6 +52,10 @@ function attachDocPreviewWebview({
   onLoadFailed: (event: Electron.DidFailLoadEvent) => void
 }): { detach: () => void; reload: () => void } {
   const webview = document.createElement('webview') as Electron.WebviewTag
+  // Why: without allowpopups Chromium drops a target="_blank" click before setWindowOpenHandler
+  // ever sees it, so the guest policy that turns those links into Orca tabs never runs. The handler
+  // still denies every popup, so no native window can appear.
+  webview.setAttribute('allowpopups', '')
   webview.setAttribute('partition', DOC_PREVIEW_PARTITION)
   webview.setAttribute('webpreferences', ORCA_BROWSER_GUEST_WEB_PREFERENCES_ATTRIBUTE)
   webview.setAttribute('aria-label', ariaLabel)
@@ -93,6 +101,7 @@ export function HtmlDocPreview({
   const reloadRef = useRef<(() => void) | null>(null)
   const [state, setState] = useState<PreviewState>('loading')
   const [failureReason, setFailureReason] = useState<DocPreviewFailureReason | null>(null)
+  const [remintCount, setRemintCount] = useState(0)
 
   useEffect(() => {
     let disposed = false
@@ -167,11 +176,19 @@ export function HtmlDocPreview({
       unsubscribeFailure?.()
       detach?.()
     }
-  }, [filePath, previewId, worktreeId])
+  }, [filePath, previewId, remintCount, worktreeId])
 
   const handleReload = useCallback(() => {
+    // Why: a grant is pinned to the owner ids resolved when it was minted, so after a pairing or
+    // SSH reconnect the old one reads nothing and reloading the guest would just refetch the
+    // failure. Drop it and mint against today's ids instead of making the user close the tab.
+    if (failureReason !== null || state === 'unavailable') {
+      releaseDocPreviewGrant(previewId)
+      setRemintCount((count) => count + 1)
+      return
+    }
     reloadRef.current?.()
-  }, [])
+  }, [failureReason, previewId, state])
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-editor-surface">

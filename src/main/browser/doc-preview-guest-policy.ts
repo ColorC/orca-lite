@@ -45,14 +45,26 @@ export function installDocPreviewGuestPolicy(
     openExternally(url)
   }
 
-  guest.on('did-start-navigation', (_event, url) => {
-    if (boundGrantId !== null) {
+  guest.on('did-start-navigation', (details) => {
+    // Why: only the top document defines which grant this guest belongs to. Latching from a
+    // subframe would let an in-document iframe rebind the guest to another grant.
+    if (boundGrantId !== null || !details.isMainFrame) {
       return
     }
-    boundGrantId = parseDocPreviewUrl(url)?.grantId ?? null
+    boundGrantId = parseDocPreviewUrl(details.url)?.grantId ?? null
   })
   guest.on('will-navigate', navigationGuard)
   guest.on('will-redirect', navigationGuard)
+  // Why: will-navigate never fires for a subframe, so without this an <iframe src="https://…">
+  // inside a previewed document would load off-machine even though the top frame cannot.
+  guest.on('will-frame-navigate', (details) => {
+    if (details.isMainFrame || isAllowedPreviewNavigation(details.url)) {
+      return
+    }
+    // Why blocked rather than routed out like a main-frame click: a subframe navigates on its own,
+    // so opening a tab for it would let a document spawn browser tabs the user never asked for.
+    details.preventDefault()
+  })
   guest.setWindowOpenHandler(({ url }) => {
     openExternally(url)
     // Why: previews never own native child windows; every popup target becomes an Orca tab or nothing.
