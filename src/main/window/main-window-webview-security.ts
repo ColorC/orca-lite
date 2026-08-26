@@ -60,6 +60,10 @@ export function installMainWindowWebviewSecurity(mainWindow: BrowserWindow): voi
   registerPluginPanelNavigationGuard(mainWindow.webContents)
 
   const browserWindowClosePreload = join(__dirname, 'browser-window-close-preload.js')
+  // Why a preview gets a preload at all: it is our own editor surface, not a browsing guest. This
+  // one only decides what a click on a link means, and it is pinned here so no renderer-supplied
+  // value can reach a preview guest and no other attach path can acquire it.
+  const docPreviewLinkPreload = join(__dirname, 'doc-preview-link-preload.js')
   mainWindow.webContents.on('will-attach-webview', (event, webPreferences, params) => {
     const src = typeof params.src === 'string' ? params.src : ''
     const normalizedSrc = normalizeBrowserNavigationUrl(src)
@@ -85,7 +89,7 @@ export function installMainWindowWebviewSecurity(mainWindow: BrowserWindow): voi
 
     delete params.preload
     // Why: preload runs in the page's main world before inline scripts can call window.close().
-    webPreferences.preload = browserWindowClosePreload
+    webPreferences.preload = isDocPreviewAttach ? docPreviewLinkPreload : browserWindowClosePreload
     // Why: older Electron builds expose preloadURL alongside preload; delete both so the guest can't inherit the main preload bridge.
     delete (webPreferences as Record<string, unknown>).preloadURL
     // Why delete something Electron does not set: 43 does not pass the embedder's

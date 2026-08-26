@@ -1,9 +1,11 @@
 import { ipcMain } from 'electron'
 import {
   buildDocPreviewUrl,
+  DOC_PREVIEW_LINK_CLICK_CHANNEL,
   DOC_PREVIEW_MINT_GRANT_CHANNEL,
   DOC_PREVIEW_REVOKE_GRANT_CHANNEL
 } from '../../shared/doc-preview-scheme'
+import { reportDocPreviewLinkClick } from '../browser/doc-preview-guest-policy'
 import {
   mintDocPreviewGrant,
   revokeDocPreviewGrant,
@@ -68,4 +70,13 @@ export function registerDocPreviewGrantHandlers(): void {
   ipcMain.handle(DOC_PREVIEW_REVOKE_GRANT_CHANNEL, (event, grantId: string): boolean =>
     isTrustedBrowserRenderer(event.sender) ? revokeDocPreviewGrant(grantId) : false
   )
+
+  // Why no trusted-renderer check here: the sender is a preview guest rendering a workspace
+  // document, which is exactly the untrusted side. `reportDocPreviewLinkClick` is the gate — a
+  // live bound grant, a focused guest, a web URL — and it drops everything else silently.
+  ipcMain.on(DOC_PREVIEW_LINK_CLICK_CHANNEL, (event, url: unknown) => {
+    if (typeof url === 'string') {
+      reportDocPreviewLinkClick(event.sender, url)
+    }
+  })
 }

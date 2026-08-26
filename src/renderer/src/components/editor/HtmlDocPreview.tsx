@@ -87,10 +87,8 @@ function attachDocPreviewWebview({
   onLoadFailed: (event: Electron.DidFailLoadEvent) => void
 }): { detach: () => void; reload: () => void } {
   const webview = document.createElement('webview') as Electron.WebviewTag
-  // Why: without allowpopups Chromium drops a target="_blank" click before setWindowOpenHandler
-  // ever sees it, so the guest policy that turns those links into Orca tabs never runs. The handler
-  // still denies every popup, so no native window can appear.
-  webview.setAttribute('allowpopups', '')
+  // Why no allowpopups: the guest's preload intercepts a trusted click on a link before Chromium
+  // considers a popup at all, so target="_blank" needs no popup path and every one stays denied.
   webview.setAttribute('partition', DOC_PREVIEW_PARTITION)
   webview.setAttribute('webpreferences', ORCA_BROWSER_GUEST_WEB_PREFERENCES_ATTRIBUTE)
   webview.setAttribute('aria-label', ariaLabel)

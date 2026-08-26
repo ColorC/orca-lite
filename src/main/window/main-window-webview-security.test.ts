@@ -160,6 +160,43 @@ describe('orca-preview scheme admission', () => {
     expect(preferences).not.toHaveProperty('preloadURL')
   })
 
+  // Why both directions: the preview preload is the only script that can turn a press into a
+  // browser tab, so a browsing guest must never receive it — and a preview must never receive
+  // anything else, least of all a value the renderer supplied.
+  it('pins the preview preload onto a preview attach, replacing whatever the renderer asked for', () => {
+    const { handlers } = installOnFakeWindow()
+    const grant = mintPreviewGrant()
+    mocks.isAllowedPartition.mockReturnValue(false)
+    const params = { src: buildDocPreviewUrl(grant.id, 'index.html'), preload: 'attacker.js' }
+    const preferences: Record<string, unknown> = {
+      partition: DOC_PREVIEW_PARTITION,
+      preload: 'attacker.js'
+    }
+
+    handlers['will-attach-webview']?.(
+      { preventDefault: vi.fn() } as never,
+      preferences as never,
+      params as never
+    )
+
+    expect(params).not.toHaveProperty('preload')
+    expect(String(preferences.preload)).toMatch(/doc-preview-link-preload\.js$/)
+  })
+
+  it('keeps the preview preload off a browsing attach', () => {
+    const { handlers } = installOnFakeWindow()
+    mocks.isAllowedPartition.mockReturnValue(true)
+    const preferences: Record<string, unknown> = { partition: 'persist:orca-browser' }
+
+    handlers['will-attach-webview']?.(
+      { preventDefault: vi.fn() } as never,
+      preferences as never,
+      { src: 'https://example.com' } as never
+    )
+
+    expect(String(preferences.preload)).toMatch(/browser-window-close-preload\.js$/)
+  })
+
   it('denies a preview URL whose grant is unknown or revoked', () => {
     const { handlers } = installOnFakeWindow()
     mocks.isAllowedPartition.mockReturnValue(false)

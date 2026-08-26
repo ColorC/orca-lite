@@ -1,26 +1,32 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { installDocPreviewGuestPolicy } from './doc-preview-guest-policy'
+import { installDocPreviewGuestPolicy, reportDocPreviewLinkClick } from './doc-preview-guest-policy'
 import { buildDocPreviewUrl } from '../../shared/doc-preview-scheme'
 import { mintDocPreviewGrant, revokeAllDocPreviewGrants } from './doc-preview-grant-registry'
 
 type GuestHandlers = Record<string, (...args: never[]) => void>
 
 function installOnFakeGuest(): {
+  contents: object
   handlers: GuestHandlers
+  isFocused: ReturnType<typeof vi.fn>
   send: ReturnType<typeof vi.fn>
   setWebRTCIPHandlingPolicy: ReturnType<typeof vi.fn>
   windowOpenHandler: (details: { url: string }) => { action: string }
 } {
   const handlers: GuestHandlers = {}
   const send = vi.fn()
+  const isFocused = vi.fn(() => true)
   const setWebRTCIPHandlingPolicy = vi.fn()
   let windowOpenHandler: (details: { url: string }) => { action: string } = () => ({
     action: 'deny'
   })
+  const register = (event: string, handler: (...args: never[]) => void): void => {
+    handlers[event] = handler
+  }
   const guest = {
-    on: vi.fn((event: string, handler: (...args: never[]) => void) => {
-      handlers[event] = handler
-    }),
+    isFocused,
+    on: vi.fn(register),
+    once: vi.fn(register),
     setWindowOpenHandler: vi.fn((handler: (details: { url: string }) => { action: string }) => {
       windowOpenHandler = handler
     }),
@@ -28,7 +34,9 @@ function installOnFakeGuest(): {
   }
   installDocPreviewGuestPolicy(guest as never, { send })
   return {
+    contents: guest,
     handlers,
+    isFocused,
     send,
     setWebRTCIPHandlingPolicy,
     windowOpenHandler: (details) => windowOpenHandler(details)
@@ -41,9 +49,16 @@ function startMainFrameNavigation(guest: FakeGuest, url: string): void {
   guest.handlers['did-start-navigation']?.({ url, isMainFrame: true } as never)
 }
 
-/** The shape Electron delivers for a real press, which is the only thing that opens the link route. */
-function pressPointer(guest: FakeGuest): void {
-  guest.handlers['input-event']?.({} as never, { type: 'mouseDown' } as never)
+/** A guest already showing a document, which is the only state a link can be pressed in. */
+function boundGuest(): { grant: ReturnType<typeof mintGrant>; guest: FakeGuest } {
+  const grant = mintGrant()
+  const guest = installOnFakeGuest()
+  startMainFrameNavigation(guest, buildDocPreviewUrl(grant.id, 'index.html'))
+  return { grant, guest }
+}
+
+function reportClick(guest: FakeGuest, url: string): void {
+  reportDocPreviewLinkClick(guest.contents as never, url)
 }
 
 function mintGrant(): ReturnType<typeof mintDocPreviewGrant> {
@@ -61,9 +76,7 @@ beforeEach(() => {
 
 describe('doc preview guest policy', () => {
   it('allows relative navigation within the bound grant', () => {
-    const grant = mintGrant()
-    const guest = installOnFakeGuest()
-    startMainFrameNavigation(guest, buildDocPreviewUrl(grant.id, 'index.html'))
+    const { grant, guest } = boundGuest()
     const preventDefault = vi.fn()
 
     guest.handlers['will-navigate']?.(
@@ -76,10 +89,8 @@ describe('doc preview guest policy', () => {
   })
 
   it('blocks navigation into a different live grant once bound', () => {
-    const grant = mintGrant()
+    const { guest } = boundGuest()
     const otherGrant = mintGrant()
-    const guest = installOnFakeGuest()
-    startMainFrameNavigation(guest, buildDocPreviewUrl(grant.id, 'index.html'))
     const preventDefault = vi.fn()
 
     guest.handlers['will-navigate']?.(
@@ -91,9 +102,7 @@ describe('doc preview guest policy', () => {
   })
 
   it('blocks a revoked grant even when it matches the bound id', () => {
-    const grant = mintGrant()
-    const guest = installOnFakeGuest()
-    startMainFrameNavigation(guest, buildDocPreviewUrl(grant.id, 'index.html'))
+    const { grant, guest } = boundGuest()
     revokeAllDocPreviewGrants()
     const preventDefault = vi.fn()
 
@@ -105,29 +114,20 @@ describe('doc preview guest policy', () => {
     expect(preventDefault).toHaveBeenCalledOnce()
   })
 
-  it('sends an external http(s) link to the renderer instead of navigating the preview', () => {
-    const grant = mintGrant()
-    const guest = installOnFakeGuest()
-    startMainFrameNavigation(guest, buildDocPreviewUrl(grant.id, 'index.html'))
+  it('blocks an external navigation without offering it to the renderer', () => {
+    const { guest } = boundGuest()
     const preventDefault = vi.fn()
 
-    pressPointer(guest)
     guest.handlers['will-navigate']?.({ preventDefault } as never, 'https://example.com/' as never)
 
     expect(preventDefault).toHaveBeenCalledOnce()
-    expect(guest.send).toHaveBeenCalledWith('docPreview:externalLink', {
-      url: 'https://example.com/'
-    })
+    expect(guest.send).not.toHaveBeenCalled()
   })
 
-  it('blocks a file: navigation without offering it to the renderer', () => {
-    mintGrant()
-    const guest = installOnFakeGuest()
+  it('blocks a file: navigation', () => {
+    const { guest } = boundGuest()
     const preventDefault = vi.fn()
 
-    // Why press first: with no gesture the link route is shut for every URL, which would let this
-    // pass without the scheme check ever running.
-    pressPointer(guest)
     guest.handlers['will-navigate']?.({ preventDefault } as never, 'file:///etc/passwd' as never)
 
     expect(preventDefault).toHaveBeenCalledOnce()
@@ -135,30 +135,21 @@ describe('doc preview guest policy', () => {
   })
 
   it('applies the same rule to redirects', () => {
-    mintGrant()
-    const guest = installOnFakeGuest()
+    const { guest } = boundGuest()
     const preventDefault = vi.fn()
 
     guest.handlers['will-redirect']?.({ preventDefault } as never, 'https://evil.test/' as never)
 
     expect(preventDefault).toHaveBeenCalledOnce()
+    expect(guest.send).not.toHaveBeenCalled()
   })
 
-  it('denies every popup and routes target=_blank to a new Orca browser tab', () => {
-    const guest = installOnFakeGuest()
+  it('denies every popup and routes none of them', () => {
+    const { guest } = boundGuest()
 
-    pressPointer(guest)
     expect(guest.windowOpenHandler({ url: 'https://example.com/docs' })).toEqual({
       action: 'deny'
     })
-    expect(guest.send).toHaveBeenCalledWith('docPreview:externalLink', {
-      url: 'https://example.com/docs'
-    })
-  })
-
-  it('denies a popup to a non-web scheme without sending anything', () => {
-    const guest = installOnFakeGuest()
-
     expect(guest.windowOpenHandler({ url: 'file:///etc/passwd' })).toEqual({ action: 'deny' })
     expect(guest.send).not.toHaveBeenCalled()
   })
@@ -166,14 +157,9 @@ describe('doc preview guest policy', () => {
   // Why: will-navigate never fires for a subframe, so an <iframe src="https://…"> would load
   // off-machine even though the top frame cannot.
   it('blocks a subframe navigating outside the grant, without opening a tab for it', () => {
-    const grant = mintGrant()
-    const guest = installOnFakeGuest()
-    startMainFrameNavigation(guest, buildDocPreviewUrl(grant.id, 'index.html'))
+    const { guest } = boundGuest()
     const preventDefault = vi.fn()
 
-    // Why press first: the gesture gate alone would suppress the send, hiding whether the subframe
-    // rule is doing anything.
-    pressPointer(guest)
     guest.handlers['will-frame-navigate']?.({
       preventDefault,
       url: 'https://tracker.test/pixel',
@@ -181,15 +167,11 @@ describe('doc preview guest policy', () => {
     } as never)
 
     expect(preventDefault).toHaveBeenCalledOnce()
-    // Why not routed out like a main-frame click: a subframe navigates on its own, so a tab here
-    // would let a document spawn browser tabs the user never asked for.
     expect(guest.send).not.toHaveBeenCalled()
   })
 
   it('lets a subframe load an in-grant asset', () => {
-    const grant = mintGrant()
-    const guest = installOnFakeGuest()
-    startMainFrameNavigation(guest, buildDocPreviewUrl(grant.id, 'index.html'))
+    const { grant, guest } = boundGuest()
     const preventDefault = vi.fn()
 
     guest.handlers['will-frame-navigate']?.({
@@ -202,88 +184,100 @@ describe('doc preview guest policy', () => {
   })
 
   // Why this group exists: the external-link route ends in a real browser tab with full network, so
-  // a document that can read its grant and reach that route can exfiltrate it. Only a human may.
-  describe('gesture gate on the external-link route', () => {
-    it('refuses a scripted location change that no one asked for', () => {
-      const grant = mintGrant()
-      const guest = installOnFakeGuest()
-      startMainFrameNavigation(guest, buildDocPreviewUrl(grant.id, 'index.html'))
+  // a document that can read its grant and reach that route can exfiltrate it. Only a reader's own
+  // press on a link may, and only the guest's preload can tell that a press was one.
+  describe('the trusted-click route out of the preview', () => {
+    // The headline. The earlier design read a recent-input timestamp, so a script that navigated
+    // shortly after any genuine press was routed out as if the press had asked for it. Here the
+    // navigation sinks route nothing at all, so when the input happened cannot matter.
+    it('routes nothing for a scripted location change or window.open, whenever input happened', () => {
+      const { guest } = boundGuest()
       const preventDefault = vi.fn()
 
+      // Genuine input the guest would report, delivered immediately before the document acts.
+      guest.handlers['input-event']?.({} as never, { type: 'mouseDown' } as never)
+      guest.handlers['before-input-event']?.({} as never, { type: 'keyDown' } as never)
       guest.handlers['will-navigate']?.(
         { preventDefault } as never,
         'https://attacker.test/?d=secret' as never
       )
+      const popup = guest.windowOpenHandler({ url: 'https://attacker.test/?d=secret' })
 
       expect(preventDefault).toHaveBeenCalledOnce()
+      expect(popup).toEqual({ action: 'deny' })
       expect(guest.send).not.toHaveBeenCalled()
+      // Why assert the absence of the listeners too: with them gone there is no timing a document
+      // could hit, rather than a window it merely failed to hit in this test.
+      expect(guest.handlers['input-event']).toBeUndefined()
+      expect(guest.handlers['before-input-event']).toBeUndefined()
     })
 
-    it('refuses a scripted window.open that no one asked for', () => {
-      const guest = installOnFakeGuest()
+    it('routes a reported click on an external link exactly once', () => {
+      const { guest } = boundGuest()
 
-      expect(guest.windowOpenHandler({ url: 'https://attacker.test/?d=secret' })).toEqual({
-        action: 'deny'
-      })
-      expect(guest.send).not.toHaveBeenCalled()
-    })
+      reportClick(guest, 'https://example.com/docs')
 
-    it('routes a popup opened right after a press', () => {
-      const guest = installOnFakeGuest()
-
-      pressPointer(guest)
-
-      expect(guest.windowOpenHandler({ url: 'https://example.com/docs' })).toEqual({
-        action: 'deny'
-      })
-      expect(guest.send).toHaveBeenCalledOnce()
-    })
-
-    it('spends the press on one tab, so a loop cannot ride a single click', () => {
-      const guest = installOnFakeGuest()
-
-      pressPointer(guest)
-      guest.windowOpenHandler({ url: 'https://example.com/1' })
-      guest.windowOpenHandler({ url: 'https://example.com/2' })
-      guest.windowOpenHandler({ url: 'https://example.com/3' })
-
-      expect(guest.send).toHaveBeenCalledOnce()
-      expect(guest.send).toHaveBeenCalledWith('docPreview:externalLink', {
-        url: 'https://example.com/1'
+      expect(guest.send).toHaveBeenCalledExactlyOnceWith('docPreview:externalLink', {
+        url: 'https://example.com/docs'
       })
     })
 
-    it('lets the keyboard open a link, since a document can be read without a mouse', () => {
-      const guest = installOnFakeGuest()
+    it('drops a click reported while the guest is not the contents the reader is looking at', () => {
+      const { guest } = boundGuest()
+      guest.isFocused.mockReturnValue(false)
 
-      guest.handlers['before-input-event']?.({} as never, { type: 'keyDown' } as never)
+      reportClick(guest, 'https://example.com/docs')
 
-      guest.windowOpenHandler({ url: 'https://example.com/docs' })
-      expect(guest.send).toHaveBeenCalledOnce()
-    })
-
-    it('does not count a pointer merely crossing the document', () => {
-      const guest = installOnFakeGuest()
-
-      guest.handlers['input-event']?.({} as never, { type: 'mouseMove' } as never)
-      guest.handlers['input-event']?.({} as never, { type: 'mouseWheel' } as never)
-
-      guest.windowOpenHandler({ url: 'https://attacker.test/?d=secret' })
       expect(guest.send).not.toHaveBeenCalled()
     })
 
-    it('lets a press go stale, so a document cannot wait out the reader', () => {
-      vi.useFakeTimers()
-      try {
-        const guest = installOnFakeGuest()
-        pressPointer(guest)
-        vi.advanceTimersByTime(2_001)
+    it('drops a click reported by a sender that is not a preview guest', () => {
+      const { guest } = boundGuest()
 
-        guest.windowOpenHandler({ url: 'https://attacker.test/?d=secret' })
-        expect(guest.send).not.toHaveBeenCalled()
-      } finally {
-        vi.useRealTimers()
-      }
+      reportDocPreviewLinkClick({ isFocused: () => true } as never, 'https://example.com/docs')
+
+      expect(guest.send).not.toHaveBeenCalled()
+    })
+
+    it('drops a click reported by a guest that never bound a grant', () => {
+      mintGrant()
+      const guest = installOnFakeGuest()
+
+      reportClick(guest, 'https://example.com/docs')
+
+      expect(guest.send).not.toHaveBeenCalled()
+    })
+
+    it("drops a click once the guest's bound grant is revoked", () => {
+      const { guest } = boundGuest()
+      revokeAllDocPreviewGrants()
+
+      reportClick(guest, 'https://example.com/docs')
+
+      expect(guest.send).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      'file:///etc/passwd',
+      'javascript:fetch("https://attacker.test")',
+      'orca-preview://a/b',
+      '/Users/alice/secrets.txt',
+      ''
+    ])('drops a reported click on %s, which is not the web', (url) => {
+      const { guest } = boundGuest()
+
+      reportClick(guest, url)
+
+      expect(guest.send).not.toHaveBeenCalled()
+    })
+
+    it('stops routing for a guest that has been destroyed', () => {
+      const { guest } = boundGuest()
+
+      guest.handlers['destroyed']?.()
+      reportClick(guest, 'https://example.com/docs')
+
+      expect(guest.send).not.toHaveBeenCalled()
     })
   })
 
