@@ -14759,15 +14759,15 @@
           "deleteColumn": "Delete column"
         },
         "HtmlDocPreview": {
-          "a1f0c3d29b": "HTML preview",
-          "5c8b7e41a0": "Reload preview",
-          "7d2e90b6c4": "Preview unavailable",
-          "b93a6f1e75": "Orca could not read this file from the workspace.",
-          "4e17b0c8da": "This document is too large to preview. Open it in the editor instead.",
-          "9b2c7fa350": "{{value0}} files in this document could not be loaded.",
-          "a3d5f21c07": "{{value0}} is too large to load in this preview.",
-          "c41e08b6da": "This workspace cannot send {{value0}} to a preview.",
-          "de70b921f4": "Orca could not read {{value0}} from the workspace."
+          "documentTooLargePanel": "This document is too large to preview. Open it in the editor instead.",
+          "documentUnreadablePanel": "Orca could not read this file from the workspace.",
+          "multipleAssetsFailedNotice": "{{count}} files in this document could not be loaded.",
+          "assetTooLargeNotice": "{{path}} is too large to load in this preview.",
+          "assetUnsupportedNotice": "This workspace cannot send {{path}} to a preview.",
+          "assetUnreadableNotice": "Orca could not read {{path}} from the workspace.",
+          "previewAriaLabel": "HTML preview",
+          "reloadPreviewControl": "Reload preview",
+          "previewUnavailableTitle": "Preview unavailable"
         }
       },
       "diff": {

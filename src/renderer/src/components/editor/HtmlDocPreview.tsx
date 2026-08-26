@@ -21,14 +21,14 @@ type PreviewState = 'loading' | 'ready' | 'unavailable'
 function docPreviewFailureDetail(reason: DocPreviewFailureReason | null): string {
   if (reason === 'too-large') {
     return translate(
-      'auto.components.editor.HtmlDocPreview.4e17b0c8da',
+      'auto.components.editor.HtmlDocPreview.documentTooLargePanel',
       'This document is too large to preview. Open it in the editor instead.'
     )
   }
   // Why no 'unsupported-asset' sentence here: the entry document is served as text by every owner
   // — only a subresource can be refused for its format, and that failure is a notice, not a panel.
   return translate(
-    'auto.components.editor.HtmlDocPreview.b93a6f1e75',
+    'auto.components.editor.HtmlDocPreview.documentUnreadablePanel',
     'Orca could not read this file from the workspace.'
   )
 }
@@ -45,29 +45,29 @@ function docPreviewAssetNotice(failures: DocPreviewFailure[]): string | null {
   }
   if (failures.length > 1) {
     return translate(
-      'auto.components.editor.HtmlDocPreview.9b2c7fa350',
-      '{{value0}} files in this document could not be loaded.',
-      { value0: failures.length }
+      'auto.components.editor.HtmlDocPreview.multipleAssetsFailedNotice',
+      '{{count}} files in this document could not be loaded.',
+      { count: failures.length }
     )
   }
   if (first.reason === 'too-large') {
     return translate(
-      'auto.components.editor.HtmlDocPreview.a3d5f21c07',
-      '{{value0}} is too large to load in this preview.',
-      { value0: first.relativePath }
+      'auto.components.editor.HtmlDocPreview.assetTooLargeNotice',
+      '{{path}} is too large to load in this preview.',
+      { path: first.relativePath }
     )
   }
   if (first.reason === 'unsupported-asset') {
     return translate(
-      'auto.components.editor.HtmlDocPreview.c41e08b6da',
-      'This workspace cannot send {{value0}} to a preview.',
-      { value0: first.relativePath }
+      'auto.components.editor.HtmlDocPreview.assetUnsupportedNotice',
+      'This workspace cannot send {{path}} to a preview.',
+      { path: first.relativePath }
     )
   }
   return translate(
-    'auto.components.editor.HtmlDocPreview.de70b921f4',
-    'Orca could not read {{value0}} from the workspace.',
-    { value0: first.relativePath }
+    'auto.components.editor.HtmlDocPreview.assetUnreadableNotice',
+    'Orca could not read {{path}} from the workspace.',
+    { path: first.relativePath }
   )
 }
 
@@ -196,7 +196,10 @@ export function HtmlDocPreview({
         const attached = attachDocPreviewWebview({
           container: containerRef.current,
           url: handle.url,
-          ariaLabel: translate('auto.components.editor.HtmlDocPreview.a1f0c3d29b', 'HTML preview'),
+          ariaLabel: translate(
+            'auto.components.editor.HtmlDocPreview.previewAriaLabel',
+            'HTML preview'
+          ),
           onLoadStarted,
           onLoadStopped,
           onLoadFailed
@@ -242,10 +245,13 @@ export function HtmlDocPreview({
           className="size-6"
           onClick={handleReload}
           aria-label={translate(
-            'auto.components.editor.HtmlDocPreview.5c8b7e41a0',
+            'auto.components.editor.HtmlDocPreview.reloadPreviewControl',
             'Reload preview'
           )}
-          title={translate('auto.components.editor.HtmlDocPreview.5c8b7e41a0', 'Reload preview')}
+          title={translate(
+            'auto.components.editor.HtmlDocPreview.reloadPreviewControl',
+            'Reload preview'
+          )}
         >
           <RotateCw className="size-3.5" />
         </Button>
@@ -270,7 +276,10 @@ export function HtmlDocPreview({
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-editor-surface px-6 text-center">
             <AlertCircle className="size-6 text-muted-foreground" />
             <p className="text-sm font-medium">
-              {translate('auto.components.editor.HtmlDocPreview.7d2e90b6c4', 'Preview unavailable')}
+              {translate(
+                'auto.components.editor.HtmlDocPreview.previewUnavailableTitle',
+                'Preview unavailable'
+              )}
             </p>
             <p className="max-w-sm text-xs text-muted-foreground">
               {docPreviewFailureDetail(failureReason)}
