@@ -23,6 +23,25 @@ function loadPreviewDocument(body: string): void {
 }
 
 /**
+ * An SVG anchor around a hit target, built rather than parsed: the href is an SVGAnimatedString
+ * carrying the raw attribute, which is what a plain string read misses and the environment does
+ * not model.
+ */
+function loadSvgAnchorDocument(href: string): void {
+  loadPreviewDocument('<div id="host"></div>')
+  const svgNamespace = 'http://www.w3.org/2000/svg'
+  const anchor = document.createElementNS(svgNamespace, 'a')
+  anchor.setAttribute('href', href)
+  Object.defineProperty(anchor, 'href', { value: { baseVal: href } })
+  const hit = document.createElementNS(svgNamespace, 'rect')
+  hit.setAttribute('id', 'svg-hit')
+  anchor.appendChild(hit)
+  const svg = document.createElementNS(svgNamespace, 'svg')
+  svg.appendChild(anchor)
+  document.getElementById('host')!.appendChild(svg)
+}
+
+/**
  * Dispatches through the same capture-phase listener the preload installs, but registered for one
  * press only — a document-level listener left behind would answer every later test's clicks too.
  */
@@ -111,22 +130,56 @@ describe('doc preview link interception', () => {
   // Why: an SVG anchor's href is an SVGAnimatedString, so reading it as a string finds nothing and
   // the link would fall through to the guest's navigation guard and die there.
   it('reports an SVG anchor by its animated href', () => {
-    loadPreviewDocument('<div id="host"></div>')
-    const svgNamespace = 'http://www.w3.org/2000/svg'
-    const anchor = document.createElementNS(svgNamespace, 'a')
-    // Why built rather than parsed: an SVGAnimatedString href is exactly what a plain string read
-    // misses, and the test environment does not model one.
-    Object.defineProperty(anchor, 'href', { value: { baseVal: 'https://example.com/chart' } })
-    const hit = document.createElementNS(svgNamespace, 'rect')
-    hit.setAttribute('id', 'svg-hit')
-    anchor.appendChild(hit)
-    const svg = document.createElementNS(svgNamespace, 'svg')
-    svg.appendChild(anchor)
-    document.getElementById('host')!.appendChild(svg)
+    loadSvgAnchorDocument('https://example.com/chart')
 
     pressTrusted('#svg-hit')
 
     expect(report).toHaveBeenCalledExactlyOnceWith('https://example.com/chart')
+  })
+
+  // Why these three: baseVal is the raw attribute, so an unresolved read sends a relative sibling
+  // out to a browser tab, drops SVG fragment links on the floor, and turns a rooted path into a
+  // file URL the guest refuses — each one a divergence from the identical HTML anchor.
+  it('leaves a relative SVG link to the guest, the same as the HTML anchor beside it', () => {
+    loadSvgAnchorDocument('guide.html')
+
+    const event = pressTrusted('#svg-hit')
+
+    expect(report).not.toHaveBeenCalled()
+    expect(event.defaultPrevented).toBe(false)
+  })
+
+  it('scrolls to an SVG fragment target instead of routing it', () => {
+    loadSvgAnchorDocument('#section-2')
+    const target = document.createElement('h2')
+    target.id = 'section-2'
+    document.body.appendChild(target)
+    const scrollIntoView = vi.spyOn(target, 'scrollIntoView')
+
+    const event = pressTrusted('#svg-hit')
+
+    expect(scrollIntoView).toHaveBeenCalledOnce()
+    expect(report).not.toHaveBeenCalled()
+    expect(event.defaultPrevented).toBe(true)
+  })
+
+  it('scrolls to the top for a bare # on an SVG anchor', () => {
+    loadSvgAnchorDocument('#')
+    const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+
+    pressTrusted('#svg-hit')
+
+    expect(scrollTo).toHaveBeenCalledOnce()
+    expect(report).not.toHaveBeenCalled()
+  })
+
+  it('keeps a rooted SVG link inside the preview rather than reading it as a filesystem path', () => {
+    loadSvgAnchorDocument('/assets/a.html')
+
+    const event = pressTrusted('#svg-hit')
+
+    expect(report).not.toHaveBeenCalled()
+    expect(event.defaultPrevented).toBe(false)
   })
 
   it('leaves a sibling preview document to the guest, which its policy already permits', () => {
@@ -193,6 +246,16 @@ describe('doc preview link interception', () => {
 
     expect(report).not.toHaveBeenCalled()
     expect(event.defaultPrevented).toBe(true)
+  })
+
+  it('leaves a middle click the document dispatched itself alone', () => {
+    loadPreviewDocument('<a id="external" href="https://example.com/docs">go</a>')
+    const event = new MouseEvent('auxclick', { bubbles: true, button: 1, cancelable: true })
+    Object.defineProperty(event, 'isTrusted', { configurable: true, value: false })
+
+    dispatch('#external', event)
+
+    expect(event.defaultPrevented).toBe(false)
   })
 
   it('ignores a press that is not on a link at all', () => {

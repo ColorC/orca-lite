@@ -25,7 +25,16 @@ function readAnchorHref(node: EventTarget): string | null {
     return element.href.length > 0 ? element.href : null
   }
   const baseVal = (element.href as { baseVal?: unknown } | null | undefined)?.baseVal
-  return typeof baseVal === 'string' && baseVal.length > 0 ? baseVal : null
+  if (typeof baseVal !== 'string' || baseVal.length === 0) {
+    return null
+  }
+  // Why resolved here: baseVal is the raw attribute, unlike an HTML anchor's absolute href, so
+  // every branch below would read an SVG link differently from the identical HTML one.
+  try {
+    return new URL(baseVal, window.location.href).toString()
+  } catch {
+    return null
+  }
 }
 
 /** Why the composed path and not `event.target`: the press lands on whatever the anchor wraps, shadow roots included. */

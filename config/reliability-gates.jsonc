@@ -2959,7 +2959,8 @@
             "a click the document dispatched itself is not trusted and routes nothing",
             "a trusted press on an external anchor reports it once and stops the navigation, including through what the anchor wraps and an SVG animated href",
             "a fragment link scrolls in the document, raw or percent-encoded, and a bare hash goes to the top",
-            "a sibling preview document is left to the guest's own navigation, and a middle click opens nothing",
+            "a sibling preview document is left to the guest's own navigation, and a middle click opens nothing whether or not it is trusted",
+            "an SVG link is resolved against the document, so its relative, rooted and fragment forms behave exactly like the identical HTML anchor",
             "the preload reports on exactly the channel main listens on"
           ]
         },
@@ -3049,8 +3050,8 @@
           "platform": "macos",
           "command": "pnpm exec vitest run --config config/vitest.config.ts src/preload/doc-preview-link-interception.test.ts src/main/browser/doc-preview-guest-policy.test.ts src/main/window/main-window-webview-security.test.ts src/main/ipc/doc-preview-grant-ipc.test.ts",
           "result": "passed",
-          "durationSeconds": 0.29,
-          "summary": "The four surfaces the trusted-click route is built from passed 57/57: the preload's click policy over a real document, including an untrusted dispatched click, an SVG animated href, fragment and percent-encoded fragment targets and a middle click; the guest policy's deny-only sinks and its report gate for an unfocused guest, an unregistered sender, a missing or revoked grant and non-web URLs; will-attach-webview pinning the preview preload in both directions; and the click channel handing main its own sender without a trusted-renderer check."
+          "durationSeconds": 0.36,
+          "summary": "The four surfaces the trusted-click route is built from passed 62/62: the preload's click policy over a real document, including an untrusted dispatched click, an untrusted middle click, an SVG animated href resolved against the document so a relative, rooted or fragment SVG link behaves exactly like the identical HTML anchor, fragment and percent-encoded fragment targets and a trusted middle click; the guest policy's deny-only sinks and its report gate for an unfocused guest, an unregistered sender, a missing or revoked grant and non-web URLs; will-attach-webview pinning the preview preload in both directions; and the click channel handing main its own sender without a trusted-renderer check."
         },
         {
           "date": "2026-08-26",
