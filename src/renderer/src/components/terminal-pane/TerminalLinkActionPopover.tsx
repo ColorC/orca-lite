@@ -22,13 +22,17 @@ function ActionRow({
   onRun
 }: {
   action: TerminalLinkAction
-  alternate: boolean
+  /** null for rows with no click-modifier shortcut. */
+  alternate: boolean | null
   onRun: () => void
 }): React.JSX.Element {
   const isMac = navigator.userAgent.includes('Mac')
-  const keys = alternate
-    ? [isMac ? '⇧' : 'Shift', isMac ? '⌘' : 'Ctrl', 'Click']
-    : [isMac ? '⌘' : 'Ctrl', 'Click']
+  const keys =
+    alternate === null
+      ? null
+      : alternate
+        ? [isMac ? '⇧' : 'Shift', isMac ? '⌘' : 'Ctrl', 'Click']
+        : [isMac ? '⌘' : 'Ctrl', 'Click']
 
   return (
     <Button
@@ -39,7 +43,9 @@ function ActionRow({
       {action.external === true ? <ExternalLink className="size-3.5" /> : null}
       {action.external === false ? <Globe className="size-3.5" /> : null}
       <span className="min-w-0 flex-1 text-left">{action.label}</span>
-      <ShortcutKeyCombo keys={keys} keyCapClassName="min-w-5 px-1 py-0 text-[11px]" />
+      {keys ? (
+        <ShortcutKeyCombo keys={keys} keyCapClassName="min-w-5 px-1 py-0 text-[11px]" />
+      ) : null}
     </Button>
   )
 }
@@ -186,6 +192,14 @@ export function TerminalLinkActionPopover({
               onRun={() => runAction(request.alternate!)}
             />
           ) : null}
+          {(request.extra ?? []).map((action) => (
+            <ActionRow
+              key={action.label}
+              action={action}
+              alternate={null}
+              onRun={() => runAction(action)}
+            />
+          ))}
         </PopoverContent>
       ) : null}
     </Popover>

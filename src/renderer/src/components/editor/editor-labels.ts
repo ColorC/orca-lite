@@ -33,7 +33,7 @@ export function getEditorDisplayLabel(
     return file.checkRunDetails?.check.name ?? getBaseLabel(file, variant)
   }
 
-  if (file.mode === 'markdown-preview') {
+  if (file.mode === 'markdown-preview' || file.mode === 'html-preview') {
     return `${getBaseLabel(file, variant)} (preview)`
   }
 

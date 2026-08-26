@@ -236,7 +236,11 @@ export type BrowserSlice = {
     options?: CreateBrowserTabOptions
   ) => BrowserWorkspace
   openNewBrowserTabInActiveWorkspace: (groupId: string) => Promise<void>
-  openBrowserProfileTabInActiveWorkspace: (url: string, profileId: string) => Promise<boolean>
+  /** `profileId: null` uses the workspace default profile. */
+  openBrowserProfileTabInActiveWorkspace: (
+    url: string,
+    profileId: string | null
+  ) => Promise<boolean>
   closeBrowserTab: (tabId: string, options?: { reason?: 'cleanup' }) => void
   shutdownWorktreeBrowsers: (worktreeId: string) => Promise<void>
   reopenClosedBrowserTab: (worktreeId: string) => BrowserWorkspace | null

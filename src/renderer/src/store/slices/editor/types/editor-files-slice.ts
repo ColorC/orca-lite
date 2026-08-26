@@ -70,6 +70,19 @@ export type EditorFilesSlice = {
     >,
     options?: { anchor?: string | null; targetGroupId?: string; sourceFileId?: string }
   ) => void
+  /** Renders an HTML document locally over the doc-preview scheme; used for SSH and paired workspaces. */
+  openHtmlDocPreview: (
+    file: Pick<
+      OpenFile,
+      | 'filePath'
+      | 'relativePath'
+      | 'worktreeId'
+      | 'language'
+      | 'runtimeEnvironmentId'
+      | 'externalSshTargetId'
+    >,
+    options?: { targetGroupId?: string }
+  ) => void
   makePreviewFilePermanent: (fileId: string, tabId?: string) => void
   pinFile: (fileId: string, tabId?: string) => void
   closeFile: (fileId: string) => void

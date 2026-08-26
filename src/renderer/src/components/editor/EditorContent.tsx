@@ -8,6 +8,7 @@ import { EditorConflictReviewSurface } from './EditorConflictReviewSurface'
 import { EditorDiffFileSurface } from './EditorDiffFileSurface'
 import { EditorEditFileSurface } from './EditorEditFileSurface'
 import { EditorFileLoadErrorView } from './EditorFileLoadErrorView'
+import { HtmlDocPreview } from './HtmlDocPreview'
 import type { FileContent } from './editor-panel-content-types'
 import { translate } from '@/i18n/i18n'
 import { useEditorConflictNavigation } from './useEditorConflictNavigation'
@@ -168,6 +169,17 @@ export function EditorContent({
         key={viewStateScopeId}
         file={activeFile}
         viewStateKey={diffViewStateKey}
+      />
+    )
+  }
+
+  if (activeFile.mode === 'html-preview') {
+    return (
+      <HtmlDocPreview
+        key={viewStateScopeId}
+        previewId={activeFile.id}
+        filePath={activeFile.filePath}
+        worktreeId={activeFile.worktreeId}
       />
     )
   }

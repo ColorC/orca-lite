@@ -12,6 +12,7 @@ import {
   getDiffViewerMonacoModelPathPrefixes
 } from './diff-monaco-model-disposal'
 import { sweepClosedPdfViewPositions } from './closed-editor-tab-cache-sweep'
+import { releaseDocPreviewGrant } from '@/lib/doc-preview-grants'
 
 function deleteCacheEntriesByPrefix<T>(cache: Map<string, T>, prefix: string): void {
   for (const key of cache.keys()) {
@@ -71,6 +72,10 @@ function disposeClosedEditorTab(prevId: string, prevFile: OpenFile): void {
       deleteCacheEntriesByPrefix(diffViewStateCache, `${prevId}::`)
       scrollTopCache.delete(`${prevId}:preview`)
       deleteCacheEntriesByPrefix(scrollTopCache, `${prevId}::`)
+      break
+    case 'html-preview':
+      // Why: the preview's grant is the only authority the scheme handler honors, so closing the tab must revoke it.
+      releaseDocPreviewGrant(prevId)
       break
     case 'conflict-review':
       break

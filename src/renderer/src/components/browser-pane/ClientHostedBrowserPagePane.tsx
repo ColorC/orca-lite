@@ -165,7 +165,7 @@ export function ClientHostedBrowserPagePane({
 
   const navigateToUrl = useCallback(
     (value: string) => {
-      const submission = resolveBrowserAddressBarSubmission(value)
+      const submission = resolveBrowserAddressBarSubmission(value, { allowFileUrls: false })
       if (submission.status === 'invalid') {
         onUpdatePageState(browserTab.id, { loadError: submission.loadError })
         return

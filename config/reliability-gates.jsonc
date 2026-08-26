@@ -2726,8 +2726,9 @@
       "providers": ["remote-runtime"],
       "coveredPlatforms": ["macos"],
       "coveredProviders": ["remote-runtime"],
-      "coverageNotes": "A headed macOS desktop host and separate paired client exercise the Explorer eye-button path with a real remote file URL, host browser DOM, renderer split layout, background preview creation, explicit browser activation, browser close, forced capability rejection after caller preflight, a forced post-create reconciliation timeout, and navigation held beyond the client create deadline. The same reconciliation fault oracles pass against a live headless server. Unit contracts cover absent, unknown, and mixed-version capabilities, visible rejection, empty-split cleanup, owning-runtime routing, canonical preallocated page identity, navigation-independent acknowledgement, exact client materialization, confirmed rollback, ambiguous cleanup, and teardown. Linux and Windows live journeys remain gaps.",
+      "coverageNotes": "A headed macOS desktop host and separate paired client exercise the Explorer eye-button path with a real remote file URL, host browser DOM, renderer split layout, background preview creation, explicit browser activation, browser close, forced capability rejection after caller preflight, a forced post-create reconciliation timeout, and navigation held beyond the client create deadline. The same reconciliation fault oracles pass against a live headless server. Unit contracts cover absent, unknown, and mixed-version capabilities, visible rejection, empty-split cleanup, owning-runtime routing, canonical preallocated page identity, navigation-independent acknowledgement, exact client materialization, confirmed rollback, ambiguous cleanup, and teardown. Linux and Windows live journeys remain gaps. Since STA-5557 the HTML preview actions no longer create paired browser pages at all — they open a client-local doc preview over the orca-preview scheme — so this gate now covers only the remaining paired browser-creation callers, and its HTML-preview surfaces need re-scoping or retirement by the gate owner.",
       "motivatingLinks": [
+        "https://linear.app/stably/issue/STA-5557/remote-html-preview-render-workspace-files-locally-over-the-file",
         "https://linear.app/stably/issue/STA-3872/unable-to-open-html-files-in-remote-server",
         "https://linear.app/stably/issue/STA-4025/p1-browser-create-reports-success-when-tab-reconcile-fails-after-pr",
         "https://linear.app/stably/issue/STA-4063/p1-paired-html-preview-rejects-outside-cleanup-after-pr-13909",
@@ -2740,6 +2741,8 @@
       "commands": [
         "pnpm exec vitest run --config config/vitest.config.ts src/main/runtime/orca-runtime-browser.test.ts src/main/runtime/rpc/methods/browser.test.ts src/renderer/src/lib/file-preview.test.ts src/renderer/src/runtime/web-session-browser-placement.test.ts src/renderer/src/runtime/web-runtime-session.test.ts src/renderer/src/runtime/web-session-tabs-sync.test.ts src/renderer/src/runtime/remote-server-parity.test.ts",
         "pnpm exec vitest run --config config/vitest.config.ts src/renderer/src/runtime/web-runtime-browser-materialization.test.ts",
+        "pnpm exec vitest run --config config/vitest.config.ts src/renderer/src/runtime/web-runtime-browser-capability-cleanup.test.ts",
+        // Retained for evidence provenance: file-preview-capability-cleanup.test.ts was removed in STA-5557 when HTML previews stopped creating paired browser tabs.
         "pnpm exec vitest run --config config/vitest.config.ts src/renderer/src/runtime/web-runtime-browser-capability-cleanup.test.ts src/renderer/src/lib/file-preview-capability-cleanup.test.ts",
         "pnpm exec vitest run --config config/vitest.config.ts src/main/runtime/orca-runtime-browser.test.ts src/renderer/src/runtime/web-runtime-session.test.ts",
         "pnpm exec vitest run --config config/vitest.config.ts src/main/runtime/orca-runtime.test.ts src/main/runtime/orca-runtime-browser.test.ts src/renderer/src/hooks/useIpcEvents-browser-tab-create.test.ts src/renderer/src/hooks/useIpcEvents-close-routing-browser-pages.test.ts src/renderer/src/hooks/useIpcEvents-close-routing-session-tabs.test.ts src/renderer/src/store/slices/browser.test.ts src/renderer/src/runtime/web-runtime-session.test.ts",
@@ -2755,7 +2758,6 @@
         "src/main/runtime/orca-runtime-browser.test.ts",
         "src/main/runtime/rpc/methods/browser.test.ts",
         "src/renderer/src/lib/file-preview.test.ts",
-        "src/renderer/src/lib/file-preview-capability-cleanup.test.ts",
         "src/renderer/src/runtime/web-session-browser-placement.test.ts",
         "src/renderer/src/runtime/web-runtime-browser-materialization.test.ts",
         "src/renderer/src/runtime/web-runtime-browser-capability-cleanup.test.ts",
@@ -2779,17 +2781,10 @@
           ]
         },
         {
-          "file": "src/renderer/src/lib/file-preview-capability-cleanup.test.ts",
-          "assertions": [
-            "known unavailability reports visibly without creating a split",
-            "capability loss after caller preflight reports visibly without duplicating transaction cleanup"
-          ]
-        },
-        {
           "file": "src/renderer/src/lib/file-preview.test.ts",
           "assertions": [
-            "a failed side preview reports visibly without caller-owned split cleanup",
-            "overlapping side previews reuse the split without the first failure deleting it"
+            "a paired-runtime HTML preview opens a local doc preview instead of a runtime browser tab",
+            "a local workspace still opens the embedded browser tab at a file URL"
           ]
         },
         {
@@ -3076,7 +3071,8 @@
       "knownGaps": [
         "Live paired-server validation currently covers macOS only.",
         "Multiple simultaneous viewers are not exercised by the Electron journey.",
-        "Direct SSH remote file URLs remain intentionally unsupported and local file previews retain their existing path."
+        "Direct SSH remote file URLs remain intentionally unsupported and local file previews retain their existing path.",
+        "STA-5557 moved the HTML preview actions off paired browser creation onto the client-local orca-preview scheme, so the paired-preview live journeys (tests/e2e/paired-remote-html-browser-focus.spec.ts) no longer describe shipped behavior and this entry needs re-scoping or retirement."
       ],
       "demotionRule": "Demote if one paired HTML action can create duplicate client or host browser identities, lose the requested split, steal editor focus before an explicit browser click, lose browser focus after that click, or remove unrelated editor or terminal state on close."
     },

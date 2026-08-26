@@ -13,8 +13,26 @@ import {
   browserRouteWebContentsRegistry
 } from '../browser/browser-route-session-runtime'
 import { ORCA_BROWSER_BLANK_URL } from '../../shared/constants'
+import { DOC_PREVIEW_PARTITION, parseDocPreviewUrl } from '../../shared/doc-preview-scheme'
+import { installDocPreviewGuestPolicy } from '../browser/doc-preview-guest-policy'
+import { getDocPreviewGrant } from '../browser/doc-preview-grant-registry'
+import { isDocPreviewSession } from '../browser/doc-preview-protocol'
 import { registerPluginPanelNavigationGuard } from '../plugins/plugin-panel-navigation-guard'
 import { installPrivilegedWindowNavigationPolicy } from './privileged-window-navigation'
+
+/**
+ * Why a separate admission rule: `normalizeBrowserNavigationUrl` rejects every
+ * non-web scheme, so `orca-preview://` can only ever attach here — and only on
+ * the doc-preview partition, carrying a grant the main process minted for a
+ * deliberate user preview action. Web content has no way to reach either.
+ */
+function isAdmissibleDocPreviewAttach(partition: string, src: string): boolean {
+  if (partition !== DOC_PREVIEW_PARTITION) {
+    return false
+  }
+  const target = parseDocPreviewUrl(src)
+  return target !== null && getDocPreviewGrant(target.grantId) !== null
+}
 
 export function installMainWindowWebviewSecurity(mainWindow: BrowserWindow): void {
   installPrivilegedWindowNavigationPolicy(mainWindow.webContents)
@@ -33,12 +51,14 @@ export function installMainWindowWebviewSecurity(mainWindow: BrowserWindow): voi
     // so admission here can never race an unproxied session. They navigate like
     // profile partitions — the renderer owns their URLs, no main-side grants.
     const isLocalSshPartition = isLocalSshBrowserPartition(partition)
+    const isDocPreviewAttach = isAdmissibleDocPreviewAttach(partition, src)
 
     // Why: fail closed — deny any src or partition not in the registry allowlist so a renderer bug can't smuggle preload/Node into an unprivileged guest.
     if (
-      !normalizedSrc ||
-      (!isProfilePartition && !isRoutePartition && !isLocalSshPartition) ||
-      (isRoutePartition && normalizedSrc !== ORCA_BROWSER_BLANK_URL)
+      !isDocPreviewAttach &&
+      (!normalizedSrc ||
+        (!isProfilePartition && !isRoutePartition && !isLocalSshPartition) ||
+        (isRoutePartition && normalizedSrc !== ORCA_BROWSER_BLANK_URL))
     ) {
       event.preventDefault()
       return
@@ -68,6 +88,11 @@ export function installMainWindowWebviewSecurity(mainWindow: BrowserWindow): voi
   })
 
   mainWindow.webContents.on('did-attach-webview', (_event, guest) => {
+    if (isDocPreviewSession(guest.session)) {
+      // Why: preview guests never join browser-tab routing, popups or anti-detection; they get their own grant-scoped policy.
+      installDocPreviewGuestPolicy(guest, mainWindow.webContents)
+      return
+    }
     // Why: attach guest popup/nav policy at creation; waiting for renderer registration races target=_blank/early redirects past it.
     browserManager.attachGuestPolicies(guest)
     // Why: route guests override the generic popup fallback and stay blank until exact main-owned registration.

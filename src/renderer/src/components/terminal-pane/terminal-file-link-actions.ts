@@ -11,6 +11,9 @@ import {
   type TerminalLinkActionContext
 } from './terminal-link-action-request'
 import { resolveKnownWorktreeRootPathLink } from './terminal-worktree-path-link'
+import { downloadAndOpenRemoteTerminalFile } from './terminal-remote-file-download-open'
+import { canPreviewLanguage, openFilePreviewToSide } from '@/lib/file-preview'
+import { detectLanguage } from '@/lib/language-detect'
 import { translate } from '@/i18n/i18n'
 
 export type TerminalFileLinkActionDeps = {
@@ -52,9 +55,61 @@ export function handleTerminalFileLink(
   const canOpenWithSystemDefault = shouldOpenTerminalFileWithSystemDefault(fileContext, mappedPath)
   const isMac = navigator.userAgent.includes('Mac')
 
+  // Why: the OS can only launch a local file, so remote links keep the same row by
+  // downloading first — local and remote workspaces offer the same actions.
+  const systemDefaultRow = worktreeRoot
+    ? canOpenWithSystemDefault
+      ? {
+          label: isMac
+            ? translate(
+                'auto.components.terminal.pane.TerminalLinkActionPopover.openInFinder',
+                'Open in Finder'
+              )
+            : translate(
+                'auto.components.terminal.pane.TerminalLinkActionPopover.openFolder',
+                'Open folder'
+              ),
+          run: () =>
+            openDetectedFilePath(filePath, line, column, { ...deps, openWithSystemDefault: true })
+        }
+      : null
+    : canOpenWithSystemDefault
+      ? {
+          label: translate(
+            'auto.components.terminal.pane.TerminalLinkActionPopover.openWithDefaultApp',
+            'Open with default app'
+          ),
+          run: () =>
+            openDetectedFilePath(filePath, line, column, { ...deps, openWithSystemDefault: true })
+        }
+      : {
+          label: translate(
+            'auto.components.terminal.pane.TerminalLinkActionPopover.downloadOpenWithDefaultApp',
+            'Download & open with default app'
+          ),
+          run: () => downloadAndOpenRemoteTerminalFile(fileContext, mappedPath)
+        }
+  const previewRow =
+    !worktreeRoot && canPreviewLanguage(detectLanguage(mappedPath))
+      ? {
+          label: translate(
+            'auto.components.terminal.pane.TerminalLinkActionPopover.openPreview',
+            'Open preview'
+          ),
+          run: () =>
+            openFilePreviewToSide({
+              language: 'html',
+              filePath: mappedPath,
+              worktreeId: deps.worktreeId,
+              sourceGroupId: null
+            })
+        }
+      : null
+
   return requestTerminalLinkAction(event, actionContext, {
     destination: actionDestination ?? mappedPath,
     kind: worktreeRoot ? 'workspace' : 'file',
+    ...(previewRow ? { extra: [previewRow] } : {}),
     primary: {
       label: worktreeRoot
         ? translate(
@@ -67,30 +122,6 @@ export function handleTerminalFileLink(
           ),
       run: () => openDetectedFilePath(filePath, line, column, deps)
     },
-    ...(canOpenWithSystemDefault
-      ? {
-          alternate: {
-            label: worktreeRoot
-              ? isMac
-                ? translate(
-                    'auto.components.terminal.pane.TerminalLinkActionPopover.openInFinder',
-                    'Open in Finder'
-                  )
-                : translate(
-                    'auto.components.terminal.pane.TerminalLinkActionPopover.openFolder',
-                    'Open folder'
-                  )
-              : translate(
-                  'auto.components.terminal.pane.TerminalLinkActionPopover.openWithDefaultApp',
-                  'Open with default app'
-                ),
-            run: () =>
-              openDetectedFilePath(filePath, line, column, {
-                ...deps,
-                openWithSystemDefault: true
-              })
-          }
-        }
-      : {})
+    ...(systemDefaultRow ? { alternate: systemDefaultRow } : {})
   })
 }
