@@ -79,4 +79,14 @@ describe('doc preview external links', () => {
 
     await vi.waitFor(() => expect(mocks.toastError).toHaveBeenCalledOnce())
   })
+
+  // Why the same sentence for a rejection: to the reader a tab that threw and a tab that was refused
+  // are the same dead end, and an unhandled rejection would leave the press with no answer at all.
+  it('surfaces a tab that failed rather than refused', async () => {
+    mocks.openBrowserProfileTabInActiveWorkspace.mockRejectedValue(new Error('no workspace'))
+
+    installBridge()({ url: 'https://example.com/docs' })
+
+    await vi.waitFor(() => expect(mocks.toastError).toHaveBeenCalledOnce())
+  })
 })

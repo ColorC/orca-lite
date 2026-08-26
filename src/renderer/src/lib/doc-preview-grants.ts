@@ -59,10 +59,16 @@ export function ensureDocPreviewGrant(
   if (existing) {
     return existing
   }
-  const pending = window.api.docPreview.mintGrant(request).catch((error: unknown) => {
-    grantsByPreviewId.delete(previewId)
-    throw error
-  })
+  const pending: Promise<DocPreviewGrantHandle> = window.api.docPreview
+    .mintGrant(request)
+    .catch((error: unknown) => {
+      // Why the identity check: a release and a fresh ensure can both land before this rejects, and
+      // an unconditional delete would evict the newer entry, leaving its grant unrevokable.
+      if (grantsByPreviewId.get(previewId) === pending) {
+        grantsByPreviewId.delete(previewId)
+      }
+      throw error
+    })
   grantsByPreviewId.set(previewId, pending)
   return pending
 }

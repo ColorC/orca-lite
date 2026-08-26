@@ -100,20 +100,24 @@ export function registerBrowserStateIpcBridge(
       window.api.docPreview.onExternalLink(({ url }) => {
         // Why: an external link in a doc preview leaves the preview entirely — it becomes a normal
         // browser tab through the same path as any other new tab, local or paired.
+        // Why: the click already left the preview, so a refused tab is a dead end unless it says so.
+        const reportLinkFailure = (): void => {
+          toast.error(
+            translate(
+              'auto.hooks.ipc.events.browserStateIpcBridge.docPreviewLinkFailed',
+              'Could not open this link in Orca Browser.'
+            )
+          )
+        }
         void useAppStore
           .getState()
           .openBrowserProfileTabInActiveWorkspace(url, null)
           .then((opened) => {
-            // Why: the click already left the preview, so a refused tab is a dead end unless it says so.
             if (!opened) {
-              toast.error(
-                translate(
-                  'auto.hooks.ipc.events.browserStateIpcBridge.docPreviewLinkFailed',
-                  'Could not open this link in Orca Browser.'
-                )
-              )
+              reportLinkFailure()
             }
           })
+          .catch(reportLinkFailure)
       })
     )
   }

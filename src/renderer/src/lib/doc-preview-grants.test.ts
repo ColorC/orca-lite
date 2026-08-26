@@ -124,6 +124,35 @@ describe('doc preview grant lifetime', () => {
     expect(mocks.revokeGrant).not.toHaveBeenCalled()
   })
 
+  // Why: a mint that rejects after the tab was released and reopened must not evict the entry the
+  // reopen created, or that grant can never be revoked from the tab that owns it.
+  it('leaves the entry of a later mint alone when an earlier one rejects', async () => {
+    const request = {
+      owner: { kind: 'ssh' as const, connectionId: 'ssh-1' },
+      root: '/d',
+      entryRelativePath: 'a.html'
+    }
+    let failStaleMint: (error: Error) => void = () => {}
+    mocks.mintGrant.mockReturnValueOnce(
+      new Promise((_resolve, reject) => {
+        failStaleMint = reject
+      })
+    )
+    mocks.mintGrant.mockResolvedValueOnce({
+      grantId: 'grant-2',
+      url: 'orca-preview://grant-2/a.html'
+    })
+
+    const stale = ensureDocPreviewGrant('preview-4', request)
+    releaseDocPreviewGrant('preview-4')
+    await ensureDocPreviewGrant('preview-4', request)
+    failStaleMint(new Error('runtime offline'))
+    await expect(stale).rejects.toThrow('runtime offline')
+
+    releaseDocPreviewGrant('preview-4')
+    await vi.waitFor(() => expect(mocks.revokeGrant).toHaveBeenCalledWith('grant-2'))
+  })
+
   it('does not cache a failed mint', async () => {
     mocks.mintGrant.mockRejectedValueOnce(new Error('runtime offline'))
     const request = {

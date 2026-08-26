@@ -3033,7 +3033,7 @@
         {
           "file": "src/renderer/src/hooks/ipc-events/doc-preview-external-link-bridge.test.ts",
           "assertions": [
-            "an external preview link becomes a browser tab, and a refused tab surfaces instead of being dropped"
+            "an external preview link becomes a browser tab, and a tab that is refused or that fails outright surfaces instead of being dropped"
           ]
         },
         {
@@ -3083,7 +3083,8 @@
         {
           "file": "src/renderer/src/lib/doc-preview-grants.test.ts",
           "assertions": [
-            "grants are deduped per preview tab so a StrictMode double-mount cannot revoke the surviving webview"
+            "grants are deduped per preview tab so a StrictMode double-mount cannot revoke the surviving webview",
+            "a mint that rejects after its tab was released and reopened leaves the reopened tab's grant revocable"
           ]
         },
         {
@@ -3180,8 +3181,8 @@
           "platform": "macos",
           "command": "pnpm exec vitest run --config config/vitest.config.ts src/main/browser/doc-preview-grant-registry.test.ts src/main/browser/doc-preview-file-reader.test.ts src/main/browser/doc-preview-protocol.test.ts src/main/browser/doc-preview-guest-policy.test.ts src/main/browser/doc-preview-failure-notice.test.ts src/shared/doc-preview-scheme.test.ts src/renderer/src/lib/doc-preview-grants.test.ts src/renderer/src/lib/file-preview.test.ts src/renderer/src/lib/file-preview-action-visibility.test.tsx src/main/window/main-window-webview-security.test.ts src/renderer/src/components/editor/HtmlDocPreview.failure-message.test.tsx src/renderer/src/hooks/ipc-events/doc-preview-external-link-bridge.test.ts src/renderer/src/components/terminal-pane/terminal-file-link-actions.test.ts",
           "result": "passed",
-          "durationSeconds": 0.87,
-          "summary": "Thirteen grant, reader, protocol, guest-policy, scheme-admission, plan-routing, action-visibility, failure-message, external-link and terminal-row contract files passed 150/150, including the CSP header and session request filter, the SSH symlink refusal, subframe containment, truncated and over-cap reads, the unservable-asset and empty-file split, out-of-worktree paired refusal with SSH left unrestricted, reload re-minting a stale grant, and the guest's deny-only navigation sinks, trusted-click report gate and WebRTC denial."
+          "durationSeconds": 1.47,
+          "summary": "Thirteen grant, reader, protocol, guest-policy, scheme-admission, plan-routing, action-visibility, failure-message, external-link and terminal-row contract files passed 152/152, including a stale mint rejection that must not evict the entry a reopened preview tab created and an external link whose tab fails rather than refuses, including the CSP header and session request filter, the SSH symlink refusal, subframe containment, truncated and over-cap reads, the unservable-asset and empty-file split, out-of-worktree paired refusal with SSH left unrestricted, reload re-minting a stale grant, and the guest's deny-only navigation sinks, trusted-click report gate and WebRTC denial."
         },
         {
           "date": "2026-08-26",
@@ -3346,7 +3347,7 @@
         "The SSH preview owner has unit coverage only; no live SSH host renders a preview in this gate.",
         "The preview journey exercises one self-contained document. Relative subresources, reload re-reading the workspace disk, and the truncated and out-of-worktree refusals are covered by unit contracts only.",
         "Grant revocation on tab close is asserted at the unit layer; the journey observes the tab and open file disappearing, not the main-process registry.",
-        "The external-link gate proves a human acted recently, not that they meant this link: a document that waits for any press in the guest can still spend it within two seconds. The tab it opens is visible, which is the remaining containment.",
+        "The external-link route trusts a real press on an anchor in a focused preview guest, so it proves the reader pressed that anchor, not that the anchor's visible text matches its target. The tab it opens is visible, which is the remaining containment.",
         "WebRTC is fenced by the IP-handling policy rather than by removing the API; the guest can still construct a peer connection, and the journey measures that it gathers nothing."
       ],
       "demotionRule": "Demote if a paired HTML preview creates a browser workspace on either side, renders from anything other than the orca-preview scheme, serves a read the host reported as truncated or over-cap, serves a document without the self-only content security policy, lets the preview session carry an off-machine request, reads an SSH path that canonicalizes outside its grant root, steals focus from the source editor when it opens, removes unrelated editor or terminal state on close, hides a document that rendered because one subresource was refused, leaves a grant readable after the tab or renderer that owns it is gone, mints one for a sender that is not the trusted renderer, opens a browser tab for a navigation the document started with no one at the keyboard, or lets the guest gather an ICE candidate; or if a paired browser creation this gate still owns produces duplicate client or host identities or loses its requested split."
