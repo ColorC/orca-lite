@@ -57,6 +57,7 @@ test('renders a paired HTML doc locally without creating any browser page', asyn
       `out.textContent='candidates='+found.length}` +
       `catch(error){out.textContent='threw:'+error.name}})()</script>` +
       `<div id="post-input-egress">idle</div>` +
+      `<div id="scripted-egress">idle</div>` +
       // Why the document tries to leave by itself: a preview may read its whole grant over
       // `connect-src 'self'`, so an unattended navigation to an attacker is how those bytes would
       // get out. It runs on every load here; the baseline browser counts below are the oracle.
@@ -70,6 +71,7 @@ test('renders a paired HTML doc locally without creating any browser page', asyn
       `if(out.textContent==='attempted'){return}out.textContent='attempted';` +
       `try{window.open('${POST_INPUT_EGRESS_URL}','_blank')}catch(error){}` +
       `location.href='${POST_INPUT_EGRESS_URL}'},true);` +
+      `document.getElementById('scripted-egress').textContent='attempted';` +
       `try{window.open('${SCRIPTED_EGRESS_URL}','_blank')}catch(error){}` +
       `location.href='${SCRIPTED_EGRESS_URL}'</script>` +
       `</body></html>\n`
@@ -180,6 +182,15 @@ test('renders a paired HTML doc locally without creating any browser page', asyn
         message: 'the preview document never reported its ICE gathering result'
       })
       .toBe('candidates=0')
+
+    // Presence precondition for the unattended-egress half of the oracle: without it, counts that
+    // held at baseline could just as well mean the document never ran its attempt.
+    await expect
+      .poll(() => readDocPreviewRenderedText(page, '#scripted-egress'), {
+        timeout: 30_000,
+        message: 'the preview document never attempted its unattended egress'
+      })
+      .toBe('attempted')
 
     const afterPreview = await readPairedHtmlPreviewInventory(page, inventoryArgs)
     // The document has already run its unattended `window.open` and `location.href` by now, since
@@ -340,17 +351,29 @@ test('renders a paired HTML doc locally without creating any browser page', asyn
     const linkBaseline = await readPairedHtmlPreviewInventory(page, inventoryArgs)
     // Why the heading click first: focus has to be on the guest itself, not merely on the window
     // that hosts it, before the press on the link is one main will answer.
-    const headingPoint = await readDocPreviewElementCenter(page, 'h1')
-    if (headingPoint) {
-      await page.mouse.click(headingPoint.x, headingPoint.y)
-    }
+    // Why press until the document answers rather than once: until a freshly attached guest
+    // registers its own hit-test region, the browser resolves a press over it to the embedder,
+    // where it lands on the `webview` element and never enters the document. Observed on Linux
+    // under software compositing; a later press routes normally with nothing else changed.
     // Presence precondition for the baseline below: the document really did try to leave on the
-    // back of that genuine press, rather than never running its attempt at all.
+    // back of a genuine press, rather than never running its attempt at all.
     await expect
-      .poll(() => readDocPreviewRenderedText(page, '#post-input-egress'), {
-        timeout: 30_000,
-        message: 'the preview document never attempted its post-input egress'
-      })
+      .poll(
+        async () => {
+          if ((await readDocPreviewRenderedText(page, '#post-input-egress')) !== 'attempted') {
+            const headingPoint = await readDocPreviewElementCenter(page, 'h1')
+            if (headingPoint) {
+              await page.mouse.click(headingPoint.x, headingPoint.y)
+            }
+          }
+          return readDocPreviewRenderedText(page, '#post-input-egress')
+        },
+        {
+          timeout: 30_000,
+          intervals: [1_000],
+          message: 'the preview document never attempted its post-input egress'
+        }
+      )
       .toBe('attempted')
     const afterGenuineInput = await readPairedHtmlPreviewInventory(page, inventoryArgs)
     expect({

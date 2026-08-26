@@ -2748,6 +2748,8 @@
         "pnpm exec vitest run --config config/vitest.config.ts src/main/ipc/doc-preview-grant-ipc.test.ts src/renderer/src/components/editor/useClosedEditorTabCleanup.test.tsx src/renderer/src/components/terminal-pane/TerminalLinkActionPopover.test.tsx src/renderer/src/runtime/sync-runtime-graph-editor-diff-tabs.test.ts",
         "SKIP_BUILD=1 ORCA_E2E_WEB_CLIENT=1 ORCA_E2E_FORCE_HEADFUL=1 pnpm exec playwright test tests/e2e/paired-remote-html-preview-local-render.spec.ts --config tests/playwright.config.ts --project electron-headless --workers=1 --reporter=line",
         "SKIP_BUILD=1 ORCA_E2E_WEB_CLIENT=1 ORCA_E2E_FORCE_HEADFUL=1 pnpm exec playwright test tests/e2e/paired-remote-html-preview-local-render.spec.ts --config tests/playwright.config.ts --project electron-headless --workers=1 --reporter=line --repeat-each=3",
+        // The changed-spec e2e job's own command, which is the only Linux run this gate has.
+        "npx playwright test --config tests/playwright.config.ts --project=electron-headless tests/e2e/paired-remote-html-preview-local-render.spec.ts --workers=1",
         "pnpm exec vitest run --config config/vitest.config.ts src/main/runtime/orca-runtime-browser.test.ts src/renderer/src/runtime/web-runtime-session.test.ts",
         "pnpm exec vitest run --config config/vitest.config.ts src/main/runtime/orca-runtime.test.ts src/main/runtime/orca-runtime-browser.test.ts src/renderer/src/hooks/useIpcEvents-browser-tab-create.test.ts src/renderer/src/hooks/useIpcEvents-close-routing-browser-pages.test.ts src/renderer/src/hooks/useIpcEvents-close-routing-session-tabs.test.ts src/renderer/src/store/slices/browser.test.ts src/renderer/src/runtime/web-runtime-session.test.ts",
         "SKIP_BUILD=1 pnpm exec playwright test tests/e2e/paired-browser-create-navigation-deadline.spec.ts --config tests/playwright.config.ts --project electron-headful --workers=1",
@@ -2885,6 +2887,7 @@
             "neither the client browser-workspace count nor the host browser-tab count moves off baseline",
             "the preview opens in its own split with mode html-preview and leaves the source editor active",
             "an explicit click reactivates the preview, and closing it preserves the source editor, its group, and the terminal",
+            "the document reports having attempted both its unattended and its post-press egress, so neither absence assertion can pass on a document that never tried",
             "a scripted window.open and location.href driven by a real press elsewhere in the document route nothing and move no browser count",
             "a real target=_blank press in the rendered document routes out as an Orca browser tab while the preview stays open"
           ]
@@ -3026,6 +3029,15 @@
         }
       ],
       "evidenceRuns": [
+        {
+          "date": "2026-08-26",
+          "runner": "ci",
+          "platform": "linux",
+          "command": "npx playwright test --config tests/playwright.config.ts --project=electron-headless tests/e2e/paired-remote-html-preview-local-render.spec.ts --workers=1",
+          "result": "failed",
+          "durationSeconds": 72,
+          "summary": "The journey failed on Ubuntu at the post-press presence precondition, with #post-input-egress still reading 'idle' after 30 seconds. The trace shows the press was dispatched at 769.5,143.9, a point the guest's own hit test had just confirmed was on its heading, and the focus report before it was already isFocused true, so neither focus nor coordinates were the break: the press never entered the guest at all. A standalone Electron 43 probe under Xvfb with this suite's Linux flags reproduced it in roughly two runs in five when pressing immediately after guest attach — the embedder received the pointerdown with the webview element as its target, meaning the browser resolved the press against the embedder because the freshly attached guest had not yet registered its hit-test region. The same probe never dropped a press on macOS, which is why local runs of either project could not see this. The spec now presses until the document answers, mirroring the target=_blank phase."
+        },
         {
           "date": "2026-08-26",
           "runner": "local",
