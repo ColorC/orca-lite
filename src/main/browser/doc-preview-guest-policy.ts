@@ -48,7 +48,10 @@ export function installDocPreviewGuestPolicy(
     if (!target || !getDocPreviewGrant(target.grantId)) {
       return false
     }
-    return boundGrantId === null || target.grantId === boundGrantId
+    // Why the latch is required and not just consistent: the renderer-set src is browser-initiated,
+    // so will-navigate never fires for it. Anything reaching here before the latch is the guest
+    // moving itself, which no grant has admitted yet.
+    return boundGrantId !== null && target.grantId === boundGrantId
   }
 
   /**

@@ -88,6 +88,23 @@ describe('doc preview guest policy', () => {
     expect(guest.send).not.toHaveBeenCalled()
   })
 
+  // Why an unlatched guest is refused rather than trusted: the renderer-set src is
+  // browser-initiated and never reaches will-navigate, so a navigation arriving before the latch is
+  // one the guest started for itself.
+  it('blocks a navigation the guest starts before a document has bound it', () => {
+    const grant = mintGrant()
+    const guest = installOnFakeGuest()
+    const preventDefault = vi.fn()
+
+    guest.handlers['will-navigate']?.(
+      { preventDefault } as never,
+      buildDocPreviewUrl(grant.id, 'index.html') as never
+    )
+
+    expect(preventDefault).toHaveBeenCalledOnce()
+    expect(guest.send).not.toHaveBeenCalled()
+  })
+
   it('blocks navigation into a different live grant once bound', () => {
     const { guest } = boundGuest()
     const otherGrant = mintGrant()
