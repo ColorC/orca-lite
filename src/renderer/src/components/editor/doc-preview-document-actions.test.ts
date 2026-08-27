@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
   /** What the workspace-scoped resolver answers, which is not always the same thing. */
   connectionIdForWorkspace: null as string | null | undefined,
   worktreePath: '/srv/repo' as string | null,
+  /** What the worktree resolves its runtime owner to, which the grant was minted against. */
+  worktreeRuntimeOwnerId: null as string | null,
   activeRuntimeEnvironmentId: undefined as string | undefined,
   openFile: vi.fn(),
   openFilePath: vi.fn().mockResolvedValue(true),
@@ -14,6 +16,9 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/lib/connection-owner-resolution', () => ({
   getConnectionIdForFileFromState: () => mocks.connectionIdForFile
+}))
+vi.mock('@/lib/worktree-runtime-owner', () => ({
+  getRuntimeEnvironmentIdForWorktree: () => mocks.worktreeRuntimeOwnerId
 }))
 vi.mock('@/lib/connection-context', () => ({
   getConnectionId: () => mocks.connectionIdForWorkspace,
@@ -50,6 +55,7 @@ beforeEach(() => {
   mocks.connectionIdForFile = null
   mocks.connectionIdForWorkspace = null
   mocks.worktreePath = '/srv/repo'
+  mocks.worktreeRuntimeOwnerId = null
   mocks.activeRuntimeEnvironmentId = undefined
   mocks.openFilePath.mockResolvedValue(true)
   vi.stubGlobal('window', { api: { shell: { openFilePath: mocks.openFilePath } } })
@@ -137,10 +143,25 @@ describe('openDocPreviewExternally', () => {
     expect(mocks.downloadAndOpen).toHaveBeenCalled()
   })
 
+  // Why the tab's own field is not enough: a preview tab opened or restored before its worktree's
+  // runtime owner was known carries null there, while the grant it renders through was minted
+  // against the owner the worktree resolves to — routing on the stale field sends a remote
+  // document to the OS.
+  it('routes on the worktree runtime owner when the tab carries none', () => {
+    mocks.worktreeRuntimeOwnerId = 'env-1'
+    mocks.activeRuntimeEnvironmentId = 'env-1'
+
+    openDocPreviewExternally({ ...REMOTE_DOCUMENT, runtimeEnvironmentId: null })
+
+    expect(mocks.openFilePath).not.toHaveBeenCalled()
+    expect(mocks.downloadAndOpen).toHaveBeenCalled()
+  })
+
   // Why the root matters: remote-runtime detection is relative to the workspace root, so an unknown
   // root makes every path look outside the runtime — which reads as local.
   it('downloads a runtime document whose workspace root is unknown', () => {
     mocks.worktreePath = null
+    mocks.worktreeRuntimeOwnerId = 'env-1'
     mocks.activeRuntimeEnvironmentId = 'env-1'
 
     openDocPreviewExternally({ ...REMOTE_DOCUMENT, runtimeEnvironmentId: 'env-1' })

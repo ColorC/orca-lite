@@ -1,4 +1,5 @@
 import { getConnectionIdForFileFromState } from '@/lib/connection-owner-resolution'
+import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
 import { detectLanguage } from '@/lib/language-detect'
 import {
   buildWorkspaceFileContextForFile,
@@ -50,16 +51,23 @@ export function openDocPreviewExternally(document: DocPreviewDocument): void {
     document.worktreeId,
     document.filePath
   )
+  // Why re-resolve the runtime owner rather than trust the tab's field: the grant this preview
+  // renders through was minted against the worktree's owner at render time, and a tab opened or
+  // restored before that owner was known still carries null — which reads as local.
+  const runtimeEnvironmentId =
+    getRuntimeEnvironmentIdForWorktree(state, document.worktreeId) ?? document.runtimeEnvironmentId
   const fileContext = buildWorkspaceFileContextForFile(
     document.worktreeId,
     worktreeRoot ?? '',
     document.filePath,
-    document.runtimeEnvironmentId
+    runtimeEnvironmentId
   )
-  // Why the extra conditions rather than the shared predicate alone: it reads an unresolved owner
-  // and an unknown workspace root as "local", and both are states a preview really reaches. Only a
-  // document proven to live on this machine goes to the OS; everything else downloads first.
-  const ownedByThisMachine = connectionId === null && worktreeRoot !== null
+  // Why these conditions rather than the shared predicate alone: it reads an unresolved owner, an
+  // unknown workspace root, and a runtime-owned path that sits outside that root as "local", and a
+  // preview really reaches all three. Only a document proven to live on this machine goes to the
+  // OS; everything else downloads first, where a failure is at least visible.
+  const ownedByThisMachine =
+    connectionId === null && runtimeEnvironmentId === null && worktreeRoot !== null
   if (ownedByThisMachine && canClientOsOpenWorkspaceFile(fileContext, document.filePath)) {
     void window.api.shell.openFilePath(document.filePath)
     return
