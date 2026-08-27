@@ -164,6 +164,18 @@ describe('getPiTitlebarExtensionSource', () => {
     expect(harness.lastTitle()).toMatch(BRAILLE_RE)
   })
 
+  it('does not let an idle compaction adopt an already-running agent spinner', async () => {
+    const harness = createHarness()
+
+    await harness.callHook('agent_start')
+    await harness.callHook('auto_compaction_start', { reason: 'idle' })
+    await harness.callHook('auto_compaction_end', { reason: 'idle' })
+
+    expect(vi.getTimerCount()).toBe(1)
+    vi.advanceTimersByTime(80)
+    expect(harness.lastTitle()).toMatch(BRAILLE_RE)
+  })
+
   it('does not let a stale idle-compaction completion stop a newer run', async () => {
     const harness = createHarness()
 
