@@ -7,6 +7,7 @@ import {
 } from '../../shared/browser-client-page-metadata-protocol'
 import { RemoteRuntimeClientError } from '../../shared/remote-runtime-client-error'
 import { isTrustedBrowserRenderer } from './browser-renderer-trust'
+import { resolveBrowserToolTargetGuest } from './browser-tool-target-authorization'
 import type { BrowserViewportOverride } from '../../shared/browser-workspace-types'
 import {
   isValidBrowserAnnotationViewportBridgeMarkers,
@@ -85,12 +86,23 @@ export function registerBrowserGuestViewHandlers(): void {
       ) {
         return false
       }
-      return browserManager.setAnnotationViewportBridge(args.browserPageId, {
-        enabled: args.enabled,
-        emitViewport: args.emitViewport,
-        markers: args.markers,
-        token: args.token
-      })
+      // Why resolve here: this is a tool acting on a guest the reader is looking at, so it answers
+      // for a doc preview too — and routing through the shared authority also pins the request to
+      // the renderer that owns the target, which page-id-only resolution never checked.
+      const guest = resolveBrowserToolTargetGuest(args.browserPageId, event.sender.id)
+      if (!guest) {
+        return false
+      }
+      return browserManager.setAnnotationViewportBridge(
+        args.browserPageId,
+        {
+          enabled: args.enabled,
+          emitViewport: args.emitViewport,
+          markers: args.markers,
+          token: args.token
+        },
+        guest
+      )
     }
   )
 

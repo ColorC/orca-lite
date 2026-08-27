@@ -6,8 +6,7 @@ import {
   type DocPreviewFailureReason
 } from '../../../../shared/doc-preview-scheme'
 import { ORCA_BROWSER_GUEST_WEB_PREFERENCES_ATTRIBUTE } from '../../../../shared/browser-guest-web-preferences'
-import { MarkupOverlay } from '@/components/browser-pane/annotate/MarkupOverlay'
-import { useBrowserPageMarkupCapture } from '@/components/browser-pane/annotate/use-browser-page-markup-capture'
+import { BrowserGuestAnnotateOverlays } from '@/components/browser-pane/annotate/browser-guest-annotate-overlays'
 import { moveFocusToRendererBeforeWebviewDetach } from '@/components/browser-pane/host-guest/webview-registry'
 import {
   buildDocPreviewGrantRequest,
@@ -17,10 +16,15 @@ import {
 import { selectWorktreeHostDisplayLabel } from '@/lib/execution-host-display-label'
 import { translate } from '@/i18n/i18n'
 import { useAppStore } from '@/store'
+import {
+  openDocPreviewExternally,
+  openDocPreviewSource
+} from './doc-preview-document-actions'
 import { buildDocPreviewDocumentIdentity } from './doc-preview-document-identity'
 import { docPreviewAssetNotice, docPreviewFailureDetail } from './doc-preview-failure-messages'
+import { DocPreviewToolbar } from './doc-preview-toolbar'
 import { useDocPreviewWebviewHistory } from './doc-preview-webview-history'
-import { HtmlDocPreviewToolbar } from './html-doc-preview-toolbar'
+import { useDocPreviewGuestTools } from './use-doc-preview-guest-tools'
 
 type PreviewState = 'loading' | 'ready' | 'unavailable'
 
@@ -89,11 +93,17 @@ function attachDocPreviewWebview({
 export function HtmlDocPreview({
   previewId,
   filePath,
-  worktreeId
+  relativePath,
+  worktreeId,
+  runtimeEnvironmentId = null,
+  externalSshTargetId = null
 }: {
   previewId: string
   filePath: string
+  relativePath: string
   worktreeId: string
+  runtimeEnvironmentId?: string | null
+  externalSshTargetId?: string | null
 }): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const webviewRef = useRef<Electron.WebviewTag | null>(null)
@@ -102,16 +112,32 @@ export function HtmlDocPreview({
   const [failureReason, setFailureReason] = useState<DocPreviewFailureReason | null>(null)
   const [assetFailures, setAssetFailures] = useState<DocPreviewFailure[]>([])
   const [remintCount, setRemintCount] = useState(0)
+  const [grantId, setGrantId] = useState<string | null>(null)
 
   const history = useDocPreviewWebviewHistory(webviewRef)
   const { sync: syncHistory, reset: resetHistory } = history
-  const markup = useBrowserPageMarkupCapture(webviewRef, containerRef)
 
   const worktreeRoot = useAppStore((store) => store.getKnownWorktreeById(worktreeId)?.path ?? null)
   const hostLabel = useAppStore((store) => selectWorktreeHostDisplayLabel(store, worktreeId))
   const identity = useMemo(
     () => buildDocPreviewDocumentIdentity({ filePath, worktreeRoot, hostLabel }),
     [filePath, hostLabel, worktreeRoot]
+  )
+  const isUnavailable = state === 'unavailable' || failureReason !== null
+  const { grab, markup, annotationSend, grabAnnotations, browserOverlayViewport, elementTools } =
+    useDocPreviewGuestTools({
+      previewId,
+      worktreeId,
+      grantId,
+      webviewRef,
+      containerRef,
+      toolsReady: state === 'ready' && !isUnavailable
+    })
+  // Not `document`: shadowing the global inside a component is how a stray DOM call silently
+  // starts reading a plain object.
+  const previewDocument = useMemo(
+    () => ({ filePath, relativePath, worktreeId, runtimeEnvironmentId, externalSshTargetId }),
+    [externalSshTargetId, filePath, relativePath, runtimeEnvironmentId, worktreeId]
   )
 
   useEffect(() => {
@@ -142,6 +168,7 @@ export function HtmlDocPreview({
     setState('loading')
     setFailureReason(null)
     setAssetFailures([])
+    setGrantId(null)
     resetHistory()
     const request = buildDocPreviewGrantRequest(useAppStore.getState(), worktreeId, filePath)
     if (!request) {
@@ -188,6 +215,9 @@ export function HtmlDocPreview({
         detach = attached.detach
         reloadRef.current = attached.reload
         webviewRef.current = attached.webview
+        // Why only now: main binds this grant to the guest on its first commit, so the tools have
+        // nothing to name until the webview exists and is pointed at it.
+        setGrantId(handle.grantId)
       })
       .catch(() => {
         if (!disposed) {
@@ -204,32 +234,40 @@ export function HtmlDocPreview({
     }
   }, [filePath, previewId, remintCount, resetHistory, syncHistory, worktreeId])
 
+  // Why: a grant is pinned to the owner ids resolved when it was minted, so after a pairing or
+  // SSH reconnect the old one reads nothing and reloading the guest would just refetch the
+  // failure. Drop it and mint against today's ids instead of making the user close the tab.
+  const handleHardReload = useCallback(() => {
+    releaseDocPreviewGrant(previewId)
+    setRemintCount((count) => count + 1)
+  }, [previewId])
+
   const handleReload = useCallback(() => {
-    // Why: a grant is pinned to the owner ids resolved when it was minted, so after a pairing or
-    // SSH reconnect the old one reads nothing and reloading the guest would just refetch the
-    // failure. Drop it and mint against today's ids instead of making the user close the tab.
     if (failureReason !== null || state === 'unavailable') {
-      releaseDocPreviewGrant(previewId)
-      setRemintCount((count) => count + 1)
+      handleHardReload()
       return
     }
     reloadRef.current?.()
-  }, [failureReason, previewId, state])
+  }, [failureReason, handleHardReload, state])
 
-  const isUnavailable = state === 'unavailable' || failureReason !== null
   const assetNotice = isUnavailable ? null : docPreviewAssetNotice(assetFailures)
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-editor-surface">
-      <HtmlDocPreviewToolbar
+      <DocPreviewToolbar
         identity={identity}
         history={history}
         loading={state === 'loading' && failureReason === null}
         onReload={handleReload}
+        onHardReload={handleHardReload}
+        onCopyPath={() => void window.api.ui.writeClipboardText(identity.absolutePath)}
+        onOpenSource={() => openDocPreviewSource(previewDocument)}
+        onOpenExternally={() => openDocPreviewExternally(previewDocument)}
+        elementTools={elementTools}
         markupActive={markup.isActive}
         onToggleMarkup={() => (markup.isActive ? markup.cancel() : void markup.start())}
         // Nothing has painted yet on a loading or failed preview, so there is nothing to draw on.
-        markupDisabled={state !== 'ready' || failureReason !== null}
+        markupDisabled={isUnavailable || state !== 'ready' || grab.state !== 'idle'}
       />
       {assetNotice ? (
         <div
@@ -242,14 +280,16 @@ export function HtmlDocPreview({
         </div>
       ) : null}
       <div className="relative flex min-h-0 flex-1 overflow-hidden" ref={containerRef}>
-        {markup.isActive && markup.baseImage ? (
-          <MarkupOverlay
-            baseImage={markup.baseImage}
-            busy={markup.state === 'composing'}
-            onComplete={(input) => void markup.complete(input)}
-            onCancel={markup.cancel}
-          />
-        ) : null}
+        <BrowserGuestAnnotateOverlays
+          markup={markup}
+          grab={grab}
+          annotationSend={annotationSend}
+          grabAnnotations={grabAnnotations}
+          containerRef={containerRef}
+          webviewRef={webviewRef}
+          browserOverlayViewport={browserOverlayViewport}
+          worktreeId={worktreeId}
+        />
         {state === 'loading' && failureReason === null ? (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-editor-surface">
             <Loader2 className="size-5 animate-spin text-muted-foreground" />

@@ -1,16 +1,14 @@
 import { absolutePathToFileUri } from '@/components/editor/markdown-internal-links'
 import { getWorkspaceFilePreviewPlan, openFileInBrowserTab } from '@/lib/file-preview'
 import { downloadAndOpenRemoteTerminalFile } from './terminal-remote-file-download-open'
-import { getConnectionId } from '@/lib/connection-context'
 import { detectLanguage } from '@/lib/language-detect'
 import { findWorkspaceFileRoute } from '@/lib/runtime-workspace-file-route'
 import { isPathInsideWorktree, toWorktreeRelativePath } from '@/lib/terminal-links'
 import {
-  isRemoteRuntimeFileOperation,
-  statRuntimePath,
-  type RuntimeFileOperationArgs
-} from '@/runtime/runtime-file-client'
-import { settingsForRuntimeOwner } from '@/runtime/runtime-rpc-client'
+  buildWorkspaceFileContext,
+  canClientOsOpenWorkspaceFile
+} from '@/lib/workspace-file-host-routing'
+import { statRuntimePath, type RuntimeFileOperationArgs } from '@/runtime/runtime-file-client'
 import { useAppStore } from '@/store'
 import { activateAndRevealWorkspace, activateAndRevealWorktree } from '@/lib/worktree-activation'
 import { resolveKnownWorktreeRootPathLink } from './terminal-worktree-path-link'
@@ -52,13 +50,7 @@ export function getTerminalFileContext(
   worktreePath: string,
   runtimeEnvironmentId?: string | null
 ): RuntimeFileOperationArgs {
-  const settings = useAppStore.getState().settings
-  return {
-    settings: settingsForRuntimeOwner(settings, runtimeEnvironmentId),
-    worktreeId: worktreeId || null,
-    worktreePath,
-    connectionId: getConnectionId(worktreeId || null) ?? undefined
-  }
+  return buildWorkspaceFileContext(worktreeId, worktreePath, runtimeEnvironmentId)
 }
 
 // Why: a WSL-runtime pane prints POSIX paths even when the worktree lives on a
@@ -99,7 +91,7 @@ export function shouldOpenTerminalFileWithSystemDefault(
   fileContext: RuntimeFileOperationArgs,
   filePath: string
 ): boolean {
-  return !fileContext.connectionId && !isRemoteRuntimeFileOperation(fileContext, filePath)
+  return canClientOsOpenWorkspaceFile(fileContext, filePath)
 }
 
 let latestOpenDetectedFilePathRequestId = 0

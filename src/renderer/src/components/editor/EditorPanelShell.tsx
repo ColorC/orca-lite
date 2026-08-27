@@ -97,7 +97,11 @@ export function EditorPanelShell({
 }: EditorPanelShellProps): JSX.Element {
   return (
     <div ref={panelRef} className="flex flex-col flex-1 min-w-0 min-h-0">
-      {!model.isCombinedDiff && activeFile.mode !== 'check-details' && (
+      {/* Why html-preview is excluded: it renders its own browser chrome, whose identity chip already
+          names the document — this header would repeat the same path directly above it. */}
+      {!model.isCombinedDiff &&
+        activeFile.mode !== 'check-details' &&
+        activeFile.mode !== 'html-preview' && (
         <EditorPanelHeader
           activeFile={activeFile}
           copiedPathVisible={copiedPathVisible}

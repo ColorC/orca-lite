@@ -179,7 +179,10 @@ export function EditorContent({
         key={viewStateScopeId}
         previewId={activeFile.id}
         filePath={activeFile.filePath}
+        relativePath={activeFile.relativePath}
         worktreeId={activeFile.worktreeId}
+        runtimeEnvironmentId={activeFile.runtimeEnvironmentId ?? null}
+        externalSshTargetId={activeFile.externalSshTargetId ?? null}
       />
     )
   }

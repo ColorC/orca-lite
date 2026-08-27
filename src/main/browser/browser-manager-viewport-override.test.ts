@@ -893,12 +893,16 @@ describe('browserManager', () => {
         rendererWebContentsId
       })
 
-      const ok = await browserManager.setAnnotationViewportBridge('tab-annotations', {
-        emitViewport: false,
-        enabled: true,
-        markers: [],
-        token: 'annotationviewporttoken'
-      })
+      const ok = await browserManager.setAnnotationViewportBridge(
+        'tab-annotations',
+        {
+          emitViewport: false,
+          enabled: true,
+          markers: [],
+          token: 'annotationviewporttoken'
+        },
+        guest as never
+      )
 
       expect(ok).toBe(true)
       expect(guest.executeJavaScriptInIsolatedWorld).toHaveBeenCalledWith(

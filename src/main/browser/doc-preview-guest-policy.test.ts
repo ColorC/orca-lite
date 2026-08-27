@@ -1,13 +1,24 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { installDocPreviewGuestPolicy, reportDocPreviewLinkClick } from './doc-preview-guest-policy'
+import {
+  getAuthorizedDocPreviewGuest,
+  installDocPreviewGuestPolicy,
+  reportDocPreviewLinkClick
+} from './doc-preview-guest-policy'
 import { buildDocPreviewUrl } from '../../shared/doc-preview-scheme'
-import { mintDocPreviewGrant, revokeAllDocPreviewGrants } from './doc-preview-grant-registry'
+import {
+  mintDocPreviewGrant,
+  revokeAllDocPreviewGrants,
+  revokeDocPreviewGrant
+} from './doc-preview-grant-registry'
 
 type GuestHandlers = Record<string, (...args: never[]) => void>
 
-function installOnFakeGuest(): {
+const HOST_RENDERER_ID = 42
+
+function installOnFakeGuest(hostId: number = HOST_RENDERER_ID): {
   contents: object
   handlers: GuestHandlers
+  hostId: number
   isFocused: ReturnType<typeof vi.fn>
   send: ReturnType<typeof vi.fn>
   setWebRTCIPHandlingPolicy: ReturnType<typeof vi.fn>
@@ -25,6 +36,7 @@ function installOnFakeGuest(): {
   }
   const guest = {
     isFocused,
+    isDestroyed: () => false,
     on: vi.fn(register),
     once: vi.fn(register),
     setWindowOpenHandler: vi.fn((handler: (details: { url: string }) => { action: string }) => {
@@ -32,10 +44,11 @@ function installOnFakeGuest(): {
     }),
     setWebRTCIPHandlingPolicy
   }
-  installDocPreviewGuestPolicy(guest as never, { send })
+  installDocPreviewGuestPolicy(guest as never, { id: hostId, send })
   return {
     contents: guest,
     handlers,
+    hostId,
     isFocused,
     send,
     setWebRTCIPHandlingPolicy,
@@ -326,5 +339,65 @@ describe('doc preview guest policy', () => {
     )
 
     expect(preventDefault).toHaveBeenCalledOnce()
+  })
+
+  describe('tool authorization', () => {
+    it('answers the hosting renderer for a guest bound to a live grant', () => {
+      const { grant, guest } = boundGuest()
+
+      expect(getAuthorizedDocPreviewGuest(grant.id, HOST_RENDERER_ID)).toBe(guest.contents)
+    })
+
+    it('refuses a renderer that does not host the preview', () => {
+      const { grant } = boundGuest()
+
+      expect(getAuthorizedDocPreviewGuest(grant.id, HOST_RENDERER_ID + 1)).toBeNull()
+    })
+
+    // Why: the src commit is what proves this guest is showing that grant. Before it, the id names
+    // a document nothing has been asked to render.
+    it('refuses a guest that has not committed a document yet', () => {
+      const grant = mintGrant()
+      installOnFakeGuest()
+
+      expect(getAuthorizedDocPreviewGuest(grant.id, HOST_RENDERER_ID)).toBeNull()
+    })
+
+    // Why: revoking is how a closed tab withdraws its preview, and it happens while the guest is
+    // still being torn down — a tool must stop answering at revoke, not at destroy.
+    it('stops answering once the grant is revoked', () => {
+      const { grant } = boundGuest()
+
+      revokeDocPreviewGrant(grant.id)
+
+      expect(getAuthorizedDocPreviewGuest(grant.id, HOST_RENDERER_ID)).toBeNull()
+    })
+
+    it('drops the guest when it is destroyed', () => {
+      const { grant, guest } = boundGuest()
+
+      guest.handlers['destroyed']?.()
+
+      expect(getAuthorizedDocPreviewGuest(grant.id, HOST_RENDERER_ID)).toBeNull()
+    })
+
+    it('answers nothing for a grant no preview ever rendered', () => {
+      const grant = mintGrant()
+
+      expect(getAuthorizedDocPreviewGuest(grant.id, HOST_RENDERER_ID)).toBeNull()
+    })
+
+    // Why both directions: two previews open at once must not be able to drive each other's guest.
+    it('keeps two live previews on their own guests', () => {
+      const first = boundGuest()
+      const second = boundGuest()
+
+      expect(getAuthorizedDocPreviewGuest(first.grant.id, HOST_RENDERER_ID)).toBe(
+        first.guest.contents
+      )
+      expect(getAuthorizedDocPreviewGuest(second.grant.id, HOST_RENDERER_ID)).toBe(
+        second.guest.contents
+      )
+    })
   })
 })

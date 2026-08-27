@@ -46,7 +46,22 @@ vi.mock('@/components/browser-pane/host-guest/webview-registry', () => ({
   moveFocusToRendererBeforeWebviewDetach: () => undefined
 }))
 
-const storeState = { getKnownWorktreeById: () => ({ path: '/repo' }), persistedUIReady: true }
+const storeState = {
+  getKnownWorktreeById: () => ({ path: '/repo' }),
+  persistedUIReady: true,
+  settings: {},
+  keybindings: {},
+  browserAnnotationsByPageId: {} as Record<string, unknown[]>,
+  activeGroupIdByWorktree: {} as Record<string, string>,
+  agentSendPopoverTargetMode: null,
+  openAgentSendPopoverTargetMode: () => undefined,
+  closeAgentSendPopoverTargetMode: () => undefined,
+  addBrowserPageAnnotation: () => undefined,
+  deleteBrowserPageAnnotation: () => undefined,
+  clearBrowserPageAnnotations: () => undefined,
+  recordFeatureInteraction: () => undefined,
+  openFile: () => 'file-1'
+}
 
 vi.mock('@/store', () => ({
   useAppStore: Object.assign(
@@ -73,7 +88,12 @@ async function renderPreview(container: HTMLDivElement, root: Root): Promise<voi
   await act(async () => {
     root.render(
       <TooltipProvider>
-        <HtmlDocPreview previewId="preview-1" filePath="/repo/docs/doc.html" worktreeId="wt-1" />
+        <HtmlDocPreview
+          previewId="preview-1"
+          filePath="/repo/docs/doc.html"
+          relativePath="docs/doc.html"
+          worktreeId="wt-1"
+        />
       </TooltipProvider>
     )
   })
@@ -101,7 +121,9 @@ describe('HtmlDocPreview failure messages', () => {
             }
           }
         }
-      }
+      },
+      ui: { writeClipboardText: () => Promise.resolve() },
+      browser: { setAnnotationViewportBridge: () => Promise.resolve(true) }
     }
     container = document.createElement('div')
     document.body.append(container)

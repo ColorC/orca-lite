@@ -6,10 +6,14 @@ import { normalizeExternalBrowserUrl } from '../../shared/browser-url'
 import { enforceBrowserRouteWebRtcPolicy } from './browser-route-webrtc-policy'
 import { getDocPreviewGrant } from './doc-preview-grant-registry'
 
-type PreviewLinkSink = { send: (channel: string, payload: { url: string }) => void }
+/** The trusted renderer hosting the preview: the sink for link reports and the only sender allowed to drive tools on it. */
+type PreviewHostRenderer = {
+  id: number
+  send: (channel: string, payload: { url: string }) => void
+}
 
 type PreviewGuestRegistration = {
-  linkSink: PreviewLinkSink
+  host: PreviewHostRenderer
   readBoundGrantId: () => string | null
   isFocused: () => boolean
 }
@@ -22,25 +26,61 @@ type PreviewGuestRegistration = {
 const previewGuests = new WeakMap<object, PreviewGuestRegistration>()
 
 /**
+ * The same guests, reachable by the grant they committed to. A preview joins no browser-page
+ * registry, so this is the only way to answer "which contents renders grant X" for a tool request
+ * the host renderer makes on the reader's behalf. Keyed by grant, not by tab: a grant dies with
+ * the tab that minted it, so an entry can never outlive the surface the reader is looking at.
+ */
+const previewGuestsByGrantId = new Map<string, { guest: Electron.WebContents; hostId: number }>()
+
+/**
+ * Authorize a browser tool request against a preview guest. This grants the guest nothing — it
+ * answers only whether the trusted renderer asking is the one hosting a live, grant-bound preview.
+ * Deliberately separate from browser-page authorization: neither authority can resolve the
+ * other's ids, so a preview never becomes a browser page and a browser page never becomes a preview.
+ */
+export function getAuthorizedDocPreviewGuest(
+  grantId: string,
+  senderWebContentsId: number
+): Electron.WebContents | null {
+  const registration = previewGuestsByGrantId.get(grantId)
+  if (!registration || registration.hostId !== senderWebContentsId) {
+    return null
+  }
+  // Why: revocation is how a closed tab withdraws its preview, and it happens before the guest is torn down.
+  if (!getDocPreviewGrant(grantId)) {
+    return null
+  }
+  if (registration.guest.isDestroyed()) {
+    previewGuestsByGrantId.delete(grantId)
+    return null
+  }
+  return registration.guest
+}
+
+/**
  * The preview guest renders a workspace document, not the web: it may only move within its own
  * grant, and nothing it does by itself leaves the preview. The one route out is
  * `reportDocPreviewLinkClick`, which answers for a click the reader really made.
  */
 export function installDocPreviewGuestPolicy(
   guest: Electron.WebContents,
-  linkSink: PreviewLinkSink
+  host: PreviewHostRenderer
 ): void {
   // Why: the first commit is the renderer-set src, already admitted by will-attach-webview;
   // latching it pins every later navigation to that one grant.
   let boundGrantId: string | null = null
 
   previewGuests.set(guest, {
-    linkSink,
+    host,
     readBoundGrantId: () => boundGrantId,
     isFocused: () => guest.isFocused()
   })
   guest.once('destroyed', () => {
     previewGuests.delete(guest)
+    if (boundGrantId !== null && previewGuestsByGrantId.get(boundGrantId)?.guest === guest) {
+      previewGuestsByGrantId.delete(boundGrantId)
+    }
   })
 
   const isAllowedPreviewNavigation = (rawUrl: string): boolean => {
@@ -73,6 +113,9 @@ export function installDocPreviewGuestPolicy(
       return
     }
     boundGrantId = parseDocPreviewUrl(details.url)?.grantId ?? null
+    if (boundGrantId !== null) {
+      previewGuestsByGrantId.set(boundGrantId, { guest, hostId: host.id })
+    }
   })
   guest.on('will-navigate', navigationGuard)
   guest.on('will-redirect', navigationGuard)
@@ -120,5 +163,5 @@ export function reportDocPreviewLinkClick(sender: Electron.WebContents, rawUrl: 
   if (!externalUrl || !isWebUrl(externalUrl)) {
     return
   }
-  registration.linkSink.send(DOC_PREVIEW_EXTERNAL_LINK_CHANNEL, { url: externalUrl })
+  registration.host.send(DOC_PREVIEW_EXTERNAL_LINK_CHANNEL, { url: externalUrl })
 }

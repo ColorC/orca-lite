@@ -35,6 +35,27 @@ export function isDocPreviewGrantId(value: string): boolean {
   return DOC_PREVIEW_GRANT_ID_PATTERN.test(value)
 }
 
+/**
+ * Namespace for the id a preview surface passes to the browser tool channels (grab, hover
+ * describe, selection capture). It is deliberately not a browser page id: main dispatches on the
+ * prefix, so a preview id can never reach the browser page registries and a browser page id can
+ * never reach the preview registry.
+ */
+const DOC_PREVIEW_TOOL_TARGET_PREFIX = 'doc-preview-grant:'
+
+export function toDocPreviewToolTargetId(grantId: string): string {
+  return `${DOC_PREVIEW_TOOL_TARGET_PREFIX}${grantId}`
+}
+
+/** Returns the grant id a preview tool target names, or null for anything else. */
+export function parseDocPreviewToolTargetId(candidate: string): string | null {
+  if (!candidate.startsWith(DOC_PREVIEW_TOOL_TARGET_PREFIX)) {
+    return null
+  }
+  const grantId = candidate.slice(DOC_PREVIEW_TOOL_TARGET_PREFIX.length)
+  return isDocPreviewGrantId(grantId) ? grantId : null
+}
+
 /** Encodes each segment separately so `/` keeps its separator meaning and `#`/`?` cannot split the path. */
 export function buildDocPreviewUrl(grantId: string, relativePath: string): string {
   const segments = relativePath

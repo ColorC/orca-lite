@@ -14,6 +14,8 @@ const ENTRY_RELATIVE_PATH = 'docs/reports/index.html'
 const ABSOLUTE_PATH = '/repo/docs/reports/index.html'
 
 const clipboard = vi.hoisted(() => ({ writes: [] as string[] }))
+const grabCalls: { browserPageId: string; enabled: boolean }[] = []
+const osOpens: string[] = []
 
 vi.mock('@/lib/doc-preview-grants', () => ({
   buildDocPreviewGrantRequest: () => ({
@@ -44,9 +46,43 @@ vi.mock('@/lib/execution-host-display-label', () => ({
   selectWorktreeHostDisplayLabel: () => 'Studio Mac mini'
 }))
 
+const store = vi.hoisted(() => ({
+  openedFiles: [] as unknown[],
+  downloads: [] as string[]
+}))
+
+// The document lives on the SSH host that owns the workspace, which is what makes the preview a
+// preview at all — the client OS has no copy of it.
+vi.mock('@/lib/connection-context', () => ({
+  getConnectionId: () => 'ssh-1',
+  getConnectionIdFromState: () => 'ssh-1'
+}))
+
+vi.mock('@/components/terminal-pane/terminal-remote-file-download-open', () => ({
+  downloadAndOpenRemoteTerminalFile: (_context: unknown, filePath: string) => {
+    store.downloads.push(filePath)
+    return Promise.resolve()
+  }
+}))
+
 const storeState = {
   getKnownWorktreeById: () => ({ path: '/repo' }),
-  persistedUIReady: true
+  persistedUIReady: true,
+  settings: { activeRuntimeEnvironmentId: 'env-1' },
+  keybindings: {},
+  browserAnnotationsByPageId: {} as Record<string, unknown[]>,
+  activeGroupIdByWorktree: {} as Record<string, string>,
+  agentSendPopoverTargetMode: null,
+  openAgentSendPopoverTargetMode: () => undefined,
+  closeAgentSendPopoverTargetMode: () => undefined,
+  addBrowserPageAnnotation: () => undefined,
+  deleteBrowserPageAnnotation: () => undefined,
+  clearBrowserPageAnnotations: () => undefined,
+  recordFeatureInteraction: () => undefined,
+  openFile: (file: unknown) => {
+    store.openedFiles.push(file)
+    return 'file-1'
+  }
 }
 
 vi.mock('@/store', () => ({
@@ -70,12 +106,21 @@ async function renderPreview(container: HTMLDivElement, root: Root): Promise<Stu
   await act(async () => {
     root.render(
       <TooltipProvider>
-        <HtmlDocPreview previewId="preview-1" filePath={ABSOLUTE_PATH} worktreeId="wt-1" />
+        <HtmlDocPreview
+          previewId="preview-1"
+          filePath={ABSOLUTE_PATH}
+          relativePath={ENTRY_RELATIVE_PATH}
+          worktreeId="wt-1"
+        />
       </TooltipProvider>
     )
   })
   const webview = container.querySelector('webview') as StubWebview | null
   expect(webview).not.toBeNull()
+  // Why: the tools only arm once something has painted, so every case starts from a settled load.
+  await act(async () => {
+    webview?.dispatchEvent(new Event('did-stop-loading'))
+  })
   return webview as StubWebview
 }
 
@@ -107,13 +152,34 @@ describe('HtmlDocPreview browser chrome', () => {
   beforeEach(() => {
     mounted = true
     clipboard.writes = []
+    store.openedFiles = []
+    store.downloads = []
+    grabCalls.length = 0
+    osOpens.length = 0
     ;(window as unknown as { api: unknown }).api = {
       docPreview: { onLoadFailure: () => () => undefined },
       ui: {
         writeClipboardText: (text: string) => {
           clipboard.writes.push(text)
           return Promise.resolve()
+        },
+        writeClipboardImage: () => Promise.resolve()
+      },
+      shell: {
+        openFilePath: (filePath: string) => {
+          osOpens.push(filePath)
+          return Promise.resolve(true)
         }
+      },
+      browser: {
+        setGrabMode: (args: { browserPageId: string; enabled: boolean }) => {
+          grabCalls.push(args)
+          return Promise.resolve({ ok: true })
+        },
+        cancelGrab: () => Promise.resolve(true),
+        awaitGrabSelection: () => new Promise(() => {}),
+        captureSelectionScreenshot: () => Promise.resolve({ ok: false }),
+        setAnnotationViewportBridge: () => Promise.resolve(true)
       }
     }
     container = document.createElement('div')
@@ -140,14 +206,24 @@ describe('HtmlDocPreview browser chrome', () => {
   })
 
   // The internal scheme is an implementation detail of how the workspace hands bytes to the guest.
-  // The guest's own src attribute necessarily carries it; nothing the reader can read may.
+  // The guest's own src attribute necessarily carries it; no other node in the tree may.
   it('never shows the internal preview scheme to the reader', async () => {
+    const webview = await renderPreview(container, root)
+
+    expect(webview.getAttribute('src')).toContain('orca-preview')
+    const withoutGuest = container.cloneNode(true) as HTMLElement
+    for (const guest of withoutGuest.querySelectorAll('webview')) {
+      guest.remove()
+    }
+    expect(withoutGuest.innerHTML).not.toContain('orca-preview')
+  })
+
+  // Why: the browsing tour walks anchors by name, and a preview answering to the browser pane's
+  // anchors would hand it steps about profiles and cookies that a document tab does not have.
+  it('claims none of the browsing tour anchors', async () => {
     await renderPreview(container, root)
 
-    expect(container.textContent).not.toContain('orca-preview')
-    const toolbar = container.querySelector('[data-orca-doc-preview-toolbar]')
-    expect(toolbar).not.toBeNull()
-    expect(toolbar?.outerHTML).not.toContain('orca-preview')
+    expect(container.querySelector('[data-contextual-tour-target]')).toBeNull()
   })
 
   it('copies the absolute path the owning machine spells, not the workspace-relative one', async () => {
@@ -213,5 +289,76 @@ describe('HtmlDocPreview browser chrome', () => {
     })
 
     expect(webview.reload).toHaveBeenCalledTimes(1)
+  })
+
+  describe('tools', () => {
+    it('offers the same tool cluster the browsing pane does', async () => {
+      await renderPreview(container, root)
+
+      for (const label of [
+        'Grab page element',
+        'Annotate page element',
+        'Draw on screenshot',
+        'Open source file',
+        'Open with default app',
+        'Preview options'
+      ]) {
+        expect(button(container, label)).not.toBeNull()
+      }
+    })
+
+    // Why: cookies land in a browsing session, and a preview reads workspace disk over a grant —
+    // there is no session for an import to reach.
+    it('hides cookie import, which a preview has no session for', async () => {
+      await renderPreview(container, root)
+
+      expect(
+        container.querySelector('button[aria-label="Import cookies from browser"]')
+      ).toBeNull()
+    })
+
+    // The picker is driven through main, which resolves the id to this preview's guest. Sending a
+    // browser page id would be asking main to act on a tab that does not exist.
+    it('arms the element picker against the preview grant, not a browser page', async () => {
+      await renderPreview(container, root)
+
+      await act(async () => {
+        button(container, 'Grab page element').click()
+      })
+
+      expect(grabCalls).toEqual([
+        { browserPageId: `doc-preview-grant:${GRANT_ID}`, enabled: true }
+      ])
+    })
+
+    it('opens the document source as its own editor tab', async () => {
+      await renderPreview(container, root)
+
+      await act(async () => {
+        button(container, 'Open source file').click()
+      })
+
+      expect(store.openedFiles).toEqual([
+        expect.objectContaining({
+          filePath: ABSOLUTE_PATH,
+          relativePath: ENTRY_RELATIVE_PATH,
+          worktreeId: 'wt-1',
+          mode: 'edit'
+        })
+      ])
+    })
+
+    // Why: a preview is a remote document by construction — the client OS has no copy to launch,
+    // so "open externally" has to download first.
+    it('downloads a runtime-owned document before handing it to the OS', async () => {
+      await renderPreview(container, root)
+
+      await act(async () => {
+        button(container, 'Open with default app').click()
+      })
+
+      expect(store.downloads).toEqual([ABSOLUTE_PATH])
+      expect(osOpens).toEqual([])
+    })
   })
 })

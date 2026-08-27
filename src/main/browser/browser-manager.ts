@@ -1796,12 +1796,13 @@ export class BrowserManager {
 
   async setAnnotationViewportBridge(
     browserTabId: string,
-    options: BrowserAnnotationViewportBridgeOptions
+    options: BrowserAnnotationViewportBridgeOptions,
+    guest: Electron.WebContents
   ): Promise<boolean> {
     const prev = this.annotationViewportBridgeOpsByTabId.get(browserTabId) ?? Promise.resolve()
     const next = prev
       .catch(() => {})
-      .then(() => this.doSetAnnotationViewportBridgeImpl(browserTabId, options))
+      .then(() => this.doSetAnnotationViewportBridgeImpl(options, guest))
     this.annotationViewportBridgeOpsByTabId.set(browserTabId, next)
     try {
       return await next
@@ -1812,18 +1813,13 @@ export class BrowserManager {
     }
   }
 
+  // Why the caller resolves the guest: the same bridge serves browser pages and doc previews,
+  // whose contents this manager's page registries deliberately never hold.
   private async doSetAnnotationViewportBridgeImpl(
-    browserTabId: string,
-    options: BrowserAnnotationViewportBridgeOptions
+    options: BrowserAnnotationViewportBridgeOptions,
+    guest: Electron.WebContents
   ): Promise<boolean> {
-    const webContentsId = this.webContentsIdByTabId.get(browserTabId)
-    if (!webContentsId) {
-      return false
-    }
-    const guest = webContents.fromId(webContentsId)
-    if (!guest || guest.isDestroyed()) {
-      // Why: a stale guest must clear every per-tab registry entry, not just the WebContents maps.
-      this.unregisterGuest(browserTabId)
+    if (guest.isDestroyed()) {
       return false
     }
 

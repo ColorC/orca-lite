@@ -6,10 +6,18 @@ import { renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { OpenFile } from '@/store/slices/editor'
 
-const mocks = vi.hoisted(() => ({ releaseDocPreviewGrant: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  releaseDocPreviewGrant: vi.fn(),
+  clearBrowserPageAnnotations: vi.fn()
+}))
 
 vi.mock('@/lib/doc-preview-grants', () => ({
   releaseDocPreviewGrant: mocks.releaseDocPreviewGrant
+}))
+vi.mock('@/store', () => ({
+  useAppStore: {
+    getState: () => ({ clearBrowserPageAnnotations: mocks.clearBrowserPageAnnotations })
+  }
 }))
 vi.mock('monaco-editor', () => ({
   editor: { getModel: () => null },
@@ -91,5 +99,29 @@ describe('useClosedEditorTabCleanup', () => {
 
     expect(mocks.releaseDocPreviewGrant).toHaveBeenCalledTimes(1)
     expect(mocks.releaseDocPreviewGrant).toHaveBeenCalledWith('preview-1')
+  })
+
+  // Why: annotations on a preview are scoped to its tab id, and nothing else ever retires that
+  // scope — a browser page has its own teardown, a closed preview tab has only this.
+  it('clears the annotations a closed preview tab owned', () => {
+    const { rerender } = renderHook(
+      ({ files }: { files: OpenFile[] }) => useClosedEditorTabCleanup(files),
+      { initialProps: { files: [preview, editTab] } }
+    )
+
+    rerender({ files: [editTab] })
+
+    expect(mocks.clearBrowserPageAnnotations).toHaveBeenCalledWith('preview-1')
+  })
+
+  it('leaves the annotations of a preview tab that is still open', () => {
+    const { rerender } = renderHook(
+      ({ files }: { files: OpenFile[] }) => useClosedEditorTabCleanup(files),
+      { initialProps: { files: [preview, editTab] } }
+    )
+
+    rerender({ files: [preview] })
+
+    expect(mocks.clearBrowserPageAnnotations).not.toHaveBeenCalled()
   })
 })

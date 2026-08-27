@@ -14770,7 +14770,10 @@
           "previewUnavailableTitle": "Preview unavailable",
           "copyDocumentPathControl": "Copy file path",
           "documentPathCopied": "Copied",
-          "workspaceFileChipLabel": "Workspace file"
+          "workspaceFileChipLabel": "Workspace file",
+          "previewMenuControl": "Preview options",
+          "openSourceControl": "Open source file",
+          "openExternallyControl": "Open with default app"
         }
       },
       "diff": {

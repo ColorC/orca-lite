@@ -13,6 +13,7 @@ import {
 } from './diff-monaco-model-disposal'
 import { sweepClosedPdfViewPositions } from './closed-editor-tab-cache-sweep'
 import { releaseDocPreviewGrant } from '@/lib/doc-preview-grants'
+import { useAppStore } from '@/store'
 
 function deleteCacheEntriesByPrefix<T>(cache: Map<string, T>, prefix: string): void {
   for (const key of cache.keys()) {
@@ -76,6 +77,9 @@ function disposeClosedEditorTab(prevId: string, prevFile: OpenFile): void {
     case 'html-preview':
       // Why: the preview's grant is the only authority the scheme handler honors, so closing the tab must revoke it.
       releaseDocPreviewGrant(prevId)
+      // Why: annotations are scoped to the preview tab, and unlike a browser page nothing else
+      // ever retires that scope — without this they outlive the document they point at.
+      useAppStore.getState().clearBrowserPageAnnotations(prevId)
       break
     case 'conflict-review':
       break
