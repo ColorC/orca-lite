@@ -78,8 +78,7 @@ export const NativeChatComposer = forwardRef<NativeChatComposerHandle, NativeCha
       onSlashCommand,
       onSwitchToTerminal,
       readTerminalScreen,
-      launchDraft,
-      launchDraftResolved = false
+      launchSeed
     },
     ref
   ): React.JSX.Element {
@@ -93,8 +92,9 @@ export const NativeChatComposer = forwardRef<NativeChatComposerHandle, NativeCha
     useNativeChatLaunchDraftAdoption({
       terminalTabId,
       agent,
-      launchDraft,
-      launchDraftResolved,
+      launchDraft: launchSeed?.launchDraft,
+      launchDraftResolved: launchSeed?.launchDraftResolved === true,
+      ownsTabWideLaunchDraft: launchSeed?.ownsTabWideLaunchDraft === true,
       draft,
       setDraft,
       setCaret
@@ -255,8 +255,8 @@ export const NativeChatComposer = forwardRef<NativeChatComposerHandle, NativeCha
       const classification = classifySend(text)
       // A parked launch draft must be cleared line-by-line before the body.
       const { sendOptions } = resolveNativeChatLaunchDraftSend({
-        launchDraft,
-        launchDraftResolved,
+        launchDraft: launchSeed?.launchDraft,
+        launchDraftResolved: launchSeed?.launchDraftResolved === true,
         agent,
         readScreen: () => readTerminalScreen?.()
       })
@@ -321,8 +321,7 @@ export const NativeChatComposer = forwardRef<NativeChatComposerHandle, NativeCha
       imageAttachments,
       disabled,
       isDispatchingSessionOption,
-      launchDraft,
-      launchDraftResolved,
+      launchSeed,
       readTerminalScreen,
       resolveTarget,
       onOptimisticSend,

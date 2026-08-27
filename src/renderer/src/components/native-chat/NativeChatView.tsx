@@ -141,15 +141,13 @@ function NativeChatResolvedView({
   const paneLaunchPrompt = launchPrompt?.agent === agent ? launchPrompt : null
   // Launch context prefilled into the TUI input as an unsent draft; the
   // composer adopts it so the GUI view shows the same context as the TUI.
-  // Shape matches NativeChatComposer's two launch-draft props, so it spreads.
   const launchDraftSignal = useNativeChatLaunchDraftSignal({
     terminalTabId,
     agent,
     messages: session.messages,
     // 'awaiting' counts too: adopting a prefill against a transcript that hasn't
     // flushed would re-offer a prompt the user already submitted.
-    transcriptLoading: isNativeChatTranscriptUnsettled(session.readPhase),
-    ownsTabWideLaunchDraft
+    transcriptLoading: isNativeChatTranscriptUnsettled(session.readPhase)
   })
   // The live-session merge reconciles hooks with replayable transcript turn
   // boundaries; all working consumers must use that one lifecycle decision.
@@ -453,7 +451,7 @@ function NativeChatResolvedView({
           onSlashCommand={onSlashCommand}
           onSwitchToTerminal={onSwitchToTerminal}
           readTerminalScreen={readTerminalScreen}
-          {...launchDraftSignal}
+          launchSeed={{ ...launchDraftSignal, ownsTabWideLaunchDraft }}
         />
       )}
       {contextMenu.menu}

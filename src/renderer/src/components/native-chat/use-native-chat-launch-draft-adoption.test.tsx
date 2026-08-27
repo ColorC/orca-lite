@@ -29,11 +29,13 @@ vi.mock('../../store', () => {
   return { useAppStore }
 })
 
+const SEED_TEXT = 'https://github.com/o/r/issues/12'
+
 function launchDraft(overrides: Partial<NativeChatLaunchDraft> = {}): NativeChatLaunchDraft {
   return {
     tabId: 'tab-1',
     agent: 'claude',
-    text: 'https://github.com/o/r/issues/12',
+    text: SEED_TEXT,
     createdAt: 1000,
     ...overrides
   }
@@ -44,6 +46,7 @@ function setup(args: {
   launchDraftResolved?: boolean
   draft?: string
   agent?: string
+  ownsTabWideLaunchDraft?: boolean
 }): { setDraft: ReturnType<typeof vi.fn>; setCaret: ReturnType<typeof vi.fn> } {
   const setDraft = vi.fn()
   const setCaret = vi.fn()
@@ -55,7 +58,8 @@ function setup(args: {
       launchDraftResolved: args.launchDraftResolved ?? false,
       draft: args.draft ?? '',
       setDraft,
-      setCaret
+      setCaret,
+      ownsTabWideLaunchDraft: args.ownsTabWideLaunchDraft ?? true
     })
   )
   return { setDraft, setCaret }
@@ -70,7 +74,6 @@ function userTurn(id: string, timestamp: number | null): NativeChatMessage {
 type SignalProps = {
   messages: NativeChatMessage[]
   transcriptLoading?: boolean
-  ownsTabWideLaunchDraft?: boolean
 }
 
 function renderSignal(messages: NativeChatMessage[], transcriptLoading = false) {
@@ -81,8 +84,7 @@ function renderSignal(messages: NativeChatMessage[], transcriptLoading = false) 
         terminalTabId: 'tab-1',
         agent: 'claude',
         messages: props.messages,
-        transcriptLoading: props.transcriptLoading === true,
-        ownsTabWideLaunchDraft: props.ownsTabWideLaunchDraft !== false
+        transcriptLoading: props.transcriptLoading === true
       }),
     { initialProps }
   )
@@ -191,26 +193,12 @@ describe('useNativeChatLaunchDraftSignal', () => {
     expect(result.current.launchDraft?.resolved).toBe(true)
   })
 
-  it('does not hand the tab launch draft to a split sibling pane', () => {
-    // The seed describes the tab's original pane; a pane created by splitting
-    // must not inherit it (issue #16695).
-    const { result } = renderHook(() =>
-      useNativeChatLaunchDraftSignal({
-        terminalTabId: 'tab-1',
-        agent: 'claude',
-        messages: [],
-        ownsTabWideLaunchDraft: false
-      })
-    )
-
-    expect(result.current.launchDraft).toBeNull()
-    expect(result.current.launchDraftResolved).toBe(false)
-  })
-
-  it("still hands the draft to the tab's sole owning pane", () => {
+  it("selects the tab's seed for every pane so the resolution machine keeps running", () => {
+    // Pane ownership gates the composer *write*, not the signal: nulling it here
+    // would also kill the resolved/cleanup branch for a split tab.
     const { result } = renderSignal([])
 
-    expect(result.current.launchDraft?.text).toBe('https://github.com/o/r/issues/12')
+    expect(result.current.launchDraft?.text).toBe(SEED_TEXT)
   })
 
   it('ignores a draft seeded for another agent', () => {
@@ -285,6 +273,21 @@ describe('useNativeChatLaunchDraftAdoption', () => {
     expect(mocks.clearNativeChatLaunchDraft).toHaveBeenCalledWith('tab-1')
   })
 
+  it('does not mirror the seed into a pane that does not own the tab-wide evidence', () => {
+    const { setDraft } = setup({ launchDraft: launchDraft(), ownsTabWideLaunchDraft: false })
+
+    expect(setDraft).not.toHaveBeenCalled()
+    expect(mocks.markNativeChatLaunchDraftAdopted).not.toHaveBeenCalled()
+  })
+
+  it('leaves an unadopted seed alone when a non-owning pane resolves it', () => {
+    // The owner may not have mirrored it yet; a sibling's transcript is no
+    // evidence about the owner's copy.
+    setup({ launchDraft: launchDraft(), launchDraftResolved: true, ownsTabWideLaunchDraft: false })
+
+    expect(mocks.clearNativeChatLaunchDraft).not.toHaveBeenCalled()
+  })
+
   it('drops an unadopted seed once the transcript resolves it', () => {
     const { setDraft } = setup({ launchDraft: launchDraft(), launchDraftResolved: true })
 
@@ -302,41 +305,73 @@ describe('launch draft adoption across a split', () => {
     }
   })
 
-  function renderPaneComposer(ownsTabWideLaunchDraft: boolean): {
-    setDraft: ReturnType<typeof vi.fn>
-  } {
+  function renderPaneComposer(args: {
+    ownsTabWideLaunchDraft: boolean
+    draft?: string
+    messages?: NativeChatMessage[]
+  }): { setDraft: ReturnType<typeof vi.fn>; setCaret: ReturnType<typeof vi.fn> } {
     const setDraft = vi.fn()
+    const setCaret = vi.fn()
     renderHook(() => {
       const signal = useNativeChatLaunchDraftSignal({
         terminalTabId: 'tab-1',
         agent: 'claude',
-        messages: [],
-        transcriptLoading: false,
-        ownsTabWideLaunchDraft
+        messages: args.messages ?? [],
+        transcriptLoading: false
       })
       useNativeChatLaunchDraftAdoption({
         terminalTabId: 'tab-1',
         agent: 'claude',
         launchDraft: signal.launchDraft,
         launchDraftResolved: signal.launchDraftResolved,
-        draft: '',
+        draft: args.draft ?? '',
         setDraft,
-        setCaret: vi.fn()
+        setCaret,
+        ownsTabWideLaunchDraft: args.ownsTabWideLaunchDraft
       })
     })
-    return { setDraft }
+    return { setDraft, setCaret }
   }
 
-  it("never fills a split sibling composer with the tab's stale launch draft", () => {
-    const { setDraft } = renderPaneComposer(false)
+  it("never fills a non-owning pane's composer with the tab's launch draft", () => {
+    const { setDraft } = renderPaneComposer({ ownsTabWideLaunchDraft: false })
 
     expect(setDraft).not.toHaveBeenCalled()
     expect(mocks.markNativeChatLaunchDraftAdopted).not.toHaveBeenCalled()
   })
 
-  it('still mirrors the launch draft into the owning pane composer', () => {
-    const { setDraft } = renderPaneComposer(true)
+  it('never lets a non-owning pane destroy a seed nobody has adopted yet', () => {
+    const { setDraft } = renderPaneComposer({
+      ownsTabWideLaunchDraft: false,
+      messages: [userTurn('u1', null)]
+    })
 
-    expect(setDraft).toHaveBeenCalledWith('https://github.com/o/r/issues/12')
+    expect(setDraft).not.toHaveBeenCalled()
+    expect(mocks.clearNativeChatLaunchDraft).not.toHaveBeenCalled()
+  })
+
+  it('still mirrors the launch draft into the owning pane composer', () => {
+    const { setDraft } = renderPaneComposer({ ownsTabWideLaunchDraft: true })
+
+    expect(setDraft).toHaveBeenCalledWith(SEED_TEXT)
+  })
+
+  it('clears the adopted copy after a split once the transcript resolves the seed', () => {
+    // Splitting drops ownership for *both* panes, so the pane that already
+    // mirrored the seed must still clean up — otherwise the submitted prompt
+    // sits in its composer forever and a later Enter re-sends it (#16695).
+    mocks.storeState.nativeChatLaunchDraftByTabId = {
+      'tab-1': launchDraft({ adopted: true, createdAt: SEEDED_AT })
+    }
+
+    const { setDraft, setCaret } = renderPaneComposer({
+      ownsTabWideLaunchDraft: false,
+      draft: SEED_TEXT,
+      messages: [userTurn('u1', null)]
+    })
+
+    expect(setDraft).toHaveBeenCalledWith('')
+    expect(setCaret).toHaveBeenCalledWith(0)
+    expect(mocks.clearNativeChatLaunchDraft).toHaveBeenCalledWith('tab-1')
   })
 })
