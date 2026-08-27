@@ -8,11 +8,13 @@ import type {
   BrowserHistoryEntry,
   BrowserLoadError,
   BrowserPage,
+  BrowserPageDocLocation,
   BrowserSessionProfile,
   BrowserSessionProfileCreateOptions,
   BrowserViewportPresetId,
   BrowserWorkspace
 } from '../../../../shared/browser-workspace-types'
+import { browserPageDocLocationsEqual } from '../../../../shared/browser-page-doc-location'
 import type { WorkspaceSessionState } from '../../../../shared/workspace-session-state-types'
 import { GRAB_BUDGET, type BrowserPageAnnotation } from '../../../../shared/browser-grab-types'
 import {
@@ -84,6 +86,8 @@ type CreateBrowserTabOptions = {
   // Explicit "New Tab" focuses the address bar even with a real home URL; link-opened tabs leave it unset.
   focusAddressBar?: boolean
   browserRuntimeEnvironmentId?: string | null
+  /** Creates a page that shows a workspace document instead of a URL. */
+  docLocation?: BrowserPageDocLocation
 }
 
 type CreateBrowserPageOptions = {
@@ -462,9 +466,13 @@ function buildBrowserPage(
   url: string,
   title?: string,
   browserRuntimeEnvironmentId?: string | null,
-  browserPageId?: string
+  browserPageId?: string,
+  docLocation?: BrowserPageDocLocation
 ): BrowserPage {
-  const normalizedUrl = normalizeUrl(url)
+  // Why the url is overridden rather than trusted: this is the one place a page's url is minted,
+  // and it is read by persistence, the mobile publisher, history and the address bar. A grant URL
+  // reaching any of them would outlive the grant and name a document that machine cannot read.
+  const normalizedUrl = docLocation ? ORCA_BROWSER_BLANK_URL : normalizeUrl(url)
   return {
     id: browserPageId ?? createBrowserUuid(),
     workspaceId,
@@ -478,7 +486,8 @@ function buildBrowserPage(
     canGoForward: false,
     loadError: null,
     createdAt: Date.now(),
-    ...(browserRuntimeEnvironmentId !== undefined ? { browserRuntimeEnvironmentId } : {})
+    ...(browserRuntimeEnvironmentId !== undefined ? { browserRuntimeEnvironmentId } : {}),
+    ...(docLocation ? { docLocation } : {})
   }
 }
 
@@ -504,7 +513,8 @@ function buildWorkspaceFromPage(
     canGoBack: page.canGoBack,
     canGoForward: page.canGoForward,
     loadError: page.loadError,
-    createdAt: page.createdAt
+    createdAt: page.createdAt,
+    docLocation: page.docLocation ?? null
   }
 }
 
@@ -524,7 +534,8 @@ function mirrorWorkspaceFromActivePage(
       faviconUrl: null,
       canGoBack: false,
       canGoForward: false,
-      loadError: null
+      loadError: null,
+      docLocation: null
     }
   }
   return {
@@ -537,7 +548,8 @@ function mirrorWorkspaceFromActivePage(
     faviconUrl: activePage.faviconUrl,
     canGoBack: activePage.canGoBack,
     canGoForward: activePage.canGoForward,
-    loadError: activePage.loadError
+    loadError: activePage.loadError,
+    docLocation: activePage.docLocation ?? null
   }
 }
 
@@ -557,7 +569,8 @@ function browserWorkspaceMirrorFieldsEqual(
     workspace.faviconUrl === mirrored.faviconUrl &&
     workspace.canGoBack === mirrored.canGoBack &&
     workspace.canGoForward === mirrored.canGoForward &&
-    workspace.loadError === mirrored.loadError
+    workspace.loadError === mirrored.loadError &&
+    browserPageDocLocationsEqual(workspace.docLocation ?? null, mirrored.docLocation ?? null)
   )
 }
 
@@ -708,7 +721,8 @@ export const createBrowserSlice: StateCreator<AppState, [], [], BrowserSlice> = 
       url,
       options?.title,
       options?.browserRuntimeEnvironmentId,
-      browserPageId
+      browserPageId,
+      options?.docLocation
     )
     // Why: with no explicit profile, inherit the user's default so a Settings preference applies to new tabs.
     const sessionProfileId =
@@ -753,6 +767,9 @@ export const createBrowserSlice: StateCreator<AppState, [], [], BrowserSlice> = 
       const shouldFocusFloatingTab = shouldActivate && worktreeId === FLOATING_TERMINAL_WORKTREE_ID
       const shouldFocusAddressBar =
         (shouldUpdateGlobalActiveSurface || shouldFocusFloatingTab) &&
+        // Why the doc check and not just the url: a document page is blank by construction, and
+        // the blank url is exactly what marks a New Tab as wanting the address bar it does not have.
+        !page.docLocation &&
         (options?.focusAddressBar ??
           (page.url === 'about:blank' || page.url === ORCA_BROWSER_BLANK_URL))
 
@@ -1902,7 +1919,11 @@ export const createBrowserSlice: StateCreator<AppState, [], [], BrowserSlice> = 
                   canGoBack: tab.canGoBack,
                   canGoForward: tab.canGoForward,
                   loadError: tab.loadError ?? null,
-                  createdAt: tab.createdAt
+                  createdAt: tab.createdAt,
+                  // Why the tab's copy is authority here: this branch runs when the page array was
+                  // salvaged away, and without it a restored document page comes back as a blank
+                  // New Tab under a strip entry still naming the document.
+                  docLocation: tab.docLocation ?? null
                 } satisfies BrowserPage
               ]
           const nextPages = persistedPages.map((page) => {
@@ -1915,7 +1936,10 @@ export const createBrowserSlice: StateCreator<AppState, [], [], BrowserSlice> = 
               ...persistedPage,
               workspaceId: tab.id,
               worktreeId,
-              url: normalizeUrl(page.url),
+              // Why re-asserted on restore: the same invariant creation enforces. A session written
+              // by an older or hand-edited build could carry a grant URL here, and it would name a
+              // grant that died with the process that minted it.
+              url: page.docLocation ? ORCA_BROWSER_BLANK_URL : normalizeUrl(page.url),
               loading: false,
               loadError: page.loadError ?? null
             }
