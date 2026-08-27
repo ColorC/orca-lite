@@ -125,13 +125,20 @@ export function installDocPreviewProtocolHandler(): void {
     callback({ cancel: !isAllowedDocPreviewRequestUrl(details.url) })
   })
   // Why: preview guests are webviews like any other, so they inherit the same deny-by-default
-  // permission, display-media, download and user-agent policy every browser partition gets.
-  installBrowserSessionPartitionPolicies({
-    id: DOC_PREVIEW_PARTITION,
-    scope: 'isolated',
-    partition: DOC_PREVIEW_PARTITION,
-    label: 'Document preview',
-    source: null,
-    userAgentMode: 'clean'
-  })
+  // permission, display-media and user-agent policy every browser partition gets.
+  installBrowserSessionPartitionPolicies(
+    {
+      id: DOC_PREVIEW_PARTITION,
+      scope: 'isolated',
+      partition: DOC_PREVIEW_PARTITION,
+      label: 'Document preview',
+      source: null,
+      userAgentMode: 'clean'
+    },
+    // Why downloads are the one policy that does not carry over: the browser download flow needs a
+    // page to attribute the file to, and a previewed document is not one. Routed here it would
+    // reserve a name in this desktop's Downloads folder and write remote-authored bytes into it
+    // with nothing in the UI naming the tab that asked, and no prompt in front of it.
+    { downloads: 'deny' }
+  )
 }

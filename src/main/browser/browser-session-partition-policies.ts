@@ -22,6 +22,17 @@ const handleWillDownload = (
   browserManager.handleGuestWillDownload({ guestWebContentsId: webContents.id, item })
 }
 
+/**
+ * Why a second listener instead of a branch inside the shared one: `will-download` is a session
+ * event that names no partition, so the only place the decision can be keyed by partition is which
+ * listener that partition's session got. A workspace-document guest has no page of its own to
+ * attribute a download to, so routing one lands it in this desktop's Downloads folder under a
+ * remote-authored name that nothing in the UI accounts for.
+ */
+const handleDeniedWillDownload = (event: Electron.Event): void => {
+  event.preventDefault()
+}
+
 function resolvePermissionNoticeUrl(
   webContents: Electron.WebContents,
   details: Electron.PermissionRequest | undefined
@@ -37,7 +48,13 @@ function resolvePermissionNoticeUrl(
   }
 }
 
-export function installBrowserSessionPartitionPolicies(profile: BrowserSessionProfile): void {
+/** `route` hands the item to the owning page's download flow; `deny` cancels it before it starts. */
+export type BrowserPartitionDownloadPolicy = 'route' | 'deny'
+
+export function installBrowserSessionPartitionPolicies(
+  profile: BrowserSessionProfile,
+  options?: { downloads?: BrowserPartitionDownloadPolicy }
+): void {
   const { partition } = profile
   const sess = session.fromPartition(partition)
   setBrowserSessionUserAgentMode(sess, profile.userAgentMode ?? 'clean')
@@ -106,7 +123,11 @@ export function installBrowserSessionPartitionPolicies(profile: BrowserSessionPr
     callback({ video: undefined, audio: undefined })
   })
   sess.removeListener('will-download', handleWillDownload)
-  sess.on('will-download', handleWillDownload)
+  sess.removeListener('will-download', handleDeniedWillDownload)
+  sess.on(
+    'will-download',
+    options?.downloads === 'deny' ? handleDeniedWillDownload : handleWillDownload
+  )
   configuredPartitions.add(partition)
 }
 
@@ -115,6 +136,7 @@ export function clearBrowserSessionPartitionPolicies(partition: string, sess: Se
   configuredPartitions.delete(partition)
   browserManager.removeCertificateRequestGuard(sess)
   sess.removeListener('will-download', handleWillDownload)
+  sess.removeListener('will-download', handleDeniedWillDownload)
   clearBrowserWebAuthnAccessHandlers(sess)
   sess.setPermissionRequestHandler(null)
   sess.setPermissionCheckHandler(null)
