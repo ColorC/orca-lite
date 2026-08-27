@@ -1,6 +1,11 @@
 import { ArrowLeft, ArrowRight, Loader2, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { translate } from '@/i18n/i18n'
+import { cn } from '@/lib/utils'
+import {
+  BROWSER_CHROME_ADDRESS_SLOT_ATTRIBUTE,
+  BROWSER_CHROME_ADDRESS_SLOT_HEIGHT_CLASS
+} from './browser-chrome-address-slot'
 
 /**
  * The history/reload/navigate surface a browser backend must provide to be driven by
@@ -84,7 +89,15 @@ export function BrowserNavigationControlRow({
         </Button>
       )}
 
-      {addressSlot}
+      <div
+        className={cn(
+          'flex min-w-0 flex-1 items-stretch',
+          BROWSER_CHROME_ADDRESS_SLOT_HEIGHT_CLASS
+        )}
+        {...{ [BROWSER_CHROME_ADDRESS_SLOT_ATTRIBUTE]: 'true' }}
+      >
+        {addressSlot}
+      </div>
 
       {children}
     </div>

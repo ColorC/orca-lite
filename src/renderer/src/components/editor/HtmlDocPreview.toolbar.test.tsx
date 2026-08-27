@@ -218,6 +218,18 @@ describe('HtmlDocPreview browser chrome', () => {
     expect(withoutGuest.innerHTML).not.toContain('orca-preview')
   })
 
+  // Why: the chip sits in the row's height-pinned slot, and a wrapper of its own between the two
+  // would leave it its natural height again — the toolbar would shrink for document tabs.
+  it('hands the identity chip straight to the height-pinned address slot', async () => {
+    await renderPreview(container, root)
+
+    const chip = button(container, 'Copy file path')
+    const slot = container.querySelector('[data-browser-chrome-address-slot]')
+    expect(slot).not.toBeNull()
+    expect(chip.parentElement).toBe(slot)
+    expect(chip.className).not.toMatch(/(^|\s)h-/)
+  })
+
   // Why: the browsing tour walks anchors by name, and a preview answering to the browser pane's
   // anchors would hand it steps about profiles and cookies that a document tab does not have.
   it('claims none of the browsing tour anchors', async () => {
@@ -312,9 +324,7 @@ describe('HtmlDocPreview browser chrome', () => {
     it('hides cookie import, which a preview has no session for', async () => {
       await renderPreview(container, root)
 
-      expect(
-        container.querySelector('button[aria-label="Import cookies from browser"]')
-      ).toBeNull()
+      expect(container.querySelector('button[aria-label="Import cookies from browser"]')).toBeNull()
     })
 
     // The picker is driven through main, which resolves the id to this preview's guest. Sending a
@@ -326,9 +336,7 @@ describe('HtmlDocPreview browser chrome', () => {
         button(container, 'Grab page element').click()
       })
 
-      expect(grabCalls).toEqual([
-        { browserPageId: `doc-preview-grant:${GRANT_ID}`, enabled: true }
-      ])
+      expect(grabCalls).toEqual([{ browserPageId: `doc-preview-grant:${GRANT_ID}`, enabled: true }])
     })
 
     it('opens the document source as its own editor tab', async () => {

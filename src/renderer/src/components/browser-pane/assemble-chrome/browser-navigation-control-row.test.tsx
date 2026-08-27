@@ -18,6 +18,10 @@ vi.mock('./BrowserAddressBar', () => ({
 
 import BrowserAddressBar from './BrowserAddressBar'
 import {
+  BROWSER_CHROME_ADDRESS_SLOT_ATTRIBUTE,
+  BROWSER_CHROME_ADDRESS_SLOT_HEIGHT_CLASS
+} from './browser-chrome-address-slot'
+import {
   BrowserNavigationControlRow,
   type BrowserNavigationControls
 } from './browser-navigation-control-row'
@@ -110,5 +114,25 @@ describe('BrowserNavigationControlRow', () => {
     expect(screen.queryByLabelText('Address')).toBeNull()
     expect(screen.getByLabelText('Back')).not.toBeNull()
     expect(screen.getByLabelText('Reload')).not.toBeNull()
+  })
+
+  // Why the row and not each widget: a text input and a line of text come out different heights,
+  // and the whole toolbar would change size when a document tab replaces a web tab.
+  it('gives every identity widget the same slot height, and stretches it to fill', () => {
+    renderRow()
+    const addressSlot = document.querySelector(`[${BROWSER_CHROME_ADDRESS_SLOT_ATTRIBUTE}]`)
+    const addressSlotClass = addressSlot?.className ?? ''
+    const addressWidgetParent = screen.getByLabelText('Address').parentElement
+    cleanup()
+
+    renderWithIdentityChip()
+    const chipSlot = document.querySelector(`[${BROWSER_CHROME_ADDRESS_SLOT_ATTRIBUTE}]`)
+
+    expect(addressSlotClass).toContain(BROWSER_CHROME_ADDRESS_SLOT_HEIGHT_CLASS)
+    expect(chipSlot?.className).toBe(addressSlotClass)
+    expect(addressSlotClass).toContain('items-stretch')
+    // Both widgets are direct children, so the slot's height reaches them instead of a wrapper.
+    expect(addressWidgetParent).toBe(addressSlot)
+    expect(screen.getByText('docs/report.html').parentElement).toBe(chipSlot)
   })
 })
