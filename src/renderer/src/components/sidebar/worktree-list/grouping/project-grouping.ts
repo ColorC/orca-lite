@@ -16,14 +16,8 @@ export type ProjectGroupingModel = {
   projectHostSetups: readonly ProjectHostSetup[]
 }
 
-/** Which model layer supplied a section's label. `repo` labels name a single
- *  checkout and may be path-disambiguated against sibling checkouts; `project`
- *  labels are project identity and must never be swapped for a checkout name. */
-export type SectionLabelSource = 'project' | 'repo'
-
 export type WorktreeGroupEntry = {
   label: string
-  labelSource?: SectionLabelSource
   items: Worktree[]
   repo?: Repo
   repoIds: Set<string>
@@ -121,7 +115,6 @@ export function buildProjectGroupingIndex(
 export type ProjectHeaderRevealTarget = {
   key: string
   label: string
-  labelSource: SectionLabelSource
   repo?: Repo
   projectId?: string
 }
@@ -138,7 +131,6 @@ export function getProjectGroupingForRepo(
     return {
       key: `repo:${repoId}`,
       label: repo?.displayName ?? 'Unknown',
-      labelSource: 'repo',
       repo
     }
   }
@@ -150,7 +142,6 @@ export function getProjectGroupingForRepo(
     return {
       key: `project:${project.id}::setup:${repoId}`,
       label: repo?.displayName ?? setup.displayName,
-      labelSource: 'repo',
       repo,
       projectId: project.id
     }
@@ -160,7 +151,6 @@ export function getProjectGroupingForRepo(
   return {
     key: `project:${project.id}`,
     label: project.displayName,
-    labelSource: 'project',
     repo,
     projectId: project.id
   }

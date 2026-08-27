@@ -18,7 +18,6 @@ import { addRepoIdToGroup, getProjectGroupingForRepo } from './project-grouping'
 import type {
   OrderedGroupEntry,
   ProjectGroupingIndex,
-  SectionLabelSource,
   WorktreeGroupEntry
 } from './project-grouping'
 import type {
@@ -83,13 +82,11 @@ export function buildOrderedGroups(args: {
   for (const w of naturalWorktrees) {
     let key: string
     let label: string
-    let labelSource: SectionLabelSource | undefined
     let repo: Repo | undefined
     if (groupBy === 'repo') {
       const grouping = getProjectGroupingForRepo(w.repoId, repoMap, projectIndex)
       key = grouping.key
       label = grouping.label
-      labelSource = grouping.labelSource
       repo = grouping.repo
     } else if (groupBy === 'workspace-status') {
       const workspaceStatus = getWorkspaceStatus(w, workspaceStatuses)
@@ -102,7 +99,7 @@ export function buildOrderedGroups(args: {
       label = PR_GROUP_META[prGroup].label
     }
     if (!grouped.has(key)) {
-      grouped.set(key, { label, labelSource, items: [], repo, repoIds: new Set() })
+      grouped.set(key, { label, items: [], repo, repoIds: new Set() })
     }
     const group = grouped.get(key)!
     group.items.push(w)
@@ -144,7 +141,6 @@ export function buildOrderedGroups(args: {
         // older snapshots must not render an "Unknown" project header.
         grouped.set(key, {
           label: grouping.label,
-          labelSource: grouping.labelSource,
           items: [],
           repo: grouping.repo,
           repoIds: new Set([repoId])
@@ -161,7 +157,6 @@ export function buildOrderedGroups(args: {
       if (!grouped.has(key)) {
         grouped.set(key, {
           label: grouping.label,
-          labelSource: grouping.labelSource,
           items: [],
           repo: grouping.repo ?? candidate.repo,
           repoIds: new Set([repoId])
@@ -180,7 +175,6 @@ export function buildOrderedGroups(args: {
         // but actionable inbox rows still need a project section to render in.
         grouped.set(key, {
           label: grouping.label,
-          labelSource: grouping.labelSource,
           items: [],
           repo: grouping.repo ?? candidate.repo,
           repoIds: new Set([repoId])
@@ -200,7 +194,6 @@ export function buildOrderedGroups(args: {
         // dropped.
         grouped.set(key, {
           label: grouping.label,
-          labelSource: grouping.labelSource,
           items: [],
           repo: grouping.repo,
           repoIds: new Set([repoId])

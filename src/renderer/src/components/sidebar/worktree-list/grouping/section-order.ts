@@ -73,33 +73,27 @@ export function orderMainWorktreeFirst(worktrees: Worktree[]): Worktree[] {
   return [...mainWorktrees, ...worktrees.filter((worktree) => !worktree.isMainWorktree)]
 }
 
-// Why: only checkout-named sections take part in path disambiguation. A project
-// header keeps its project display name, so its text never depends on how many
-// other sections happen to be rendered — filtering workspaces cannot rename a
-// project whose Project.displayName differs from its anchor repo's (#16127).
-function getRepoNamedSectionRepo(group: WorktreeGroupEntry): Repo | undefined {
-  return group.labelSource === 'repo' ? group.repo : undefined
-}
-
+// Why: disambiguate a section's *own* label, not its anchor checkout's repo
+// name. Substituting repo.displayName made a project header read the project
+// name while it was the only repo-backed section and the checkout name as soon
+// as a second one rendered, so filtering workspaces renamed the project
+// (#16127). Path suffixes still resolve genuinely identical labels.
 export function withRepoSectionDisplayLabels(
   entries: readonly OrderedGroupEntry[]
 ): OrderedGroupEntry[] {
-  const repos = entries
-    .map((entry) => getRepoNamedSectionRepo(entry[1]))
-    .filter((repo): repo is Repo => repo !== undefined)
-  if (repos.length === 0) {
+  const labelItems = entries.flatMap(([, group]) =>
+    group.repo ? [{ ...group.repo, displayName: group.label }] : []
+  )
+  if (labelItems.length === 0) {
     return [...entries]
   }
-  const labelsByPath = getRepoDisplayLabelsByPath(repos)
-  return entries.map(([key, group]) => {
-    const repo = getRepoNamedSectionRepo(group)
-    return [
-      key,
-      repo
-        ? { ...group, label: labelsByPath.get(getRepoDisplayLabelKey(repo)) ?? group.label }
-        : group
-    ]
-  })
+  const labelsByPath = getRepoDisplayLabelsByPath(labelItems)
+  return entries.map(([key, group]) => [
+    key,
+    group.repo
+      ? { ...group, label: labelsByPath.get(getRepoDisplayLabelKey(group.repo)) ?? group.label }
+      : group
+  ])
 }
 
 /**
