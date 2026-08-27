@@ -40,35 +40,6 @@ describe('parseWorkspaceSession', () => {
     }
   })
 
-  // Why parsing and not just the writer: this object strips what it does not name, and main parses
-  // the session on load — an unnamed mode would come back as an ordinary editor tab on the document.
-  it('preserves an HTML preview mode across session parsing', () => {
-    const result = parseWorkspaceSession({
-      activeRepoId: null,
-      activeWorktreeId: 'wt',
-      activeTabId: null,
-      tabsByWorktree: {},
-      terminalLayoutsByTabId: {},
-      openFilesByWorktree: {
-        wt: [
-          {
-            filePath: '/repo/report/index.html',
-            relativePath: 'report/index.html',
-            worktreeId: 'wt',
-            language: 'html',
-            readOnly: true,
-            mode: 'html-preview'
-          }
-        ]
-      }
-    })
-
-    expect(result.ok).toBe(true)
-    if (result.ok) {
-      expect(result.value.openFilesByWorktree?.wt?.[0]?.mode).toBe('html-preview')
-    }
-  })
-
   it('drops an open file with blank external SSH ownership, keeping the session', () => {
     const result = parseWorkspaceSession({
       activeRepoId: null,

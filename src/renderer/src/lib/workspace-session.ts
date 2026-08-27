@@ -101,7 +101,7 @@ type _MissingSessionField = Exclude<
 void (true satisfies [_MissingSessionField] extends [never] ? true : never)
 
 /** Build the editor-file portion of the workspace session for persistence.
- *  Edit-mode files and HTML previews are saved — diffs and conflict views are transient. */
+ *  Only edit-mode files are saved — diffs and conflict views are transient. */
 export function buildEditorSessionData(
   openFiles: OpenFile[],
   editorDrafts: Record<string, string>,
@@ -115,13 +115,10 @@ export function buildEditorSessionData(
   | 'activeTabTypeByWorktree'
   | 'markdownFrontmatterVisible'
 > {
-  // Why an HTML preview keeps its place beside the edit files: a diff or a conflict view is
-  // derived from something the reader can reopen, but a preview tab is the document itself, and
-  // dropping it loses the surface with nothing left naming what was being read.
-  const persistedFiles = openFiles.filter((f) => f.mode === 'edit' || f.mode === 'html-preview')
+  const editFiles = openFiles.filter((f) => f.mode === 'edit')
   const byWorktree: Record<string, PersistedOpenFile[]> = {}
   const editFileIdsByWorktree: Record<string, Set<string>> = {}
-  for (const f of persistedFiles) {
+  for (const f of editFiles) {
     const arr = byWorktree[f.worktreeId] ?? (byWorktree[f.worktreeId] = [])
     // Why: never persist a dirty draft for a read-only tab — restoring one would reintroduce writable/hot-exit state for an agent transcript.
     const dirtyDraftContent = f.isDirty && f.readOnly !== true ? editorDrafts[f.id] : undefined
@@ -135,8 +132,6 @@ export function buildEditorSessionData(
       externalSshTargetId: f.externalSshTargetId,
       // Why: persist readOnly only when true; absence is the writable default on restore.
       ...(f.readOnly === true ? { readOnly: true } : {}),
-      // Why only the preview names its mode: absence is the edit default, so nothing else grows a field.
-      ...(f.mode === 'html-preview' ? { mode: 'html-preview' as const } : {}),
       ...(f.readOnly === true && f.liveTail === true ? { liveTail: true } : {}),
       ...(dirtyDraftContent !== undefined ? { dirtyDraftContent } : {}),
       // Why: baseline travels with the draft so restore can detect a changed-on-disk conflict before autosave clobbers an offline agent write.

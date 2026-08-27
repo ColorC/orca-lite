@@ -14,8 +14,5 @@ export const persistedOpenFileSchema = z.object({
   dirtyDraftContent: z.string().optional(),
   lastKnownDiskSignature: z.string().optional(),
   readOnly: z.boolean().optional(),
-  liveTail: z.boolean().optional(),
-  // Why parsed rather than passed through: this object strips what it does not name, so a mode the
-  // schema has not heard of restores as an edit tab on the file the preview was rendering.
-  mode: z.literal('html-preview').optional()
+  liveTail: z.boolean().optional()
 })
