@@ -16,8 +16,15 @@ export function useNativeChatLaunchDraftSignal(args: {
   /** The transcript read is still in flight, so `messages` is not yet the
    *  session's real history. Same gate mobile's drafts hook uses. */
   transcriptLoading?: boolean
+  /** This pane is the tab-wide draft's owner (`nativeChatLeafOwnsTabWideEvidence`).
+   *  The seed is keyed by tab, so a split sibling must not inherit it. */
+  ownsTabWideLaunchDraft: boolean
 }): { launchDraft: NativeChatLaunchDraft | null; launchDraftResolved: boolean } {
-  const launchDraft = useAppStore((s) => s.nativeChatLaunchDraftByTabId[args.terminalTabId] ?? null)
+  const launchDraft = useAppStore((s) =>
+    args.ownsTabWideLaunchDraft
+      ? (s.nativeChatLaunchDraftByTabId[args.terminalTabId] ?? null)
+      : null
+  )
   const paneLaunchDraft = launchDraft?.agent === args.agent ? launchDraft : null
   const messages = args.messages
   const transcriptLoading = args.transcriptLoading === true

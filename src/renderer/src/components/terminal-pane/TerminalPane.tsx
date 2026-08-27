@@ -115,6 +115,7 @@ import { shouldChatTakeOverMobileSurface } from '../native-chat/native-chat-send
 import { canToggleNativeChat } from '../native-chat/native-chat-availability'
 import {
   nativeChatLaunchAgentForLeaf,
+  nativeChatLeafOwnsTabWideEvidence,
   resolveNativeChatLeafRoute,
   type NativeChatLeafRoute
 } from '../native-chat/native-chat-leaf-routing'
@@ -2979,6 +2980,13 @@ function TerminalPane(
     leafId: chatPane?.leafId ?? null,
     leafIds: getNativeChatLeafIds()
   })
+  // The launch draft is keyed by tab, so gate it on the same pane ownership the
+  // launch agent uses: a split sibling must not inherit the seeded text.
+  const chatPaneOwnsTabWideLaunchDraft = nativeChatLeafOwnsTabWideEvidence({
+    ownerLeafId: getTabWideAgentHintLeafId(),
+    leafId: chatPane?.leafId ?? null,
+    leafIds: getNativeChatLeafIds()
+  })
   const activePaneIsChatLeaf = Boolean(
     isChatViewMode && activePane?.leafId && activePane.leafId === chatLeafId
   )
@@ -3145,6 +3153,7 @@ function TerminalPane(
                 targetPtyId={chatPanePtyId}
                 launchAgent={chatPaneLaunchAgent}
                 resolvedAgent={chatPaneResolvedAgent}
+                ownsTabWideLaunchDraft={chatPaneOwnsTabWideLaunchDraft}
                 onSwitchToTerminal={switchNativeChatToTerminal}
                 readTerminalScreen={readNativeChatTerminalScreen}
                 contextMenuActions={{

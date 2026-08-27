@@ -67,7 +67,11 @@ function userTurn(id: string, timestamp: number | null): NativeChatMessage {
   return { id, role: 'user', blocks: [{ type: 'text', text: id }], timestamp, source: 'transcript' }
 }
 
-type SignalProps = { messages: NativeChatMessage[]; transcriptLoading?: boolean }
+type SignalProps = {
+  messages: NativeChatMessage[]
+  transcriptLoading?: boolean
+  ownsTabWideLaunchDraft?: boolean
+}
 
 function renderSignal(messages: NativeChatMessage[], transcriptLoading = false) {
   const initialProps: SignalProps = { messages, transcriptLoading }
@@ -77,7 +81,8 @@ function renderSignal(messages: NativeChatMessage[], transcriptLoading = false) 
         terminalTabId: 'tab-1',
         agent: 'claude',
         messages: props.messages,
-        transcriptLoading: props.transcriptLoading === true
+        transcriptLoading: props.transcriptLoading === true,
+        ownsTabWideLaunchDraft: props.ownsTabWideLaunchDraft !== false
       }),
     { initialProps }
   )
@@ -186,6 +191,28 @@ describe('useNativeChatLaunchDraftSignal', () => {
     expect(result.current.launchDraft?.resolved).toBe(true)
   })
 
+  it('does not hand the tab launch draft to a split sibling pane', () => {
+    // The seed describes the tab's original pane; a pane created by splitting
+    // must not inherit it (issue #16695).
+    const { result } = renderHook(() =>
+      useNativeChatLaunchDraftSignal({
+        terminalTabId: 'tab-1',
+        agent: 'claude',
+        messages: [],
+        ownsTabWideLaunchDraft: false
+      })
+    )
+
+    expect(result.current.launchDraft).toBeNull()
+    expect(result.current.launchDraftResolved).toBe(false)
+  })
+
+  it("still hands the draft to the tab's sole owning pane", () => {
+    const { result } = renderSignal([])
+
+    expect(result.current.launchDraft?.text).toBe('https://github.com/o/r/issues/12')
+  })
+
   it('ignores a draft seeded for another agent', () => {
     mocks.storeState.nativeChatLaunchDraftByTabId = {
       'tab-1': launchDraft({ agent: 'codex', createdAt: SEEDED_AT })
@@ -264,5 +291,52 @@ describe('useNativeChatLaunchDraftAdoption', () => {
     expect(setDraft).not.toHaveBeenCalled()
     expect(mocks.markNativeChatLaunchDraftAdopted).not.toHaveBeenCalled()
     expect(mocks.clearNativeChatLaunchDraft).toHaveBeenCalledWith('tab-1')
+  })
+})
+
+describe('launch draft adoption across a split', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.storeState.nativeChatLaunchDraftByTabId = {
+      'tab-1': launchDraft({ createdAt: SEEDED_AT })
+    }
+  })
+
+  function renderPaneComposer(ownsTabWideLaunchDraft: boolean): {
+    setDraft: ReturnType<typeof vi.fn>
+  } {
+    const setDraft = vi.fn()
+    renderHook(() => {
+      const signal = useNativeChatLaunchDraftSignal({
+        terminalTabId: 'tab-1',
+        agent: 'claude',
+        messages: [],
+        transcriptLoading: false,
+        ownsTabWideLaunchDraft
+      })
+      useNativeChatLaunchDraftAdoption({
+        terminalTabId: 'tab-1',
+        agent: 'claude',
+        launchDraft: signal.launchDraft,
+        launchDraftResolved: signal.launchDraftResolved,
+        draft: '',
+        setDraft,
+        setCaret: vi.fn()
+      })
+    })
+    return { setDraft }
+  }
+
+  it("never fills a split sibling composer with the tab's stale launch draft", () => {
+    const { setDraft } = renderPaneComposer(false)
+
+    expect(setDraft).not.toHaveBeenCalled()
+    expect(mocks.markNativeChatLaunchDraftAdopted).not.toHaveBeenCalled()
+  })
+
+  it('still mirrors the launch draft into the owning pane composer', () => {
+    const { setDraft } = renderPaneComposer(true)
+
+    expect(setDraft).toHaveBeenCalledWith('https://github.com/o/r/issues/12')
   })
 })
