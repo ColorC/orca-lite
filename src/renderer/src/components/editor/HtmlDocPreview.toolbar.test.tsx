@@ -8,6 +8,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { acquireWebviewsDragPassthrough } from '@/components/browser-pane/host-guest/webview-drag-passthrough'
 
 const GRANT_ID = 'a'.repeat(32)
 const ENTRY_RELATIVE_PATH = 'docs/reports/index.html'
@@ -216,6 +217,25 @@ describe('HtmlDocPreview browser chrome', () => {
       guest.remove()
     }
     expect(withoutGuest.innerHTML).not.toContain('orca-preview')
+  })
+
+  // Why this is a drag bug and not a styling one: a <webview> takes the pointer stream the
+  // document never sees, so a tab drag stops getting pointermove the moment the cursor crosses
+  // the preview — the dragged tab stops following the cursor and the split cannot be dropped.
+  it('holds the guest click-through while a renderer drag is in flight', async () => {
+    const webview = await renderPreview(container, root)
+
+    const guest = webview as unknown as HTMLElement
+    let release: (() => void) | null = null
+    expect(guest.style.pointerEvents).toBe('')
+
+    await act(async () => {
+      release = acquireWebviewsDragPassthrough()
+    })
+    expect(guest.style.pointerEvents).toBe('none')
+
+    await act(async () => release?.())
+    expect(guest.style.pointerEvents).toBe('')
   })
 
   // Why: the chip sits in the row's height-pinned slot, and a wrapper of its own between the two

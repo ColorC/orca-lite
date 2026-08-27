@@ -71,6 +71,16 @@ export function installDocPreviewGuestPolicy(
   // latching it pins every later navigation to that one grant.
   let boundGrantId: string | null = null
 
+  const latchGrantFromUrl = (rawUrl: string): void => {
+    if (boundGrantId !== null) {
+      return
+    }
+    boundGrantId = parseDocPreviewUrl(rawUrl)?.grantId ?? null
+    if (boundGrantId !== null) {
+      previewGuestsByGrantId.set(boundGrantId, { guest, hostId: host.id })
+    }
+  }
+
   previewGuests.set(guest, {
     host,
     readBoundGrantId: () => boundGrantId,
@@ -106,17 +116,21 @@ export function installDocPreviewGuestPolicy(
     event.preventDefault()
   }
 
+  // Why here and not only on navigation events: the guest is already loading its src by the time
+  // the embedder hands it to us, so the only navigation most previews ever make has already
+  // started. Latching what it is on now is what binds the usual preview to its grant at all.
+  latchGrantFromUrl(guest.getURL())
   guest.on('did-start-navigation', (details) => {
     // Why: only the top document defines which grant this guest belongs to. Latching from a
     // subframe would let an in-document iframe rebind the guest to another grant.
-    if (boundGrantId !== null || !details.isMainFrame) {
+    if (!details.isMainFrame) {
       return
     }
-    boundGrantId = parseDocPreviewUrl(details.url)?.grantId ?? null
-    if (boundGrantId !== null) {
-      previewGuestsByGrantId.set(boundGrantId, { guest, hostId: host.id })
-    }
+    latchGrantFromUrl(details.url)
   })
+  // Why a committed URL too: a navigation that started before this listener existed still commits
+  // after it, and a preview that never navigates again would otherwise stay bound to nothing.
+  guest.on('did-navigate', (_event, url) => latchGrantFromUrl(url))
   guest.on('will-navigate', navigationGuard)
   guest.on('will-redirect', navigationGuard)
   // Why: will-navigate never fires for a subframe, so without this an <iframe src="https://…">

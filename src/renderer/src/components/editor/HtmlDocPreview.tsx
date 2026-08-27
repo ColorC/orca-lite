@@ -7,6 +7,7 @@ import {
 } from '../../../../shared/doc-preview-scheme'
 import { ORCA_BROWSER_GUEST_WEB_PREFERENCES_ATTRIBUTE } from '../../../../shared/browser-guest-web-preferences'
 import { BrowserGuestAnnotateOverlays } from '@/components/browser-pane/annotate/browser-guest-annotate-overlays'
+import { useGuestDragPassthrough } from '@/components/browser-pane/host-guest/use-guest-drag-passthrough'
 import { moveFocusToRendererBeforeWebviewDetach } from '@/components/browser-pane/host-guest/webview-registry'
 import {
   buildDocPreviewGrantRequest,
@@ -16,10 +17,7 @@ import {
 import { selectWorktreeHostDisplayLabel } from '@/lib/execution-host-display-label'
 import { translate } from '@/i18n/i18n'
 import { useAppStore } from '@/store'
-import {
-  openDocPreviewExternally,
-  openDocPreviewSource
-} from './doc-preview-document-actions'
+import { openDocPreviewExternally, openDocPreviewSource } from './doc-preview-document-actions'
 import { buildDocPreviewDocumentIdentity } from './doc-preview-document-identity'
 import { docPreviewAssetNotice, docPreviewFailureDetail } from './doc-preview-failure-messages'
 import { DocPreviewToolbar } from './doc-preview-toolbar'
@@ -124,6 +122,7 @@ export function HtmlDocPreview({
     [filePath, hostLabel, worktreeRoot]
   )
   const isUnavailable = state === 'unavailable' || failureReason !== null
+  useGuestDragPassthrough(webviewRef, grantId)
   const { grab, markup, annotationSend, grabAnnotations, browserOverlayViewport, elementTools } =
     useDocPreviewGuestTools({
       previewId,

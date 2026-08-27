@@ -15,7 +15,11 @@ type GuestHandlers = Record<string, (...args: never[]) => void>
 
 const HOST_RENDERER_ID = 42
 
-function installOnFakeGuest(hostId: number = HOST_RENDERER_ID): {
+function installOnFakeGuest(
+  hostId: number = HOST_RENDERER_ID,
+  /** What the guest is already showing when the embedder hands it over, as a real one usually is. */
+  initialUrl = ''
+): {
   contents: object
   handlers: GuestHandlers
   hostId: number
@@ -37,6 +41,7 @@ function installOnFakeGuest(hostId: number = HOST_RENDERER_ID): {
   const guest = {
     isFocused,
     isDestroyed: () => false,
+    getURL: () => initialUrl,
     on: vi.fn(register),
     once: vi.fn(register),
     setWindowOpenHandler: vi.fn((handler: (details: { url: string }) => { action: string }) => {
@@ -352,6 +357,30 @@ describe('doc preview guest policy', () => {
       const { grant } = boundGuest()
 
       expect(getAuthorizedDocPreviewGuest(grant.id, HOST_RENDERER_ID + 1)).toBeNull()
+    })
+
+    // Why this is the ordinary case and not an edge one: the embedder hands the guest over after
+    // it has already started loading its src, so the navigation that binds most previews to their
+    // grant happens before any listener here exists. Missing it leaves the tools unable to name
+    // the guest for as long as the reader stays on the page they opened.
+    it('binds a guest that is already showing its document when the policy installs', () => {
+      const grant = mintGrant()
+      const guest = installOnFakeGuest(HOST_RENDERER_ID, buildDocPreviewUrl(grant.id, 'index.html'))
+
+      expect(getAuthorizedDocPreviewGuest(grant.id, HOST_RENDERER_ID)).toBe(guest.contents)
+    })
+
+    // The same miss, one event later: the load started before the listener and commits after it.
+    it('binds a guest whose first navigation only reaches the commit', () => {
+      const grant = mintGrant()
+      const guest = installOnFakeGuest()
+
+      guest.handlers['did-navigate']?.(
+        {} as never,
+        buildDocPreviewUrl(grant.id, 'index.html') as never
+      )
+
+      expect(getAuthorizedDocPreviewGuest(grant.id, HOST_RENDERER_ID)).toBe(guest.contents)
     })
 
     // Why: the src commit is what proves this guest is showing that grant. Before it, the id names

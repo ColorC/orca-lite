@@ -156,19 +156,20 @@ function liveRenderedPreview(hostId: number = HOST_RENDERER_ID): {
   const register = (event: string, handler: (...args: never[]) => void): void => {
     handlers[event] = handler
   }
+  // Why the guest already reports its URL: the embedder hands a preview over mid-load, so this is
+  // the state the policy really installs into.
+  const documentUrl = buildDocPreviewUrl(grant.id, 'index.html')
   const guest = {
     isFocused: () => true,
     isDestroyed: () => false,
+    getURL: () => documentUrl,
     on: vi.fn(register),
     once: vi.fn(register),
     setWindowOpenHandler: vi.fn(),
     setWebRTCIPHandlingPolicy: vi.fn()
   }
   installDocPreviewGuestPolicy(guest as never, { id: hostId, send: vi.fn() })
-  handlers['did-start-navigation']?.({
-    url: buildDocPreviewUrl(grant.id, 'index.html'),
-    isMainFrame: true
-  } as never)
+  handlers['did-start-navigation']?.({ url: documentUrl, isMainFrame: true } as never)
   return { toolTargetId: toDocPreviewToolTargetId(grant.id), contents: guest }
 }
 
@@ -240,35 +241,39 @@ describe('doc preview tool authorization', () => {
 
   // The load-bearing containment claim: page/session management never reaches the preview registry,
   // so a preview can never be resolved as, or managed like, a browser page.
-  it.each(BROWSER_PAGE_CHANNELS)('never consults the preview authority from %s', async (channel) => {
-    const preview = liveRenderedPreview()
-    const handler = registeredHandlers().get(channel)
+  it.each(BROWSER_PAGE_CHANNELS)(
+    'never consults the preview authority from %s',
+    async (channel) => {
+      const preview = liveRenderedPreview()
+      const handler = registeredHandlers().get(channel)
 
-    try {
-      await handler?.(trustedSender(HOST_RENDERER_ID), {
-        browserPageId: preview.toolTargetId,
-        profileId: preview.toolTargetId,
-        environmentId: preview.toolTargetId
-      })
-    } catch {
-      // A malformed-for-this-channel payload may throw; the claim is about which registry was read.
+      try {
+        await handler?.(trustedSender(HOST_RENDERER_ID), {
+          browserPageId: preview.toolTargetId,
+          profileId: preview.toolTargetId,
+          environmentId: preview.toolTargetId
+        })
+      } catch {
+        // A malformed-for-this-channel payload may throw; the claim is about which registry was read.
+      }
+
+      expect(previewAuthoritySpy).not.toHaveBeenCalled()
     }
+  )
 
-    expect(previewAuthoritySpy).not.toHaveBeenCalled()
-  })
+  it.each(TOOL_CHANNELS)(
+    'refuses %s from a renderer that does not host the preview',
+    async (channel) => {
+      const preview = liveRenderedPreview()
+      const handler = registeredHandlers().get(channel)
 
-  it.each(TOOL_CHANNELS)('refuses %s from a renderer that does not host the preview', async (
-    channel
-  ) => {
-    const preview = liveRenderedPreview()
-    const handler = registeredHandlers().get(channel)
+      await handler?.(trustedSender(OTHER_RENDERER_ID), toolArgs(channel, preview.toolTargetId))
 
-    await handler?.(trustedSender(OTHER_RENDERER_ID), toolArgs(channel, preview.toolTargetId))
-
-    for (const mock of [...GUEST_RECEIVING_MOCKS, cancelGrabOpMock]) {
-      expect(mock).not.toHaveBeenCalled()
+      for (const mock of [...GUEST_RECEIVING_MOCKS, cancelGrabOpMock]) {
+        expect(mock).not.toHaveBeenCalled()
+      }
     }
-  })
+  )
 
   it.each(TOOL_CHANNELS)('refuses %s for a target no preview rendered', async (channel) => {
     const unrenderedTarget = toDocPreviewToolTargetId('a'.repeat(32))
