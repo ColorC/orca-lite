@@ -556,6 +556,7 @@ import {
   getSetupRunnerCommandPlatformForPath
 } from '../../shared/setup-runner-command'
 import {
+  applySequencedSetupLaunch,
   createSequencedSetupAgentCommands,
   SETUP_AGENT_SEQUENCE_STARTUP_COMMAND_ENV
 } from '../../shared/setup-agent-sequencing'
@@ -24954,10 +24955,10 @@ export class OrcaRuntimeService {
     setupCommandPlatform: 'windows' | 'posix'
     observeSetupCompletion?: boolean
     // Why: when the agent startup is sequenced to wait for setup
-    // (waitForAgentStartup), the startup PTY runs a wrapper that already embeds
-    // the setup command. Pass that wrapped command through so the Setup tab runs
-    // the same script the agent is waiting on instead of a bare runner.
-    wrappedSetupCommand?: string
+    // (waitForAgentStartup), the startup PTY polls for an outcome only this gated launch
+    // records. Pass the whole sequenced launch record — command plus the env carrying its
+    // script — so the Setup tab runs the script the agent waits on, not a bare runner.
+    sequencedSetup?: CreateWorktreeResult['setup']
     // Why: a workspace provisioned in the background must not pull the sidebar
     // to itself; the user never asked to look at these tabs.
     surfaceOwner?: false
@@ -24987,8 +24988,9 @@ export class OrcaRuntimeService {
         primaryTerminalHandle = terminal.handle
       }
       if (args.setup) {
+        const setupLaunch = args.sequencedSetup ?? args.setup
         const completionToken =
-          args.observeSetupCompletion && !args.wrappedSetupCommand ? randomUUID() : null
+          args.observeSetupCompletion && !setupLaunch.command ? randomUUID() : null
         const observedCommand = completionToken
           ? buildObservedSetupCommand(
               args.setup.runnerScriptPath,
@@ -24998,14 +25000,14 @@ export class OrcaRuntimeService {
             )
           : null
         const setupCommand =
-          args.wrappedSetupCommand ??
+          setupLaunch.command ??
           observedCommand?.command ??
           buildSetupRunnerCommand(
             args.setup.runnerScriptPath,
             args.setupCommandPlatform,
             args.setup.shell
           )
-        const setupEnv = { ...args.setup.envVars, ...observedCommand?.env }
+        const setupEnv = { ...setupLaunch.envVars, ...observedCommand?.env }
         const shouldSplitSetup =
           primaryTerminalHandle &&
           (setupLaunchMode === 'split-vertical' || setupLaunchMode === 'split-horizontal')
@@ -26067,7 +26069,7 @@ export class OrcaRuntimeService {
     let startupTerminalPtyId: string | null = null
 
     let sequencedStartup = effectiveStartup
-    let wrappedSetupCommandStr: string | undefined
+    let sequencedSetup: CreateWorktreeResult['setup']
     if (effectiveStartup && setup?.waitForAgentStartup === true) {
       const platform = getSetupRunnerCommandPlatformForLaunch(
         setup,
@@ -26086,7 +26088,7 @@ export class OrcaRuntimeService {
           ? { env: { ...effectiveStartup.env, ...sequenced.startupEnv } }
           : {})
       }
-      wrappedSetupCommandStr = sequenced.setupCommand
+      sequencedSetup = applySequencedSetupLaunch(setup, sequenced)
     }
 
     if (sequencedStartup && this.ptyController?.spawn) {
@@ -26151,9 +26153,9 @@ export class OrcaRuntimeService {
           hasStartupTerminal: didSpawnStartup,
           setupCommandPlatform: getSetupRunnerCommandPlatformForLaunch(setup, 'posix'),
           observeSetupCompletion: args.observeSetupCompletion,
-          // Why: carry the wait-for-agent wrapped setup command (#6298) so the
+          // Why: carry the wait-for-agent gated setup launch (#6298) so the
           // Setup tab runs the same script the sequenced agent waits on.
-          ...(wrappedSetupCommandStr ? { wrappedSetupCommand: wrappedSetupCommandStr } : {})
+          ...(sequencedSetup ? { sequencedSetup } : {})
         })
         didSpawnSetup = provisioned.setupSpawned
         setupTerminalHandle = provisioned.setupTerminalHandle
@@ -26163,14 +26165,9 @@ export class OrcaRuntimeService {
       // activation retries it.
       const activationSetup = didSpawnSetup
         ? undefined
-        : setup
-          ? {
-              ...setup,
-              ...(didSpawnStartup && wrappedSetupCommandStr
-                ? { command: wrappedSetupCommandStr }
-                : {})
-            }
-          : undefined
+        : didSpawnStartup && sequencedSetup
+          ? sequencedSetup
+          : setup
       const activationDefaultTabs = runtimeWillProvisionTerminals ? undefined : defaultTabs
       if (effectiveStartup && !didSpawnStartup) {
         this.notifyActivateWorktree(repo.id, worktree.id, {
@@ -26199,7 +26196,7 @@ export class OrcaRuntimeService {
         hasStartupTerminal: didSpawnStartup,
         setupCommandPlatform: getSetupRunnerCommandPlatformForLaunch(setup, 'posix'),
         observeSetupCompletion: args.observeSetupCompletion,
-        ...(wrappedSetupCommandStr ? { wrappedSetupCommand: wrappedSetupCommandStr } : {}),
+        ...(sequencedSetup ? { sequencedSetup } : {}),
         surfaceOwner: false
       })
       // Why: runtime owns setup spawning here, so the RPC result must omit setup
@@ -26227,14 +26224,9 @@ export class OrcaRuntimeService {
     }
     const returnedSetup = didSpawnSetup
       ? undefined
-      : setup
-        ? {
-            ...setup,
-            ...(didSpawnStartup && wrappedSetupCommandStr
-              ? { command: wrappedSetupCommandStr }
-              : {})
-          }
-        : undefined
+      : didSpawnStartup && sequencedSetup
+        ? sequencedSetup
+        : setup
     this.emitWorktreeLifecycle({
       kind: 'created',
       worktreeId: worktree.id,
@@ -26418,7 +26410,7 @@ export class OrcaRuntimeService {
     let startupTerminalPtyId: string | null = null
 
     let sequencedStartup = args.startup
-    let wrappedSetupCommandStr: string | undefined
+    let sequencedSetup: CreateWorktreeResult['setup']
     if (args.startup && result.setup?.waitForAgentStartup === true) {
       const platform = getSetupRunnerCommandPlatformForLaunch(result.setup, 'posix')
       const sequenced = createSequencedSetupAgentCommands({
@@ -26432,7 +26424,7 @@ export class OrcaRuntimeService {
         command: sequenced.startupCommand,
         ...(sequenced.startupEnv ? { env: { ...args.startup.env, ...sequenced.startupEnv } } : {})
       }
-      wrappedSetupCommandStr = sequenced.setupCommand
+      sequencedSetup = applySequencedSetupLaunch(result.setup, sequenced)
     }
 
     if (sequencedStartup && this.ptyController?.spawn) {
@@ -26494,9 +26486,9 @@ export class OrcaRuntimeService {
           hasStartupTerminal: didSpawnStartup,
           setupCommandPlatform: getSetupRunnerCommandPlatformForLaunch(result.setup, 'posix'),
           observeSetupCompletion: args.observeSetupCompletion,
-          // Why: carry the wait-for-agent wrapped setup command (#6298) so the
+          // Why: carry the wait-for-agent gated setup launch (#6298) so the
           // remote Setup tab runs the same script the sequenced agent waits on.
-          ...(wrappedSetupCommandStr ? { wrappedSetupCommand: wrappedSetupCommandStr } : {})
+          ...(sequencedSetup ? { sequencedSetup } : {})
         })
         didSpawnSetup = provisioned.setupSpawned
         setupTerminalHandle = provisioned.setupTerminalHandle
@@ -26505,14 +26497,9 @@ export class OrcaRuntimeService {
       // failure fall through with the wrapped command so renderer retries.
       const activationSetup = didSpawnSetup
         ? undefined
-        : result.setup
-          ? {
-              ...result.setup,
-              ...(didSpawnStartup && wrappedSetupCommandStr
-                ? { command: wrappedSetupCommandStr }
-                : {})
-            }
-          : undefined
+        : didSpawnStartup && sequencedSetup
+          ? sequencedSetup
+          : result.setup
       const activationDefaultTabs = runtimeWillProvisionTerminals ? undefined : result.defaultTabs
       if (args.startup && !didSpawnStartup) {
         this.notifyActivateWorktree(repo.id, result.worktree.id, {
@@ -26547,7 +26534,7 @@ export class OrcaRuntimeService {
         hasStartupTerminal: didSpawnStartup,
         setupCommandPlatform: getSetupRunnerCommandPlatformForLaunch(result.setup, 'posix'),
         observeSetupCompletion: args.observeSetupCompletion,
-        ...(wrappedSetupCommandStr ? { wrappedSetupCommand: wrappedSetupCommandStr } : {}),
+        ...(sequencedSetup ? { sequencedSetup } : {}),
         surfaceOwner: false
       })
       // Why: runtime owns setup spawning here, so omit setup from the RPC result
@@ -26575,14 +26562,9 @@ export class OrcaRuntimeService {
 
     const returnedSetup = didSpawnSetup
       ? undefined
-      : result.setup
-        ? {
-            ...result.setup,
-            ...(didSpawnStartup && wrappedSetupCommandStr
-              ? { command: wrappedSetupCommandStr }
-              : {})
-          }
-        : undefined
+      : didSpawnStartup && sequencedSetup
+        ? sequencedSetup
+        : result.setup
     const resultForRenderer = returnedSetup
       ? { ...result, setup: returnedSetup }
       : (() => {
