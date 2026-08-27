@@ -51,14 +51,13 @@ import type {
 import { createBrowserUuid } from '@/lib/browser-uuid'
 import { translate } from '@/i18n/i18n'
 import {
-  getExecutionHostLabel,
   getSettingsFocusedExecutionHostId,
   LOCAL_EXECUTION_HOST_ID,
   parseExecutionHostId,
   toRuntimeExecutionHostId,
   type ExecutionHostId
 } from '../../../../shared/execution-host'
-import { getHostSettingOverride } from '../../../../shared/host-setting-overrides'
+import { selectExecutionHostDisplayLabel } from '@/lib/execution-host-display-label'
 import type { RuntimeBrowserPlacement } from '../../../../shared/runtime-browser-placement'
 import {
   getExecutionHostIdForWorktree,
@@ -360,23 +359,6 @@ function getBrowserSettingsHostId(
   state: Pick<AppState, 'browserSessionHostIdOverride' | 'settings'>
 ): ExecutionHostId {
   return state.browserSessionHostIdOverride ?? getSettingsFocusedExecutionHostId(state.settings)
-}
-
-function getBrowserSettingsHostLabel(state: AppState, hostId: ExecutionHostId): string {
-  const override = getHostSettingOverride(state.settings, hostId, 'displayLabel')
-  if (override) {
-    return override
-  }
-  const parsed = parseExecutionHostId(hostId)
-  if (parsed?.kind === 'runtime') {
-    const name = state.runtimeEnvironments
-      ?.find((environment) => environment.id === parsed.environmentId)
-      ?.name.trim()
-    if (name) {
-      return name
-    }
-  }
-  return getExecutionHostLabel(hostId)
 }
 
 function getBrowserSettingsRuntimeEnvironmentId(
@@ -2229,7 +2211,7 @@ export const createBrowserSlice: StateCreator<AppState, [], [], BrowserSlice> = 
   importCookiesToProfile: async (profileId) => {
     const initialState = get()
     const hostId = getBrowserSettingsHostId(initialState)
-    const executionHostLabel = getBrowserSettingsHostLabel(initialState, hostId)
+    const executionHostLabel = selectExecutionHostDisplayLabel(initialState, hostId)
     if (getBrowserSettingsRuntimeEnvironmentId(initialState)) {
       const reason = translate(
         'auto.store.slices.browser.remoteCookieImportUnavailable',
@@ -2319,7 +2301,7 @@ export const createBrowserSlice: StateCreator<AppState, [], [], BrowserSlice> = 
     const hostId = getBrowserSettingsHostId(get())
     const runtimeEnvironmentId = getBrowserSettingsRuntimeEnvironmentId(get())
     if (runtimeEnvironmentId) {
-      const hostLabel = getBrowserSettingsHostLabel(get(), hostId)
+      const hostLabel = selectExecutionHostDisplayLabel(get(), hostId)
       try {
         // Why: the import runs on whichever machine hosts the pages, so the picker must offer that
         // machine's browsers -- client-hosted means this desktop, not the (usually headless) remote.
@@ -2379,7 +2361,7 @@ export const createBrowserSlice: StateCreator<AppState, [], [], BrowserSlice> = 
   importCookiesFromBrowser: async (profileId, browserFamily, browserProfile?) => {
     const initialState = get()
     const hostId = getBrowserSettingsHostId(initialState)
-    const executionHostLabel = getBrowserSettingsHostLabel(initialState, hostId)
+    const executionHostLabel = selectExecutionHostDisplayLabel(initialState, hostId)
     const runtimeEnvironmentId = getBrowserSettingsRuntimeEnvironmentId(initialState)
     if (runtimeEnvironmentId) {
       set((state) =>

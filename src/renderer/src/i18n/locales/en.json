@@ -14767,7 +14767,10 @@
           "assetUnreadableNotice": "Orca could not read {{path}} from the workspace.",
           "previewAriaLabel": "HTML preview",
           "reloadPreviewControl": "Reload preview",
-          "previewUnavailableTitle": "Preview unavailable"
+          "previewUnavailableTitle": "Preview unavailable",
+          "copyDocumentPathControl": "Copy file path",
+          "documentPathCopied": "Copied",
+          "workspaceFileChipLabel": "Workspace file"
         }
       },
       "diff": {

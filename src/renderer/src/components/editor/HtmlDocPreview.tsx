@@ -1,75 +1,28 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { AlertCircle, Loader2, RotateCw } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { AlertCircle, Loader2 } from 'lucide-react'
 import {
   DOC_PREVIEW_PARTITION,
   type DocPreviewFailure,
   type DocPreviewFailureReason
 } from '../../../../shared/doc-preview-scheme'
 import { ORCA_BROWSER_GUEST_WEB_PREFERENCES_ATTRIBUTE } from '../../../../shared/browser-guest-web-preferences'
+import { MarkupOverlay } from '@/components/browser-pane/annotate/MarkupOverlay'
+import { useBrowserPageMarkupCapture } from '@/components/browser-pane/annotate/use-browser-page-markup-capture'
 import { moveFocusToRendererBeforeWebviewDetach } from '@/components/browser-pane/host-guest/webview-registry'
-import { Button } from '@/components/ui/button'
 import {
   buildDocPreviewGrantRequest,
   ensureDocPreviewGrant,
   releaseDocPreviewGrant
 } from '@/lib/doc-preview-grants'
+import { selectWorktreeHostDisplayLabel } from '@/lib/execution-host-display-label'
 import { translate } from '@/i18n/i18n'
 import { useAppStore } from '@/store'
+import { buildDocPreviewDocumentIdentity } from './doc-preview-document-identity'
+import { docPreviewAssetNotice, docPreviewFailureDetail } from './doc-preview-failure-messages'
+import { useDocPreviewWebviewHistory } from './doc-preview-webview-history'
+import { HtmlDocPreviewToolbar } from './html-doc-preview-toolbar'
 
 type PreviewState = 'loading' | 'ready' | 'unavailable'
-
-function docPreviewFailureDetail(reason: DocPreviewFailureReason | null): string {
-  if (reason === 'too-large') {
-    return translate(
-      'auto.components.editor.HtmlDocPreview.documentTooLargePanel',
-      'This document is too large to preview. Open it in the editor instead.'
-    )
-  }
-  // Why no 'unsupported-asset' sentence here: the entry document is served as text by every owner
-  // — only a subresource can be refused for its format, and that failure is a notice, not a panel.
-  return translate(
-    'auto.components.editor.HtmlDocPreview.documentUnreadablePanel',
-    'Orca could not read this file from the workspace.'
-  )
-}
-
-/**
- * Why a notice and not the failure panel: only the entry document's failure leaves the reader with
- * nothing to look at. A stylesheet, image or font the workspace would not send is a document that
- * rendered — degraded, and the reader deserves to know which piece is missing, but rendered.
- */
-function docPreviewAssetNotice(failures: DocPreviewFailure[]): string | null {
-  const [first] = failures
-  if (!first) {
-    return null
-  }
-  if (failures.length > 1) {
-    return translate(
-      'auto.components.editor.HtmlDocPreview.multipleAssetsFailedNotice',
-      '{{count}} files in this document could not be loaded.',
-      { count: failures.length }
-    )
-  }
-  if (first.reason === 'too-large') {
-    return translate(
-      'auto.components.editor.HtmlDocPreview.assetTooLargeNotice',
-      '{{path}} is too large to load in this preview.',
-      { path: first.relativePath }
-    )
-  }
-  if (first.reason === 'unsupported-asset') {
-    return translate(
-      'auto.components.editor.HtmlDocPreview.assetUnsupportedNotice',
-      'This workspace cannot send {{path}} to a preview.',
-      { path: first.relativePath }
-    )
-  }
-  return translate(
-    'auto.components.editor.HtmlDocPreview.assetUnreadableNotice',
-    'Orca could not read {{path}} from the workspace.',
-    { path: first.relativePath }
-  )
-}
 
 function attachDocPreviewWebview({
   container,
@@ -77,7 +30,8 @@ function attachDocPreviewWebview({
   ariaLabel,
   onLoadStarted,
   onLoadStopped,
-  onLoadFailed
+  onLoadFailed,
+  onNavigated
 }: {
   container: HTMLDivElement
   url: string
@@ -85,7 +39,8 @@ function attachDocPreviewWebview({
   onLoadStarted: () => void
   onLoadStopped: () => void
   onLoadFailed: (event: Electron.DidFailLoadEvent) => void
-}): { detach: () => void; reload: () => void } {
+  onNavigated: () => void
+}): { webview: Electron.WebviewTag; detach: () => void; reload: () => void } {
   const webview = document.createElement('webview') as Electron.WebviewTag
   // Why no allowpopups: the guest's preload intercepts a trusted click on a link before Chromium
   // considers a popup at all, so target="_blank" needs no popup path and every one stays denied.
@@ -102,14 +57,21 @@ function attachDocPreviewWebview({
   webview.addEventListener('did-start-loading', onLoadStarted)
   webview.addEventListener('did-stop-loading', onLoadStopped)
   webview.addEventListener('did-fail-load', onLoadFailed)
+  // Both: a link to a sibling document is a full navigation, a fragment link is an in-page one,
+  // and only the pair together tracks what Back can actually return to.
+  webview.addEventListener('did-navigate', onNavigated)
+  webview.addEventListener('did-navigate-in-page', onNavigated)
   container.appendChild(webview)
   webview.setAttribute('src', url)
 
   return {
+    webview,
     detach: () => {
       webview.removeEventListener('did-start-loading', onLoadStarted)
       webview.removeEventListener('did-stop-loading', onLoadStopped)
       webview.removeEventListener('did-fail-load', onLoadFailed)
+      webview.removeEventListener('did-navigate', onNavigated)
+      webview.removeEventListener('did-navigate-in-page', onNavigated)
       moveFocusToRendererBeforeWebviewDetach(webview)
       webview.remove()
     },
@@ -133,12 +95,24 @@ export function HtmlDocPreview({
   filePath: string
   worktreeId: string
 }): React.JSX.Element {
-  const containerRef = useRef<HTMLDivElement>(null)
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const webviewRef = useRef<Electron.WebviewTag | null>(null)
   const reloadRef = useRef<(() => void) | null>(null)
   const [state, setState] = useState<PreviewState>('loading')
   const [failureReason, setFailureReason] = useState<DocPreviewFailureReason | null>(null)
   const [assetFailures, setAssetFailures] = useState<DocPreviewFailure[]>([])
   const [remintCount, setRemintCount] = useState(0)
+
+  const history = useDocPreviewWebviewHistory(webviewRef)
+  const { sync: syncHistory, reset: resetHistory } = history
+  const markup = useBrowserPageMarkupCapture(webviewRef, containerRef)
+
+  const worktreeRoot = useAppStore((store) => store.getKnownWorktreeById(worktreeId)?.path ?? null)
+  const hostLabel = useAppStore((store) => selectWorktreeHostDisplayLabel(store, worktreeId))
+  const identity = useMemo(
+    () => buildDocPreviewDocumentIdentity({ filePath, worktreeRoot, hostLabel }),
+    [filePath, hostLabel, worktreeRoot]
+  )
 
   useEffect(() => {
     let disposed = false
@@ -151,6 +125,8 @@ export function HtmlDocPreview({
       setState('loading')
     }
     const onLoadStopped = (): void => {
+      // Why sync here too: a navigation's history entry is only committed once loading settles.
+      syncHistory()
       if (!loadFailed) {
         setState('ready')
       }
@@ -166,6 +142,7 @@ export function HtmlDocPreview({
     setState('loading')
     setFailureReason(null)
     setAssetFailures([])
+    resetHistory()
     const request = buildDocPreviewGrantRequest(useAppStore.getState(), worktreeId, filePath)
     if (!request) {
       setState('unavailable')
@@ -205,10 +182,12 @@ export function HtmlDocPreview({
           ),
           onLoadStarted,
           onLoadStopped,
-          onLoadFailed
+          onLoadFailed,
+          onNavigated: syncHistory
         })
         detach = attached.detach
         reloadRef.current = attached.reload
+        webviewRef.current = attached.webview
       })
       .catch(() => {
         if (!disposed) {
@@ -219,10 +198,11 @@ export function HtmlDocPreview({
     return () => {
       disposed = true
       reloadRef.current = null
+      webviewRef.current = null
       unsubscribeFailure?.()
       detach?.()
     }
-  }, [filePath, previewId, remintCount, worktreeId])
+  }, [filePath, previewId, remintCount, resetHistory, syncHistory, worktreeId])
 
   const handleReload = useCallback(() => {
     // Why: a grant is pinned to the owner ids resolved when it was minted, so after a pairing or
@@ -241,24 +221,16 @@ export function HtmlDocPreview({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-editor-surface">
-      <div className="flex h-8 shrink-0 items-center justify-end gap-1 border-b px-2">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-6"
-          onClick={handleReload}
-          aria-label={translate(
-            'auto.components.editor.HtmlDocPreview.reloadPreviewControl',
-            'Reload preview'
-          )}
-          title={translate(
-            'auto.components.editor.HtmlDocPreview.reloadPreviewControl',
-            'Reload preview'
-          )}
-        >
-          <RotateCw className="size-3.5" />
-        </Button>
-      </div>
+      <HtmlDocPreviewToolbar
+        identity={identity}
+        history={history}
+        loading={state === 'loading' && failureReason === null}
+        onReload={handleReload}
+        markupActive={markup.isActive}
+        onToggleMarkup={() => (markup.isActive ? markup.cancel() : void markup.start())}
+        // Nothing has painted yet on a loading or failed preview, so there is nothing to draw on.
+        markupDisabled={state !== 'ready' || failureReason !== null}
+      />
       {assetNotice ? (
         <div
           className="flex shrink-0 items-center gap-1.5 border-b px-2 py-1 text-xs text-muted-foreground"
@@ -270,6 +242,14 @@ export function HtmlDocPreview({
         </div>
       ) : null}
       <div className="relative flex min-h-0 flex-1 overflow-hidden" ref={containerRef}>
+        {markup.isActive && markup.baseImage ? (
+          <MarkupOverlay
+            baseImage={markup.baseImage}
+            busy={markup.state === 'composing'}
+            onComplete={(input) => void markup.complete(input)}
+            onCancel={markup.cancel}
+          />
+        ) : null}
         {state === 'loading' && failureReason === null ? (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-editor-surface">
             <Loader2 className="size-5 animate-spin text-muted-foreground" />

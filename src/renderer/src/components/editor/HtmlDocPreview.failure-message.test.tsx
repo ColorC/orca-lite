@@ -11,6 +11,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import type { DocPreviewFailure } from '../../../../shared/doc-preview-scheme'
 
 const GRANT_ID = 'a'.repeat(32)
@@ -45,8 +46,18 @@ vi.mock('@/components/browser-pane/host-guest/webview-registry', () => ({
   moveFocusToRendererBeforeWebviewDetach: () => undefined
 }))
 
+const storeState = { getKnownWorktreeById: () => ({ path: '/repo' }), persistedUIReady: true }
+
 vi.mock('@/store', () => ({
-  useAppStore: { getState: () => ({}) }
+  useAppStore: Object.assign(
+    (selector?: (state: typeof storeState) => unknown) =>
+      selector ? selector(storeState) : storeState,
+    { getState: () => storeState }
+  )
+}))
+
+vi.mock('@/lib/execution-host-display-label', () => ({
+  selectWorktreeHostDisplayLabel: () => 'Studio Mac mini'
 }))
 
 const failureListeners: ((payload: DocPreviewFailure) => void)[] = []
@@ -61,7 +72,9 @@ async function renderPreview(container: HTMLDivElement, root: Root): Promise<voi
   const { HtmlDocPreview } = await import('./HtmlDocPreview')
   await act(async () => {
     root.render(
-      <HtmlDocPreview previewId="preview-1" filePath="/repo/docs/doc.html" worktreeId="wt-1" />
+      <TooltipProvider>
+        <HtmlDocPreview previewId="preview-1" filePath="/repo/docs/doc.html" worktreeId="wt-1" />
+      </TooltipProvider>
     )
   })
   expect(container.querySelector('webview')).not.toBeNull()
