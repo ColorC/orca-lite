@@ -6,7 +6,6 @@ const mocks = vi.hoisted(() => ({
   installNavigationPolicy: vi.fn(),
   isAllowedPartition: vi.fn(),
   attachRouteGuest: vi.fn(),
-  installDocPreviewGuestPolicy: vi.fn(),
   registerPluginGuard: vi.fn()
 }))
 
@@ -32,9 +31,6 @@ vi.mock('../browser/local-ssh-browser-partitions', () => ({
 }))
 vi.mock('../browser/doc-preview-protocol', () => ({
   isDocPreviewSession: (candidate: unknown) => candidate === 'doc-preview-session'
-}))
-vi.mock('../browser/doc-preview-guest-policy', () => ({
-  installDocPreviewGuestPolicy: mocks.installDocPreviewGuestPolicy
 }))
 
 import { installMainWindowWebviewSecurity } from './main-window-webview-security'
@@ -241,26 +237,33 @@ describe('orca-preview scheme admission', () => {
     expect(preventDefault).toHaveBeenCalledOnce()
   })
 
-  it('gives a preview guest its own policy instead of the browser guest policies', () => {
+  // Why the host is asserted and not just the profile: it is the renderer that minted the grant,
+  // and it is the only sink a link the reader presses can be reported to. A preview attached
+  // against another window's contents would report its clicks to a reader who is not there.
+  it('attaches a preview guest under the workspace-doc profile, hosted by this window', () => {
     const { handlers, webContents } = installOnFakeWindow()
 
     handlers['did-attach-webview']?.({} as never, { session: 'doc-preview-session' } as never)
 
-    expect(mocks.installDocPreviewGuestPolicy).toHaveBeenCalledWith(
+    expect(mocks.attachGuestPolicies).toHaveBeenCalledWith(
       { session: 'doc-preview-session' },
-      webContents
+      null,
+      {
+        profile: 'workspace-doc',
+        host: webContents
+      }
     )
-    expect(mocks.attachGuestPolicies).not.toHaveBeenCalled()
     expect(mocks.attachRouteGuest).not.toHaveBeenCalled()
   })
 
-  it('keeps browser guests on the browser policies', () => {
+  it('keeps browser guests on the browsing profile and its route registration', () => {
     const { handlers } = installOnFakeWindow()
 
     handlers['did-attach-webview']?.({} as never, { session: 'browser-session' } as never)
 
-    expect(mocks.installDocPreviewGuestPolicy).not.toHaveBeenCalled()
     expect(mocks.attachGuestPolicies).toHaveBeenCalledOnce()
+    expect(mocks.attachGuestPolicies.mock.calls[0]?.[2]).toBeUndefined()
+    expect(mocks.attachRouteGuest).toHaveBeenCalledOnce()
   })
 
   // Why: every live preview belongs to this window, so its teardown is the one moment no grant can

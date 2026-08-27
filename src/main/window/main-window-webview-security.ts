@@ -15,7 +15,6 @@ import {
 import { ORCA_BROWSER_BLANK_URL } from '../../shared/constants'
 import { DOC_PREVIEW_PARTITION, parseDocPreviewUrl } from '../../shared/doc-preview-scheme'
 import { setDocPreviewFailureSink } from '../browser/doc-preview-failure-notice'
-import { installDocPreviewGuestPolicy } from '../browser/doc-preview-guest-policy'
 import {
   getDocPreviewGrant,
   revokeAllDocPreviewGrants
@@ -112,10 +111,14 @@ export function installMainWindowWebviewSecurity(mainWindow: BrowserWindow): voi
 
   mainWindow.webContents.on('did-attach-webview', (_event, guest) => {
     if (isDocPreviewSession(guest.session)) {
-      // Why: preview guests never join browser-tab routing, popups or anti-detection; they get their own grant-scoped policy.
-      // The attach is also the point a live window exists to receive read failures for that guest.
+      // Why: preview guests never join browser-tab routing, popups or anti-detection; the
+      // workspace-doc profile is what refuses all three. The attach is also the point a live window
+      // exists to receive read failures for that guest.
       setDocPreviewFailureSink(mainWindow.webContents)
-      installDocPreviewGuestPolicy(guest, mainWindow.webContents)
+      browserManager.attachGuestPolicies(guest, null, {
+        profile: 'workspace-doc',
+        host: mainWindow.webContents
+      })
       return
     }
     // Why: attach guest popup/nav policy at creation; waiting for renderer registration races target=_blank/early redirects past it.

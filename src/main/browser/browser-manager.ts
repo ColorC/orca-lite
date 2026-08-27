@@ -59,6 +59,7 @@ import {
   buildBrowserAnnotationViewportBridgeScript
 } from '../../shared/browser-annotation-viewport-bridge'
 import { parseDocPreviewToolTargetId } from '../../shared/doc-preview-scheme'
+import { installDocPreviewGuestPolicy } from './doc-preview-guest-policy'
 import type { KeybindingOverrides } from '../../shared/keybindings'
 import {
   BrowserCertificateTrustController,
@@ -153,6 +154,15 @@ type PopupOwnerContext = {
   browserTabId: string
   rootGuestWebContentsId: number
 }
+/**
+ * What a guest is allowed to be. A browsing guest is the web — popups, clicked-link routing and
+ * anti-detection all apply. A workspace-document guest renders one granted document and gets none
+ * of that; `host` is the renderer that minted its grant, and the only sink for what it reports.
+ */
+export type BrowserGuestPolicy =
+  | { profile: 'browsing' }
+  | { profile: 'workspace-doc'; host: Electron.WebContents }
+const BROWSING_GUEST_POLICY: BrowserGuestPolicy = { profile: 'browsing' }
 type PendingMainFrameNavigation = {
   currentUrl: string
   supersededUrls: string[]
@@ -655,12 +665,20 @@ export class BrowserManager {
 
   attachGuestPolicies(
     guest: Electron.WebContents,
-    inheritedOwnerContext: PopupOwnerContext | null = null
+    inheritedOwnerContext: PopupOwnerContext | null = null,
+    policy: BrowserGuestPolicy = BROWSING_GUEST_POLICY
   ): void {
     if (this.policyAttachedGuestIds.has(guest.id)) {
       return
     }
     this.policyAttachedGuestIds.add(guest.id)
+    // Why one door with a profile rather than a second installer beside it: whether a guest was
+    // policy-attached at all is what registration and teardown both key on, so a guest that took
+    // another path into the app is invisible to both.
+    if (policy.profile === 'workspace-doc') {
+      this.attachWorkspaceDocGuestPolicies(guest, policy.host)
+      return
+    }
     if (inheritedOwnerContext) {
       this.popupOwnerContextByGuestId.set(guest.id, inheritedOwnerContext)
     }
@@ -968,6 +986,30 @@ export class BrowserManager {
         guest.off('did-start-navigation', didStartNavigationHandler)
         guest.off('did-navigate', didNavigateHandler)
         guest.off('did-fail-load', didFailLoadHandler)
+      }
+    })
+  }
+
+  /**
+   * A workspace document is not the web: no popups, no link routing, no anti-detection, and no
+   * navigation bookkeeping for chrome it does not have. What it does share with a browsing guest is
+   * this method's teardown, so a retired preview drops its listeners on the same path.
+   */
+  private attachWorkspaceDocGuestPolicies(
+    guest: Electron.WebContents,
+    host: Electron.WebContents
+  ): void {
+    const disposeDocPolicy = installDocPreviewGuestPolicy(guest, host)
+    const handleDestroyed = (): void => {
+      this.cleanupGuestPolicyAttachment(guest.id)
+    }
+    guest.on('destroyed', handleDestroyed)
+    this.policyCleanupByGuestId.set(guest.id, () => {
+      disposeDocPolicy()
+      try {
+        guest.off('destroyed', handleDestroyed)
+      } catch {
+        // guest may already be destroyed
       }
     })
   }

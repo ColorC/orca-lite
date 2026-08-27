@@ -62,11 +62,16 @@ export function getAuthorizedDocPreviewGuest(
  * The preview guest renders a workspace document, not the web: it may only move within its own
  * grant, and nothing it does by itself leaves the preview. The one route out is
  * `reportDocPreviewLinkClick`, which answers for a click the reader really made.
+ *
+ * Reached only through `browserManager.attachGuestPolicies` under the workspace-doc profile, so
+ * every guest in the app is policy-attached by one door whatever it renders. Returns the disposal
+ * that door stores: without it a retired guest keeps its listeners and stays answerable through the
+ * grant-keyed authority until the WebContents itself is collected.
  */
 export function installDocPreviewGuestPolicy(
   guest: Electron.WebContents,
   host: PreviewHostRenderer
-): void {
+): () => void {
   // Why: the first commit is the renderer-set src, already admitted by will-attach-webview;
   // latching it pins every later navigation to that one grant.
   let boundGrantId: string | null = null
@@ -86,12 +91,13 @@ export function installDocPreviewGuestPolicy(
     readBoundGrantId: () => boundGrantId,
     isFocused: () => guest.isFocused()
   })
-  guest.once('destroyed', () => {
+  const forgetGuest = (): void => {
     previewGuests.delete(guest)
     if (boundGrantId !== null && previewGuestsByGrantId.get(boundGrantId)?.guest === guest) {
       previewGuestsByGrantId.delete(boundGrantId)
     }
-  })
+  }
+  guest.once('destroyed', forgetGuest)
 
   const isAllowedPreviewNavigation = (rawUrl: string): boolean => {
     const target = parseDocPreviewUrl(rawUrl)
@@ -120,27 +126,35 @@ export function installDocPreviewGuestPolicy(
   // the embedder hands it to us, so the only navigation most previews ever make has already
   // started. Latching what it is on now is what binds the usual preview to its grant at all.
   latchGrantFromUrl(guest.getURL())
-  guest.on('did-start-navigation', (details) => {
+  const latchFromMainFrameNavigation = (details: { isMainFrame: boolean; url: string }): void => {
     // Why: only the top document defines which grant this guest belongs to. Latching from a
     // subframe would let an in-document iframe rebind the guest to another grant.
     if (!details.isMainFrame) {
       return
     }
     latchGrantFromUrl(details.url)
-  })
+  }
   // Why a committed URL too: a navigation that started before this listener existed still commits
   // after it, and a preview that never navigates again would otherwise stay bound to nothing.
-  guest.on('did-navigate', (_event, url) => latchGrantFromUrl(url))
-  guest.on('will-navigate', navigationGuard)
-  guest.on('will-redirect', navigationGuard)
+  const latchFromCommittedUrl = (_event: Electron.Event, url: string): void =>
+    latchGrantFromUrl(url)
   // Why: will-navigate never fires for a subframe, so without this an <iframe src="https://…">
   // inside a previewed document would load off-machine even though the top frame cannot.
-  guest.on('will-frame-navigate', (details) => {
+  const frameNavigationGuard = (details: {
+    isMainFrame: boolean
+    url: string
+    preventDefault: () => void
+  }): void => {
     if (details.isMainFrame || isAllowedPreviewNavigation(details.url)) {
       return
     }
     details.preventDefault()
-  })
+  }
+  guest.on('did-start-navigation', latchFromMainFrameNavigation)
+  guest.on('did-navigate', latchFromCommittedUrl)
+  guest.on('will-navigate', navigationGuard)
+  guest.on('will-redirect', navigationGuard)
+  guest.on('will-frame-navigate', frameNavigationGuard)
   // Why deny with nothing routed: previews own no native child windows, and a popup the document
   // asked for is the document asking, not the reader. A link the reader presses is intercepted
   // before Chromium ever considers a popup.
@@ -148,6 +162,19 @@ export function installDocPreviewGuestPolicy(
   // Why a second fence for one API: WebRTC opens UDP straight from the network stack, so neither the
   // response CSP nor the session's request filter ever sees it. This is the only layer that can.
   enforceBrowserRouteWebRtcPolicy(guest, () => {})
+
+  return () => {
+    forgetGuest()
+    if (guest.isDestroyed()) {
+      return
+    }
+    guest.off('destroyed', forgetGuest)
+    guest.off('did-start-navigation', latchFromMainFrameNavigation)
+    guest.off('did-navigate', latchFromCommittedUrl)
+    guest.off('will-navigate', navigationGuard)
+    guest.off('will-redirect', navigationGuard)
+    guest.off('will-frame-navigate', frameNavigationGuard)
+  }
 }
 
 function isWebUrl(url: string): boolean {
