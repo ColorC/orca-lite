@@ -378,16 +378,16 @@ describe('HtmlDocPreview browser chrome', () => {
       expect(container.querySelector('button[aria-label="Import cookies from browser"]')).toBeNull()
     })
 
-    // The picker is driven through main, which resolves the id to this preview's guest. Sending a
-    // browser page id would be asking main to act on a tab that does not exist.
-    it('arms the element picker against the preview grant, not a browser page', async () => {
+    // The picker is driven through main, which resolves the page to whichever guest is rendering
+    // this document now — so the id it sends is the page, not the grant a re-mint would replace.
+    it('arms the element picker against the page the document is open in', async () => {
       await renderPreview(container, root)
 
       await act(async () => {
         button(container, 'Grab page element').click()
       })
 
-      expect(grabCalls).toEqual([{ browserPageId: `doc-preview-grant:${GRANT_ID}`, enabled: true }])
+      expect(grabCalls).toEqual([{ browserPageId: 'preview-1', enabled: true }])
     })
 
     it('opens the document source as its own editor tab', async () => {

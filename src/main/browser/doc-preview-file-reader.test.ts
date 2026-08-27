@@ -23,7 +23,8 @@ function sshGrant(): ReturnType<typeof mintDocPreviewGrant> {
   return mintDocPreviewGrant({
     owner: { kind: 'ssh', connectionId: 'ssh-1' },
     root: '/home/alice/docs',
-    entryRelativePath: 'index.html'
+    entryRelativePath: 'index.html',
+    browserPageId: 'page-1'
   })
 }
 
@@ -36,7 +37,8 @@ function runtimeGrant(root = '/srv/repo/docs'): ReturnType<typeof mintDocPreview
       worktreeRoot: '/srv/repo'
     },
     root,
-    entryRelativePath: 'index.html'
+    entryRelativePath: 'index.html',
+    browserPageId: 'page-1'
   })
 }
 

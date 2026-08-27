@@ -58,8 +58,11 @@ import {
   BROWSER_ANNOTATION_VIEWPORT_BRIDGE_WORLD_ID,
   buildBrowserAnnotationViewportBridgeScript
 } from '../../shared/browser-annotation-viewport-bridge'
-import { parseDocPreviewToolTargetId } from '../../shared/doc-preview-scheme'
-import { installDocPreviewGuestPolicy } from './doc-preview-guest-policy'
+import {
+  getWorkspaceDocPageGuest,
+  installDocPreviewGuestPolicy,
+  isWorkspaceDocPageId
+} from './doc-preview-guest-policy'
 import type { KeybindingOverrides } from '../../shared/keybindings'
 import {
   BrowserCertificateTrustController,
@@ -1315,7 +1318,9 @@ export class BrowserManager {
     rendererWebContentsId
   }: BrowserGuestRegistration): boolean {
     const browserTabId = browserPageId ?? legacyBrowserTabId
-    if (!browserTabId || parseDocPreviewToolTargetId(browserTabId) !== null) {
+    // Why refuse rather than overwrite: the two halves of the registry must stay disjoint, or one
+    // id resolves in both and the tool door silently prefers the document guest over the page.
+    if (!browserTabId || isWorkspaceDocPageId(browserTabId)) {
       return false
     }
     // Why: on guest-surface swap, cancel any grab bound to the old guest's listeners so it doesn't strand on a stale webContents.
@@ -1374,10 +1379,10 @@ export class BrowserManager {
   }
 
   unregisterGuest(browserTabId: string): void {
-    // Why the namespace check on the exit door too: a preview withdraws by revoking its grant, never
-    // through here, so a preview id arriving is misaddressed — and the cancel below would evict that
-    // grant's live grab on the strength of it.
-    if (parseDocPreviewToolTargetId(browserTabId) !== null) {
+    // Why the check on the exit door too: a document page withdraws by revoking its grant, never
+    // through here, so its id arriving is misaddressed — and the cancel below would evict that
+    // preview's live grab on the strength of it.
+    if (isWorkspaceDocPageId(browserTabId)) {
       return
     }
     // Why: teardown mid-grab must cancel it so the renderer gets a signal, not a dangling Promise.
@@ -1448,10 +1453,9 @@ export class BrowserManager {
     userAgentMode?: BrowserSessionUserAgentMode
     webContentsId: number
   }): boolean {
-    // Why the namespace check on both registration doors: a page id that borrowed the preview
-    // namespace would make one id resolve in both authorities, which is the exact confusion the
-    // split registries exist to prevent.
-    if (parseDocPreviewToolTargetId(browserPageId) !== null) {
+    // Why the same check on both registration doors: one id resolving in both halves is the exact
+    // confusion the split registries exist to prevent.
+    if (isWorkspaceDocPageId(browserPageId)) {
       return false
     }
     const guest = webContents.fromId(webContentsId)
@@ -1869,8 +1873,8 @@ export class BrowserManager {
     }
   }
 
-  // Why the caller resolves the guest: the same bridge serves browser pages and doc previews,
-  // whose contents this manager's page registries deliberately never hold.
+  // Why the caller resolves the guest: the same bridge serves browsing pages and workspace
+  // documents, which live in different halves of the page registry.
   // Why a resolver and not the guest itself: this op may have waited behind another one, and a
   // cross-process navigation meanwhile swaps the tab's contents without destroying the old one —
   // injecting into the guest the request named would bridge a page nobody is looking at.
@@ -1991,10 +1995,21 @@ export class BrowserManager {
   // --- Browser Context Grab — main-owned operations ---
 
   /** Validate that the sender owns browserTabId; returns the guest WebContents or null. */
+  /**
+   * The guest a request from `senderWebContentsId` may act on, across both halves of the page
+   * registry. This is the only door taught about workspace-document guests: they are kept out of
+   * the browsing maps entirely, so page management, agent commands, download routing and
+   * certificate attribution all miss them without a guard of their own — and a reader who opens a
+   * tool on the document in front of them still gets an answer.
+   */
   getAuthorizedGuest(
     browserTabId: string,
     senderWebContentsId: number
   ): Electron.WebContents | null {
+    const docGuest = getWorkspaceDocPageGuest(browserTabId, senderWebContentsId)
+    if (docGuest) {
+      return docGuest
+    }
     const registeredRenderer = this.rendererWebContentsIdByTabId.get(browserTabId)
     if (registeredRenderer == null || registeredRenderer !== senderWebContentsId) {
       return null

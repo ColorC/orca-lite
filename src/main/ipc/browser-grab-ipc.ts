@@ -1,12 +1,7 @@
 import { ipcMain } from 'electron'
 import { browserManager } from '../browser/browser-manager'
 import { onDocPreviewGrantRevoked } from '../browser/doc-preview-grant-registry'
-import { toDocPreviewToolTargetId } from '../../shared/doc-preview-scheme'
 import { isTrustedBrowserRenderer } from './browser-renderer-trust'
-import {
-  isDocPreviewToolTargetId,
-  resolveBrowserToolTargetGuest
-} from './browser-tool-target-authorization'
 import { waitForNextTabRegistration } from './browser-tab-registration-wait'
 import type {
   BrowserSetGrabModeArgs,
@@ -63,12 +58,11 @@ let disposePreviewGrantSubscription: (() => void) | null = null
 
 function subscribeToPreviewGrantRevocation(): void {
   disposePreviewGrantSubscription?.()
-  disposePreviewGrantSubscription = onDocPreviewGrantRevoked((grantId) => {
-    const toolTargetId = toDocPreviewToolTargetId(grantId)
+  disposePreviewGrantSubscription = onDocPreviewGrantRevoked((grant) => {
     // Why cancel first: a grab still armed on that guest would otherwise leave the renderer's
     // await hanging on a surface the reader has already closed.
-    browserManager.cancelGrabOp(toolTargetId, 'evicted')
-    disposeGrabModeStateForPage(toolTargetId)
+    browserManager.cancelGrabOp(grant.browserPageId, 'evicted')
+    disposeGrabModeStateForPage(grant.browserPageId)
   })
 }
 
@@ -93,10 +87,8 @@ export function registerBrowserGrabHandlers(): void {
       grabModeIntentByPageId.set(args.browserPageId, intent)
       const isCurrentIntent = (): boolean =>
         grabModeIntentByPageId.get(args.browserPageId) === intent
-      let guest = resolveBrowserToolTargetGuest(args.browserPageId, event.sender.id)
-      // Why the preview is excluded: that wait is for browser-tab registration, which a preview
-      // never performs — waiting would burn the timeout on an event that cannot arrive.
-      if (!guest && args.enabled && !isDocPreviewToolTargetId(args.browserPageId)) {
+      let guest = browserManager.getAuthorizedGuest(args.browserPageId, event.sender.id)
+      if (!guest && args.enabled) {
         // Why: fast file:// pages can expose the toolbar before did-attach registration reaches main.
         await waitForNextTabRegistration(args.browserPageId, GRAB_REGISTRATION_WAIT_MS).catch(
           () => {}
@@ -104,7 +96,7 @@ export function registerBrowserGrabHandlers(): void {
         if (!isCurrentIntent()) {
           return { ok: true }
         }
-        guest = resolveBrowserToolTargetGuest(args.browserPageId, event.sender.id)
+        guest = browserManager.getAuthorizedGuest(args.browserPageId, event.sender.id)
       }
       if (!guest) {
         if (!args.enabled) {
@@ -116,7 +108,7 @@ export function registerBrowserGrabHandlers(): void {
         if (!isCurrentIntent()) {
           return { ok: true }
         }
-        guest = resolveBrowserToolTargetGuest(args.browserPageId, event.sender.id)
+        guest = browserManager.getAuthorizedGuest(args.browserPageId, event.sender.id)
         if (!guest) {
           return args.enabled ? { ok: false, reason: 'not-ready' } : { ok: true }
         }
@@ -135,7 +127,7 @@ export function registerBrowserGrabHandlers(): void {
       if (!isTrustedBrowserRenderer(event.sender)) {
         return { opId: args.opId, kind: 'error', reason: 'Not authorized' }
       }
-      const guest = resolveBrowserToolTargetGuest(args.browserPageId, event.sender.id)
+      const guest = browserManager.getAuthorizedGuest(args.browserPageId, event.sender.id)
       if (!guest) {
         return { opId: args.opId, kind: 'error', reason: 'Guest not ready' }
       }
@@ -153,7 +145,7 @@ export function registerBrowserGrabHandlers(): void {
     }
     // Why: verify the sender actually owns this tab, consistent with the
     // authorization check in setGrabMode/awaitGrabSelection/captureScreenshot.
-    const guest = resolveBrowserToolTargetGuest(args.browserPageId, event.sender.id)
+    const guest = browserManager.getAuthorizedGuest(args.browserPageId, event.sender.id)
     if (!guest) {
       return false
     }
@@ -170,7 +162,7 @@ export function registerBrowserGrabHandlers(): void {
       if (!isTrustedBrowserRenderer(event.sender)) {
         return { ok: false, reason: 'Not authorized' }
       }
-      const guest = resolveBrowserToolTargetGuest(args.browserPageId, event.sender.id)
+      const guest = browserManager.getAuthorizedGuest(args.browserPageId, event.sender.id)
       if (!guest) {
         return { ok: false, reason: 'Guest not ready' }
       }
@@ -192,7 +184,7 @@ export function registerBrowserGrabHandlers(): void {
       if (!isTrustedBrowserRenderer(event.sender)) {
         return { ok: false, reason: 'Not authorized' }
       }
-      const guest = resolveBrowserToolTargetGuest(args.browserPageId, event.sender.id)
+      const guest = browserManager.getAuthorizedGuest(args.browserPageId, event.sender.id)
       if (!guest) {
         return { ok: false, reason: 'Guest not ready' }
       }

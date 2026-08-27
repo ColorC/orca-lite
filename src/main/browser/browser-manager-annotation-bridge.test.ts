@@ -196,17 +196,13 @@ describe('browserManager.setAnnotationViewportBridge', () => {
     expect(guest.executeJavaScriptInIsolatedWorld).not.toHaveBeenCalled()
   })
 
-  // Why: a preview owns no browser-page state, so treating its refusal as a stale page would run
-  // teardown against an id the page registries never held.
-  it('does not run page teardown when a preview target resolves to nothing', async () => {
+  // Why: a document page owns no browsing state, so treating its refusal as a stale page would run
+  // teardown against an id the browsing registry never held.
+  it('does not run page teardown when a document page resolves to nothing', async () => {
     const unregisterGuest = vi.spyOn(browserManager, 'unregisterGuest')
 
     await expect(
-      browserManager.setAnnotationViewportBridge(
-        `doc-preview-grant:${'a'.repeat(32)}`,
-        BRIDGE_OPTIONS,
-        () => null
-      )
+      browserManager.setAnnotationViewportBridge('doc-page-1', BRIDGE_OPTIONS, () => null)
     ).resolves.toBe(false)
 
     expect(unregisterGuest).not.toHaveBeenCalled()

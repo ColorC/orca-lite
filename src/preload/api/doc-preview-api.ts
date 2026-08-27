@@ -13,6 +13,8 @@ export type DocPreviewGrantRequest = {
   owner: DocPreviewGrantOwner
   root: string
   entryRelativePath: string
+  /** Browser page the document is being opened in; main registers its guest under this id. */
+  browserPageId: string
 }
 
 export type DocPreviewApi = {

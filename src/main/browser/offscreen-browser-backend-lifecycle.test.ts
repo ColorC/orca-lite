@@ -50,7 +50,9 @@ vi.mock('./browser-session-registry', () => ({
 }))
 
 import { OffscreenBrowserBackend } from './offscreen-browser-backend'
-import { parseDocPreviewToolTargetId } from '../../shared/doc-preview-scheme'
+import { installDocPreviewGuestPolicy, isWorkspaceDocPageId } from './doc-preview-guest-policy'
+import { mintDocPreviewGrant } from './doc-preview-grant-registry'
+import { buildDocPreviewUrl } from '../../shared/doc-preview-scheme'
 
 /** The real door's answer, so the backend is tested against the refusal it will actually get. */
 function registerOffscreenGuestLikeBrowserManager({
@@ -58,7 +60,30 @@ function registerOffscreenGuestLikeBrowserManager({
 }: {
   browserPageId: string
 }): boolean {
-  return parseDocPreviewToolTargetId(browserPageId) === null
+  return !isWorkspaceDocPageId(browserPageId)
+}
+
+/**
+ * A page the document half of the registry really owns. Built rather than named, because the door
+ * refuses on registry membership now — a made-up id would be admitted and prove nothing.
+ */
+function registerWorkspaceDocPage(browserPageId: string): void {
+  const grant = mintDocPreviewGrant({
+    owner: { kind: 'ssh', connectionId: 'ssh-1' },
+    root: '/home/alice/docs',
+    entryRelativePath: 'index.html',
+    browserPageId
+  })
+  const guest = {
+    isFocused: () => false,
+    isDestroyed: () => false,
+    getURL: () => buildDocPreviewUrl(grant.id, grant.entryRelativePath),
+    on: vi.fn(),
+    once: vi.fn(),
+    setWindowOpenHandler: vi.fn(),
+    setWebRTCIPHandlingPolicy: vi.fn()
+  }
+  installDocPreviewGuestPolicy(guest as never, { id: 1, send: vi.fn() })
 }
 
 describe('OffscreenBrowserBackend lifecycle', () => {
@@ -104,18 +129,19 @@ describe('OffscreenBrowserBackend lifecycle', () => {
     vi.useRealTimers()
   })
 
-  // Why the unregister assertion and not just the destroy: a refused id is one the preview
-  // authority may own, and the teardown hook would cancel that grant's work on the way out.
+  // Why the unregister assertion and not just the destroy: a refused id is one the document half
+  // of the registry owns, and the teardown hook would cancel that preview's work on the way out.
   it('destroys a window whose registration was refused without unregistering the id', async () => {
     const browserManager = {
       registerOffscreenGuest: vi.fn(registerOffscreenGuestLikeBrowserManager),
       unregisterGuest: vi.fn()
     }
     const backend = new OffscreenBrowserBackend(browserManager as never)
+    registerWorkspaceDocPage('doc-page-1')
 
     await expect(
       backend.createTab({
-        browserPageId: `doc-preview-grant:${'b'.repeat(32)}`,
+        browserPageId: 'doc-page-1',
         url: 'https://example.com',
         worktreeId: 'wt'
       })

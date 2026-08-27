@@ -8,16 +8,13 @@ import { useBrowserPageMarkupCapture } from '@/components/browser-pane/annotate/
 import { useGrabMode } from '@/components/browser-pane/annotate/useGrabMode'
 import type { BrowserOverlayViewport } from '@/components/browser-pane/describe-page/browser-annotation-geometry'
 import type { BrowserChromeElementTools } from '@/components/browser-pane/assemble-chrome/browser-chrome-toolbar'
-import { toDocPreviewToolTargetId } from '../../../../shared/doc-preview-scheme'
 
 /**
  * The preview's half of the browser tool cluster: the in-guest element picker, the annotation
- * store and the markup canvas, wired exactly as the browsing pane wires them.
- *
- * Two ids, because they answer different questions. `previewId` scopes stored annotations and is
- * stable for the life of the tab. The tool target is derived from the grant currently on screen,
- * which is what main can resolve to a WebContents — and which changes when a failed preview
- * re-mints.
+ * store and the markup canvas, wired exactly as the browsing pane wires them — including the id,
+ * which is the browser page for both the stored annotations and the tool target. A re-mint
+ * replaces the guest under that page rather than renaming the surface, so nothing here has to
+ * track which grant is currently on screen.
  */
 export function useDocPreviewGuestTools({
   previewId,
@@ -41,9 +38,9 @@ export function useDocPreviewGuestTools({
   browserOverlayViewport: BrowserOverlayViewport
   elementTools: BrowserChromeElementTools
 } {
-  // Why an empty target when there is no grant: useGrabMode needs a stable identity every render,
-  // and an id main cannot resolve is refused there rather than guessed at here.
-  const toolTargetId = grantId === null ? '' : toDocPreviewToolTargetId(grantId)
+  // Why still empty before the first grant: the page is only a tool target once a document is on
+  // screen, and useGrabMode needs a stable identity every render rather than one to guess with.
+  const toolTargetId = grantId === null ? '' : previewId
   const annotationViewportBridgeTokenRef = useRef(createBrowserUuid().replaceAll('-', ''))
   const [browserOverlayViewport, setBrowserOverlayViewport] = useState<BrowserOverlayViewport>({
     scrollX: 0,

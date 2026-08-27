@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
 //
-// Two ids run through this hook and they are not interchangeable. Annotations belong to the preview
-// tab and have to survive a re-mint; the guest a tool acts on is named by the grant currently on
-// screen, which a re-mint replaces. Swapping them is invisible until a preview re-mints.
+// One id runs through this hook, and it is the browser page. A re-mint replaces the guest under
+// that page rather than renaming the surface, so annotations stay addressable and the tool target
+// keeps naming something main can resolve — the two used to be separate ids, and swapping them was
+// invisible until a preview re-minted.
 import { act, createElement, useRef } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -52,7 +53,7 @@ vi.mock('@/hooks/useShortcutLabel', () => ({ useShortcutLabel: () => 'G' }))
 
 import { useDocPreviewGuestTools } from './use-doc-preview-guest-tools'
 
-const PREVIEW_ID = 'html-preview::wt-1::/root/demo/report/index.html'
+const PREVIEW_ID = 'browser-page-9f2c'
 const FIRST_GRANT = 'a'.repeat(32)
 const SECOND_GRANT = 'b'.repeat(32)
 
@@ -95,33 +96,34 @@ afterEach(() => {
 })
 
 describe('useDocPreviewGuestTools ids', () => {
-  it('scopes annotations to the preview tab and tools to the grant on screen', () => {
+  it('scopes annotations and tools to the browser page the document is open in', () => {
     render(FIRST_GRANT)
 
     expect(calls.annotationSend.at(-1)?.browserTabId).toBe(PREVIEW_ID)
     expect(calls.grabAnnotations.at(-1)?.browserTabId).toBe(PREVIEW_ID)
-    expect(calls.grabAnnotations.at(-1)?.toolTargetId).toBe(`doc-preview-grant:${FIRST_GRANT}`)
-    expect(calls.grabMode.at(-1)).toBe(`doc-preview-grant:${FIRST_GRANT}`)
+    expect(calls.grabAnnotations.at(-1)?.toolTargetId).toBe(PREVIEW_ID)
+    expect(calls.grabMode.at(-1)).toBe(PREVIEW_ID)
   })
 
-  // The failure a swap would cause: a hard reload mints a new grant, and annotations keyed by the
-  // tool target would be orphaned under an id nothing reads again.
-  it('keeps the annotation key across a re-mint while the tool target follows the new grant', () => {
+  // Why a re-mint is still worth a test with one id: main re-points the page at the replacement
+  // guest, so the surface the reader is looking at must keep the same name through it. A hook that
+  // rebuilt its target from the grant would orphan annotations under an id nothing reads again.
+  it('keeps naming the same surface across a re-mint', () => {
     render(FIRST_GRANT)
     render(SECOND_GRANT)
 
     expect(new Set(calls.annotationSend.map((call) => call.browserTabId))).toEqual(
       new Set([PREVIEW_ID])
     )
-    expect(new Set(calls.grabAnnotations.map((call) => call.browserTabId))).toEqual(
+    expect(new Set(calls.grabAnnotations.map((call) => call.toolTargetId))).toEqual(
       new Set([PREVIEW_ID])
     )
-    expect(calls.grabAnnotations.at(-1)?.toolTargetId).toBe(`doc-preview-grant:${SECOND_GRANT}`)
-    expect(calls.viewportBridge.at(-1)?.toolTargetId).toBe(`doc-preview-grant:${SECOND_GRANT}`)
+    expect(calls.viewportBridge.at(-1)?.toolTargetId).toBe(PREVIEW_ID)
   })
 
-  // Why an empty target and not the preview id: an id main cannot resolve has to be refused there,
-  // and a preview id reaching the tool channels would be a browser-page lookup for a preview.
+  // Why an empty target and not the page id: before a grant exists no guest has committed to this
+  // page, so naming it would park every tool request in the registration wait for a document the
+  // reader may never get.
   it('names no tool target before a grant exists', () => {
     render(null)
 

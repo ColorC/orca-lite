@@ -30,7 +30,7 @@ vi.mock('./popup-origin-bar-window', () => ({
 
 import { browserManager } from './browser-manager'
 import { resetBrowserManagerMocks, resetBrowserManagerState } from './browser-manager-test-harness'
-import { getAuthorizedDocPreviewGuest } from './doc-preview-guest-policy'
+import { getWorkspaceDocPageGuest } from './doc-preview-guest-policy'
 import { mintDocPreviewGrant, revokeAllDocPreviewGrants } from './doc-preview-grant-registry'
 import { buildDocPreviewUrl } from '../../shared/doc-preview-scheme'
 
@@ -123,15 +123,21 @@ beforeEach(() => {
 })
 
 describe('guest policy profiles', () => {
-  function attachPreviewGuest(id = 301): { guest: GuestFake; grantId: string } {
+  function attachPreviewGuest(id = 301): {
+    guest: GuestFake
+    grantId: string
+    browserPageId: string
+  } {
+    const browserPageId = `doc-page-${id}`
     const grant = mintDocPreviewGrant({
       owner: { kind: 'ssh', connectionId: 'ssh-1' },
       root: '/home/alice/docs',
-      entryRelativePath: 'index.html'
+      entryRelativePath: 'index.html',
+      browserPageId
     })
     const guest = createGuest(id, buildDocPreviewUrl(grant.id, 'index.html'))
     browserManager.attachGuestPolicies(guest as never, null, { profile: 'workspace-doc', host })
-    return { guest, grantId: grant.id }
+    return { guest, grantId: grant.id, browserPageId }
   }
 
   // The presence half of every absence below: a browsing guest observably takes all of it through
@@ -179,18 +185,58 @@ describe('guest policy profiles', () => {
   // policy-attached, so a profile that installs outside that bookkeeping leaves the id marked
   // attached forever and stays answerable to tools after the surface is gone.
   it('tears a workspace-document guest down through the same policy cleanup', () => {
-    const { guest, grantId } = attachPreviewGuest(302)
-    expect(getAuthorizedDocPreviewGuest(grantId, host.id)).toBe(guest as never)
+    const { guest, browserPageId } = attachPreviewGuest(302)
+    expect(getWorkspaceDocPageGuest(browserPageId, host.id)).toBe(guest as never)
 
     for (const listener of guest.listeners.get('destroyed') ?? []) {
       listener()
     }
 
-    expect(getAuthorizedDocPreviewGuest(grantId, host.id)).toBeNull()
+    expect(getWorkspaceDocPageGuest(browserPageId, host.id)).toBeNull()
     // The manager's own bookkeeping was reached too: a second attach is refused while the id is
     // still marked policy-attached, and accepted once its teardown has run.
     browserManager.attachGuestPolicies(guest as never)
     expect(listenerCount(guest, 'dom-ready')).toBe(1)
+  })
+
+  // The seam the whole split rests on: one public door answers for both halves, and each page id
+  // resolves in exactly one of them. Asserted against the real manager, because the IPC census
+  // test has to mock it.
+  describe('the one door across both halves of the registry', () => {
+    const BROWSING_PAGE_ID = 'browser-page-1'
+
+    function registerBrowsingGuest(id = 400): GuestFake {
+      const guest = createGuest(id, 'https://example.com/')
+      browserMocks.webContentsFromIdMock.mockReturnValue(guest)
+      browserManager.attachGuestPolicies(guest as never)
+      browserManager.registerGuest({
+        browserPageId: BROWSING_PAGE_ID,
+        workspaceId: 'workspace-1',
+        worktreeId: 'wt-1',
+        webContentsId: id,
+        rendererWebContentsId: host.id
+      })
+      return guest
+    }
+
+    it('answers each page with the guest of its own half', () => {
+      const browsing = registerBrowsingGuest()
+      const { guest: document, browserPageId } = attachPreviewGuest()
+
+      expect(browserManager.getAuthorizedGuest(BROWSING_PAGE_ID, host.id)).toBe(browsing as never)
+      expect(browserManager.getAuthorizedGuest(browserPageId, host.id)).toBe(document as never)
+    })
+
+    // Why this is the containment claim and not a lookup detail: page management, agent commands,
+    // download routing and certificate attribution all read the browsing map directly, so a
+    // document page being absent from it is what fences them without a guard of their own.
+    it('keeps a document page out of the browsing map entirely', () => {
+      registerBrowsingGuest()
+      const { browserPageId } = attachPreviewGuest()
+
+      expect(browserManager.getGuestWebContentsId(browserPageId)).toBeNull()
+      expect([...browserManager.getWebContentsIdByTabId().keys()]).toEqual([BROWSING_PAGE_ID])
+    })
   })
 
   it('attaches a guest once whatever profile it was asked for', () => {

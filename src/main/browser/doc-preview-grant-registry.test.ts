@@ -13,7 +13,12 @@ import {
 const sshOwner = { kind: 'ssh', connectionId: 'ssh-1' } as const
 
 function mintPosixGrant(root = '/srv/repo/docs'): DocPreviewGrant {
-  return mintDocPreviewGrant({ owner: sshOwner, root, entryRelativePath: 'index.html' })
+  return mintDocPreviewGrant({
+    owner: sshOwner,
+    root,
+    entryRelativePath: 'index.html',
+    browserPageId: 'page-1'
+  })
 }
 
 beforeEach(() => {
@@ -81,7 +86,8 @@ describe('resolveDocPreviewTargetPath', () => {
     const grant = mintDocPreviewGrant({
       owner: sshOwner,
       root: 'C:\\',
-      entryRelativePath: 'index.html'
+      entryRelativePath: 'index.html',
+      browserPageId: 'page-1'
     })
 
     expect(resolveDocPreviewTargetPath(grant, 'index.html')).toBe('C:\\index.html')
@@ -91,7 +97,8 @@ describe('resolveDocPreviewTargetPath', () => {
     const windowsGrant = mintDocPreviewGrant({
       owner: sshOwner,
       root: 'C:\\srv\\repo\\docs',
-      entryRelativePath: 'index.html'
+      entryRelativePath: 'index.html',
+      browserPageId: 'page-1'
     })
 
     expect(resolveDocPreviewTargetPath(windowsGrant, 'assets/logo.png')).toBe(
@@ -104,7 +111,8 @@ describe('resolveDocPreviewTargetPath', () => {
     const grant = mintDocPreviewGrant({
       owner: sshOwner,
       root: '/srv/repo/docs/',
-      entryRelativePath: 'index.html'
+      entryRelativePath: 'index.html',
+      browserPageId: 'page-1'
     })
 
     expect(resolveDocPreviewTargetPath(grant, 'index.html')).toBe('/srv/repo/docs/index.html')

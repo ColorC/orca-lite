@@ -4,7 +4,8 @@ const mocks = vi.hoisted(() => ({
   handlers: new Map<string, (event: unknown, ...args: unknown[]) => unknown>(),
   listeners: new Map<string, (event: unknown, ...args: unknown[]) => unknown>(),
   isTrustedBrowserRenderer: vi.fn(),
-  reportDocPreviewLinkClick: vi.fn()
+  reportDocPreviewLinkClick: vi.fn(),
+  getGuestWebContentsId: vi.fn()
 }))
 
 vi.mock('electron', () => ({
@@ -22,6 +23,9 @@ vi.mock('./browser-renderer-trust', () => ({
 }))
 vi.mock('../browser/doc-preview-guest-policy', () => ({
   reportDocPreviewLinkClick: mocks.reportDocPreviewLinkClick
+}))
+vi.mock('../browser/browser-manager', () => ({
+  browserManager: { getGuestWebContentsId: mocks.getGuestWebContentsId }
 }))
 
 import {
@@ -42,7 +46,8 @@ import {
 const REQUEST: DocPreviewGrantRequest = {
   owner: { kind: 'ssh', connectionId: 'ssh-1' },
   root: '/home/alice/docs',
-  entryRelativePath: 'index.html'
+  entryRelativePath: 'index.html',
+  browserPageId: 'doc-page-1'
 }
 
 const sender = { id: 7 }
@@ -77,6 +82,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   revokeAllDocPreviewGrants()
   mocks.isTrustedBrowserRenderer.mockReturnValue(true)
+  mocks.getGuestWebContentsId.mockReturnValue(null)
   registerDocPreviewGrantHandlers()
 })
 
@@ -99,9 +105,20 @@ describe('document preview grant handlers', () => {
     expect(getDocPreviewGrant(result.grantId)).toBeNull()
   })
 
-  it('rejects a request that names no root or entry document', () => {
+  it('rejects a request that names no root, entry document or page', () => {
     expect(() => mint({ ...REQUEST, root: '  ' })).toThrow(/Invalid/)
     expect(() => mint({ ...REQUEST, entryRelativePath: '' })).toThrow(/Invalid/)
+    expect(() => mint({ ...REQUEST, browserPageId: ' ' })).toThrow(/Invalid/)
+  })
+
+  // Why this is refused here and not left to registration: this is where a page becomes a document
+  // page, and the two halves of the page registry have to stay disjoint. A page already hosting a
+  // browsing guest would otherwise resolve in both, and the tool door prefers the document one.
+  it('refuses to make a page that already hosts a browsing guest into a document page', () => {
+    mocks.getGuestWebContentsId.mockReturnValue(42)
+
+    expect(() => mint()).toThrow(/browsing page/)
+    expect(mocks.getGuestWebContentsId).toHaveBeenCalledWith('doc-page-1')
   })
 
   // Why: this channel hands out filesystem-read authority, so an untrusted sender must leave with

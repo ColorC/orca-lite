@@ -26,36 +26,55 @@ type PreviewGuestRegistration = {
 const previewGuests = new WeakMap<object, PreviewGuestRegistration>()
 
 /**
- * The same guests, reachable by the grant they committed to. A preview joins no browser-page
- * registry, so this is the only way to answer "which contents renders grant X" for a tool request
- * the host renderer makes on the reader's behalf. Keyed by grant, not by tab: a grant dies with
- * the tab that minted it, so an entry can never outlive the surface the reader is looking at.
+ * The workspace-document half of the browser page registry, keyed by the page the reader opened
+ * the document in. It is deliberately a separate map from the browsing one: page management,
+ * agent commands, download routing and certificate attribution all read that map directly, in
+ * more places than a guard could be remembered in, so a document guest is simply not in it. The
+ * one door taught about both is `browserManager.getAuthorizedGuest`, because acting on the guest
+ * the reader is looking at is the single operation that legitimately spans them.
  */
-const previewGuestsByGrantId = new Map<string, { guest: Electron.WebContents; hostId: number }>()
+const docGuestsByPageId = new Map<
+  string,
+  { guest: Electron.WebContents; hostId: number; grantId: string }
+>()
+
+const registrationListeners = new Set<(browserPageId: string) => void>()
+
+/** Why anything listens: a tool request can beat the guest's own attach, and the wait it parks in lives in the IPC layer. */
+export function onWorkspaceDocGuestRegistered(
+  listener: (browserPageId: string) => void
+): () => void {
+  registrationListeners.add(listener)
+  return () => registrationListeners.delete(listener)
+}
 
 /**
- * Authorize a browser tool request against a preview guest. This grants the guest nothing — it
- * answers only whether the trusted renderer asking is the one hosting a live, grant-bound preview.
- * Deliberately separate from browser-page authorization: neither authority can resolve the
- * other's ids, so a preview never becomes a browser page and a browser page never becomes a preview.
+ * Resolve the document guest a browser tool should act on. Grants the guest nothing — it answers
+ * only whether the trusted renderer asking is the one hosting a live, grant-bound preview on that
+ * page. Reached only through `browserManager.getAuthorizedGuest`.
  */
-export function getAuthorizedDocPreviewGuest(
-  grantId: string,
+export function getWorkspaceDocPageGuest(
+  browserPageId: string,
   senderWebContentsId: number
 ): Electron.WebContents | null {
-  const registration = previewGuestsByGrantId.get(grantId)
+  const registration = docGuestsByPageId.get(browserPageId)
   if (!registration || registration.hostId !== senderWebContentsId) {
     return null
   }
   // Why: revocation is how a closed tab withdraws its preview, and it happens before the guest is torn down.
-  if (!getDocPreviewGrant(grantId)) {
+  if (!getDocPreviewGrant(registration.grantId)) {
     return null
   }
   if (registration.guest.isDestroyed()) {
-    previewGuestsByGrantId.delete(grantId)
+    docGuestsByPageId.delete(browserPageId)
     return null
   }
   return registration.guest
+}
+
+/** True when the page renders a workspace document, so the browsing registry must never hold it. */
+export function isWorkspaceDocPageId(browserPageId: string): boolean {
+  return docGuestsByPageId.has(browserPageId)
 }
 
 /**
@@ -83,14 +102,24 @@ export function installDocPreviewGuestPolicy(
   // Why: the first commit is the renderer-set src, already admitted by will-attach-webview;
   // latching it pins every later navigation to that one grant.
   let boundGrantId: string | null = null
+  let boundPageId: string | null = null
 
   const latchGrantFromUrl = (rawUrl: string): void => {
     if (boundGrantId !== null) {
       return
     }
-    boundGrantId = parseDocPreviewUrl(rawUrl)?.grantId ?? null
-    if (boundGrantId !== null) {
-      previewGuestsByGrantId.set(boundGrantId, { guest, hostId: host.id })
+    const grantId = parseDocPreviewUrl(rawUrl)?.grantId ?? null
+    // Why the grant must still be live: registering under the page a dead grant names would put a
+    // guest nothing can read into the registry the tool door answers from.
+    const grant = grantId === null ? null : getDocPreviewGrant(grantId)
+    if (!grant) {
+      return
+    }
+    boundGrantId = grant.id
+    boundPageId = grant.browserPageId
+    docGuestsByPageId.set(boundPageId, { guest, hostId: host.id, grantId: grant.id })
+    for (const listener of registrationListeners) {
+      listener(boundPageId)
     }
   }
 
@@ -101,8 +130,10 @@ export function installDocPreviewGuestPolicy(
   })
   const forgetGuest = (): void => {
     previewGuests.delete(guest)
-    if (boundGrantId !== null && previewGuestsByGrantId.get(boundGrantId)?.guest === guest) {
-      previewGuestsByGrantId.delete(boundGrantId)
+    // Why the identity check: a re-mint registers the replacement under the same page before this
+    // guest's own teardown runs, and deleting by key alone would unregister the live one.
+    if (boundPageId !== null && docGuestsByPageId.get(boundPageId)?.guest === guest) {
+      docGuestsByPageId.delete(boundPageId)
     }
   }
   guest.once('destroyed', forgetGuest)

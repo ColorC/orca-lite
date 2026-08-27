@@ -45,6 +45,32 @@ import {
   resetBrowserManagerMocks,
   resetBrowserManagerState
 } from './browser-manager-test-harness'
+import { installDocPreviewGuestPolicy } from './doc-preview-guest-policy'
+import { mintDocPreviewGrant, revokeAllDocPreviewGrants } from './doc-preview-grant-registry'
+import { buildDocPreviewUrl } from '../../shared/doc-preview-scheme'
+
+/**
+ * A page the document half of the registry really holds. Built rather than named: membership is
+ * what both doors refuse on now, so an id that merely looks like a preview's would be admitted.
+ */
+function registerWorkspaceDocPage(browserPageId: string): void {
+  const grant = mintDocPreviewGrant({
+    owner: { kind: 'ssh', connectionId: 'ssh-1' },
+    root: '/home/alice/docs',
+    entryRelativePath: 'index.html',
+    browserPageId
+  })
+  const guest = {
+    isFocused: () => false,
+    isDestroyed: () => false,
+    getURL: () => buildDocPreviewUrl(grant.id, grant.entryRelativePath),
+    on: vi.fn(),
+    once: vi.fn(),
+    setWindowOpenHandler: vi.fn(),
+    setWebRTCIPHandlingPolicy: vi.fn()
+  }
+  installDocPreviewGuestPolicy(guest as never, { id: rendererWebContentsId, send: vi.fn() })
+}
 
 const {
   guestOffMock,
@@ -60,6 +86,7 @@ describe('browserManager', () => {
   beforeEach(() => {
     resetBrowserManagerMocks(browserMocks)
     resetBrowserManagerState()
+    revokeAllDocPreviewGrants()
   })
 
   afterEach(() => {
@@ -92,10 +119,10 @@ describe('browserManager', () => {
     expect(browserManager.getSessionProfileIdForTab('browser-1')).toBe('work')
   })
 
-  // Why both doors: a page id that borrowed the preview namespace would make one id resolve in two
-  // authorities, and the tool channels dispatch on exactly that prefix.
+  // Why both doors: one id in both halves of the registry would make the tool door answer with a
+  // document guest for a page the reader is browsing in.
   it.each(['registerGuest', 'registerOffscreenGuest'] as const)(
-    'refuses %s for a page id in the preview namespace',
+    'refuses %s for a page the document registry already holds',
     (entryPoint) => {
       const guest = {
         id: 129,
@@ -109,7 +136,8 @@ describe('browserManager', () => {
       }
       webContentsFromIdMock.mockReturnValue(guest)
       browserManager.attachGuestPolicies(guest as never)
-      const browserPageId = `doc-preview-grant:${'b'.repeat(32)}`
+      const browserPageId = 'doc-page-1'
+      registerWorkspaceDocPage(browserPageId)
 
       if (entryPoint === 'registerGuest') {
         expect(
@@ -146,14 +174,19 @@ describe('browserManager', () => {
     }
   )
 
-  // Why the exit door needs the same check: a preview withdraws by revoking its grant, so a preview
+  // Why the exit door needs the same check: a document page withdraws by revoking its grant, so its
   // id here is misaddressed — and unregistering opens by evicting whatever grab that id names.
-  it('refuses unregisterGuest for a page id in the preview namespace', () => {
+  it('refuses unregisterGuest for a page the document registry holds', () => {
+    registerWorkspaceDocPage('doc-page-2')
     const cancelGrabOp = vi.spyOn(browserManager, 'cancelGrabOp')
 
-    browserManager.unregisterGuest(`doc-preview-grant:${'c'.repeat(32)}`)
+    browserManager.unregisterGuest('doc-page-2')
 
     expect(cancelGrabOp).not.toHaveBeenCalled()
+
+    // The presence half: the same door does evict a browsing page's grab.
+    browserManager.unregisterGuest('browser-page-1')
+    expect(cancelGrabOp).toHaveBeenCalledWith('browser-page-1', 'evicted')
     cancelGrabOp.mockRestore()
   })
 

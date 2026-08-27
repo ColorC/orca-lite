@@ -14,11 +14,14 @@ export type DocPreviewGrantHandle = { grantId: string; url: string }
  */
 const grantsByPreviewId = new Map<string, Promise<DocPreviewGrantHandle>>()
 
+/** The page is filled in by `ensureDocPreviewGrant`, so the grant and its key name one surface. */
+export type DocPreviewGrantLocation = Omit<DocPreviewGrantRequest, 'browserPageId'>
+
 export function buildDocPreviewGrantRequest(
   state: AppState,
   worktreeId: string,
   filePath: string
-): DocPreviewGrantRequest | null {
+): DocPreviewGrantLocation | null {
   const worktreeRoot = state.getKnownWorktreeById(worktreeId)?.path ?? null
   // Why the workspace root and not the document's folder: reports keep their assets in a sibling
   // directory (`../assets/app.css`), which a folder-rooted grant refuses. This is no wider than the
@@ -53,14 +56,14 @@ export function buildDocPreviewGrantRequest(
 
 export function ensureDocPreviewGrant(
   previewId: string,
-  request: DocPreviewGrantRequest
+  location: DocPreviewGrantLocation
 ): Promise<DocPreviewGrantHandle> {
   const existing = grantsByPreviewId.get(previewId)
   if (existing) {
     return existing
   }
   const pending: Promise<DocPreviewGrantHandle> = window.api.docPreview
-    .mintGrant(request)
+    .mintGrant({ ...location, browserPageId: previewId })
     .catch((error: unknown) => {
       // Why the identity check: a release and a fresh ensure can both land before this rejects, and
       // an unconditional delete would evict the newer entry, leaving its grant unrevokable.

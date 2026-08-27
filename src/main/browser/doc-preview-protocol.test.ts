@@ -63,7 +63,8 @@ function mintGrant(): ReturnType<typeof mintDocPreviewGrant> {
   return mintDocPreviewGrant({
     owner: { kind: 'ssh', connectionId: 'ssh-1' },
     root: '/home/alice/docs',
-    entryRelativePath: 'index.html'
+    entryRelativePath: 'index.html',
+    browserPageId: 'page-1'
   })
 }
 

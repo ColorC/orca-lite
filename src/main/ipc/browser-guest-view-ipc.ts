@@ -7,7 +7,6 @@ import {
 } from '../../shared/browser-client-page-metadata-protocol'
 import { RemoteRuntimeClientError } from '../../shared/remote-runtime-client-error'
 import { isTrustedBrowserRenderer } from './browser-renderer-trust'
-import { resolveBrowserToolTargetGuest } from './browser-tool-target-authorization'
 import type { BrowserViewportOverride } from '../../shared/browser-workspace-types'
 import {
   isValidBrowserAnnotationViewportBridgeMarkers,
@@ -87,10 +86,10 @@ export function registerBrowserGuestViewHandlers(): void {
         return false
       }
       // Why resolve here: this is a tool acting on a guest the reader is looking at, so it answers
-      // for a doc preview too — and routing through the shared authority also pins the request to
+      // for a workspace document too — and routing through the authority also pins the request to
       // the renderer that owns the target, which page-id-only resolution never checked.
       const resolveGuest = (): Electron.WebContents | null =>
-        resolveBrowserToolTargetGuest(args.browserPageId, event.sender.id)
+        browserManager.getAuthorizedGuest(args.browserPageId, event.sender.id)
       if (!resolveGuest()) {
         return false
       }

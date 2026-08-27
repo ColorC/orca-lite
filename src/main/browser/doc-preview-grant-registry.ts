@@ -25,6 +25,12 @@ export type DocPreviewGrant = {
   root: string
   /** Path of the opened document relative to `root`. */
   entryRelativePath: string
+  /**
+   * Browser page the reader opened this document in. Main registers the guest under it once the
+   * guest commits to the grant, so the surface a tool names is the page the reader is looking at
+   * and not the grant, which a re-mint replaces underneath the same page.
+   */
+  browserPageId: string
 }
 
 const grantsById = new Map<string, DocPreviewGrant>()
@@ -52,12 +58,14 @@ export function mintDocPreviewGrant(params: {
   owner: DocPreviewOwner
   root: string
   entryRelativePath: string
+  browserPageId: string
 }): DocPreviewGrant {
   const grant: DocPreviewGrant = {
     id: randomBytes(16).toString('hex'),
     owner: params.owner,
     root: normalizeRootPath(params.root),
-    entryRelativePath: params.entryRelativePath.replace(/\\/g, '/')
+    entryRelativePath: params.entryRelativePath.replace(/\\/g, '/'),
+    browserPageId: params.browserPageId
   }
   grantsById.set(grant.id, grant)
   return grant
@@ -73,34 +81,37 @@ export function getDocPreviewGrant(grantId: string): DocPreviewGrant | null {
  * other signal telling it the surface is gone, and would otherwise accrete one entry per grant
  * for the life of the process.
  */
-const revocationListeners = new Set<(grantId: string) => void>()
+const revocationListeners = new Set<(grant: DocPreviewGrant) => void>()
 
-export function onDocPreviewGrantRevoked(listener: (grantId: string) => void): () => void {
+/** Why the whole grant and not its id: it is already gone from the registry when listeners run. */
+export function onDocPreviewGrantRevoked(listener: (grant: DocPreviewGrant) => void): () => void {
   revocationListeners.add(listener)
   return () => revocationListeners.delete(listener)
 }
 
-function notifyRevoked(grantId: string): void {
+function notifyRevoked(grant: DocPreviewGrant): void {
   for (const listener of revocationListeners) {
-    listener(grantId)
+    listener(grant)
   }
 }
 
 export function revokeDocPreviewGrant(grantId: string): boolean {
   canonicalRootByGrantId.delete(grantId)
-  const revoked = grantsById.delete(grantId)
-  if (revoked) {
-    notifyRevoked(grantId)
+  const grant = grantsById.get(grantId)
+  if (!grant) {
+    return false
   }
-  return revoked
+  grantsById.delete(grantId)
+  notifyRevoked(grant)
+  return true
 }
 
 export function revokeAllDocPreviewGrants(): void {
   canonicalRootByGrantId.clear()
-  const revokedIds = [...grantsById.keys()]
+  const revoked = [...grantsById.values()]
   grantsById.clear()
-  for (const grantId of revokedIds) {
-    notifyRevoked(grantId)
+  for (const grant of revoked) {
+    notifyRevoked(grant)
   }
 }
 

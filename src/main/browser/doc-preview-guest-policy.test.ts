@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  getAuthorizedDocPreviewGuest,
+  getWorkspaceDocPageGuest,
   installDocPreviewGuestPolicy,
   readDocPreviewGuestBoundGrantId,
   reportDocPreviewLinkClick
@@ -86,11 +86,17 @@ function reportClick(guest: FakeGuest, url: string): void {
   reportDocPreviewLinkClick(guest.contents as never, url)
 }
 
+// Why a fresh page per grant: the registry is keyed by the page now, so two grants sharing one
+// would have the second silently replace the first rather than stand beside it.
+let nextDocPageOrdinal = 0
+
 function mintGrant(): ReturnType<typeof mintDocPreviewGrant> {
+  nextDocPageOrdinal += 1
   return mintDocPreviewGrant({
     owner: { kind: 'ssh', connectionId: 'ssh-1' },
     root: '/home/alice/docs',
-    entryRelativePath: 'index.html'
+    entryRelativePath: 'index.html',
+    browserPageId: `doc-page-${nextDocPageOrdinal}`
   })
 }
 
@@ -357,13 +363,13 @@ describe('doc preview guest policy', () => {
     it('answers the hosting renderer for a guest bound to a live grant', () => {
       const { grant, guest } = boundGuest()
 
-      expect(getAuthorizedDocPreviewGuest(grant.id, HOST_RENDERER_ID)).toBe(guest.contents)
+      expect(getWorkspaceDocPageGuest(grant.browserPageId, HOST_RENDERER_ID)).toBe(guest.contents)
     })
 
     it('refuses a renderer that does not host the preview', () => {
       const { grant } = boundGuest()
 
-      expect(getAuthorizedDocPreviewGuest(grant.id, HOST_RENDERER_ID + 1)).toBeNull()
+      expect(getWorkspaceDocPageGuest(grant.browserPageId, HOST_RENDERER_ID + 1)).toBeNull()
     })
 
     // Why this is the ordinary case and not an edge one: the embedder hands the guest over after
@@ -374,7 +380,7 @@ describe('doc preview guest policy', () => {
       const grant = mintGrant()
       const guest = installOnFakeGuest(HOST_RENDERER_ID, buildDocPreviewUrl(grant.id, 'index.html'))
 
-      expect(getAuthorizedDocPreviewGuest(grant.id, HOST_RENDERER_ID)).toBe(guest.contents)
+      expect(getWorkspaceDocPageGuest(grant.browserPageId, HOST_RENDERER_ID)).toBe(guest.contents)
     })
 
     // The same miss, one event later: the load started before the listener and commits after it.
@@ -387,7 +393,7 @@ describe('doc preview guest policy', () => {
         buildDocPreviewUrl(grant.id, 'index.html') as never
       )
 
-      expect(getAuthorizedDocPreviewGuest(grant.id, HOST_RENDERER_ID)).toBe(guest.contents)
+      expect(getWorkspaceDocPageGuest(grant.browserPageId, HOST_RENDERER_ID)).toBe(guest.contents)
     })
 
     // Why: the src commit is what proves this guest is showing that grant. Before it, the id names
@@ -396,7 +402,7 @@ describe('doc preview guest policy', () => {
       const grant = mintGrant()
       installOnFakeGuest()
 
-      expect(getAuthorizedDocPreviewGuest(grant.id, HOST_RENDERER_ID)).toBeNull()
+      expect(getWorkspaceDocPageGuest(grant.browserPageId, HOST_RENDERER_ID)).toBeNull()
     })
 
     // Why: revoking is how a closed tab withdraws its preview, and it happens while the guest is
@@ -406,7 +412,7 @@ describe('doc preview guest policy', () => {
 
       revokeDocPreviewGrant(grant.id)
 
-      expect(getAuthorizedDocPreviewGuest(grant.id, HOST_RENDERER_ID)).toBeNull()
+      expect(getWorkspaceDocPageGuest(grant.browserPageId, HOST_RENDERER_ID)).toBeNull()
     })
 
     it('drops the guest when it is destroyed', () => {
@@ -414,7 +420,7 @@ describe('doc preview guest policy', () => {
 
       guest.handlers['destroyed']?.()
 
-      expect(getAuthorizedDocPreviewGuest(grant.id, HOST_RENDERER_ID)).toBeNull()
+      expect(getWorkspaceDocPageGuest(grant.browserPageId, HOST_RENDERER_ID)).toBeNull()
     })
 
     // Why this is separate from the destroy event: the contents die before main runs that listener,
@@ -424,13 +430,13 @@ describe('doc preview guest policy', () => {
 
       guest.markContentsDestroyed()
 
-      expect(getAuthorizedDocPreviewGuest(grant.id, HOST_RENDERER_ID)).toBeNull()
+      expect(getWorkspaceDocPageGuest(grant.browserPageId, HOST_RENDERER_ID)).toBeNull()
     })
 
     it('answers nothing for a grant no preview ever rendered', () => {
       const grant = mintGrant()
 
-      expect(getAuthorizedDocPreviewGuest(grant.id, HOST_RENDERER_ID)).toBeNull()
+      expect(getWorkspaceDocPageGuest(grant.browserPageId, HOST_RENDERER_ID)).toBeNull()
     })
 
     // Why this is what makes three latch call sites safe: install, did-start-navigation and
@@ -447,8 +453,55 @@ describe('doc preview guest policy', () => {
         buildDocPreviewUrl(other.id, 'index.html') as never
       )
 
-      expect(getAuthorizedDocPreviewGuest(other.id, HOST_RENDERER_ID)).toBeNull()
-      expect(getAuthorizedDocPreviewGuest(grant.id, HOST_RENDERER_ID)).toBe(guest.contents)
+      expect(getWorkspaceDocPageGuest(other.browserPageId, HOST_RENDERER_ID)).toBeNull()
+      expect(getWorkspaceDocPageGuest(grant.browserPageId, HOST_RENDERER_ID)).toBe(guest.contents)
+    })
+
+    // Why the replacement is registered before the old guest's teardown runs: a re-mint attaches
+    // the new guest first, and Chromium runs the outgoing guest's destroyed listener afterwards. A
+    // teardown that deleted by page alone would unregister the guest the reader is now looking at.
+    it('leaves a re-minted preview registered when the guest it replaced tears down', () => {
+      const first = mintGrant()
+      const outgoing = installOnFakeGuest(
+        HOST_RENDERER_ID,
+        buildDocPreviewUrl(first.id, 'index.html')
+      )
+      const remint = mintDocPreviewGrant({
+        owner: { kind: 'ssh', connectionId: 'ssh-1' },
+        root: '/home/alice/docs',
+        entryRelativePath: 'index.html',
+        browserPageId: first.browserPageId
+      })
+      const incoming = installOnFakeGuest(
+        HOST_RENDERER_ID,
+        buildDocPreviewUrl(remint.id, 'index.html')
+      )
+      expect(getWorkspaceDocPageGuest(first.browserPageId, HOST_RENDERER_ID)).toBe(
+        incoming.contents
+      )
+
+      outgoing.handlers['destroyed']?.()
+
+      expect(getWorkspaceDocPageGuest(first.browserPageId, HOST_RENDERER_ID)).toBe(
+        incoming.contents
+      )
+    })
+
+    // Why the grant has to be live at the latch and not only at each later request: registering the
+    // page a dead grant names would put a guest that can read nothing into the registry the tool
+    // door answers from, under a page a live grant may later want.
+    it('registers nothing for a guest showing a grant that is already revoked', () => {
+      const grant = mintGrant()
+      revokeDocPreviewGrant(grant.id)
+
+      const guest = installOnFakeGuest(HOST_RENDERER_ID, buildDocPreviewUrl(grant.id, 'index.html'))
+
+      expect(getWorkspaceDocPageGuest(grant.browserPageId, HOST_RENDERER_ID)).toBeNull()
+      // The presence half: the same install does register when the grant is still live.
+      const live = mintGrant()
+      installOnFakeGuest(HOST_RENDERER_ID, buildDocPreviewUrl(live.id, 'index.html'))
+      expect(getWorkspaceDocPageGuest(live.browserPageId, HOST_RENDERER_ID)).not.toBeNull()
+      expect(guest.contents).toBeDefined()
     })
 
     // Why both directions: two previews open at once must not be able to drive each other's guest.
@@ -456,10 +509,10 @@ describe('doc preview guest policy', () => {
       const first = boundGuest()
       const second = boundGuest()
 
-      expect(getAuthorizedDocPreviewGuest(first.grant.id, HOST_RENDERER_ID)).toBe(
+      expect(getWorkspaceDocPageGuest(first.grant.browserPageId, HOST_RENDERER_ID)).toBe(
         first.guest.contents
       )
-      expect(getAuthorizedDocPreviewGuest(second.grant.id, HOST_RENDERER_ID)).toBe(
+      expect(getWorkspaceDocPageGuest(second.grant.browserPageId, HOST_RENDERER_ID)).toBe(
         second.guest.contents
       )
     })
