@@ -25,7 +25,8 @@ const mocks = vi.hoisted(() => ({
     | { state: 'hidden'; reason: string },
   createBrowserTab: vi.fn(),
   createEmptySplitGroup: vi.fn(() => 'group-2'),
-  openHtmlDocPreview: vi.fn(),
+  setActiveBrowserTab: vi.fn(),
+  browserTabsByWorktree: {} as Record<string, unknown[]>,
   environmentId: null as string | null,
   connectionId: null as string | null,
   layoutByWorktree: {} as Record<string, unknown>,
@@ -47,7 +48,8 @@ vi.mock('@/store', () => ({
     getState: () => ({
       createBrowserTab: mocks.createBrowserTab,
       createEmptySplitGroup: mocks.createEmptySplitGroup,
-      openHtmlDocPreview: mocks.openHtmlDocPreview,
+      setActiveBrowserTab: mocks.setActiveBrowserTab,
+      browserTabsByWorktree: mocks.browserTabsByWorktree,
       getKnownWorktreeById: () => ({ id: 'wt-1', path: '/srv/repo' }),
       groupsByWorktree: {},
       layoutByWorktree: mocks.layoutByWorktree,
@@ -65,7 +67,24 @@ beforeEach(() => {
   mocks.environmentId = null
   mocks.connectionId = null
   mocks.layoutByWorktree = {}
+  mocks.browserTabsByWorktree = {}
 })
+
+/** What a preview open looks like now: a browser tab located by the document, never a URL. */
+function docPreviewCall(filePath: string, extra: Record<string, unknown> = {}): unknown[] {
+  return [
+    'wt-1',
+    'data:text/html,',
+    {
+      docLocation: { kind: 'workspace-doc', worktreeId: 'wt-1', filePath },
+      title: filePath.slice(filePath.lastIndexOf('/') + 1),
+      targetGroupId: undefined,
+      browserRuntimeEnvironmentId: null,
+      activate: false,
+      ...extra
+    }
+  ]
+}
 
 describe('openFileInBrowserTab', () => {
   it('opens a local file URL in the Orca browser with the filename as title', () => {
@@ -78,7 +97,6 @@ describe('openFileInBrowserTab', () => {
       title: 'example file.html',
       activate: true
     })
-    expect(mocks.openHtmlDocPreview).not.toHaveBeenCalled()
   })
 
   it('renders a paired-runtime file as a local doc preview instead of a runtime browser tab', () => {
@@ -91,17 +109,49 @@ describe('openFileInBrowserTab', () => {
     })
 
     expect(plan).toEqual({ status: 'doc-preview' })
-    expect(mocks.openHtmlDocPreview).toHaveBeenCalledWith(
-      {
-        filePath: '/srv/repo/docs/example.html',
-        relativePath: 'docs/example.html',
-        worktreeId: 'wt-1',
-        language: 'html',
-        runtimeEnvironmentId: 'runtime-1'
-      },
-      { targetGroupId: undefined }
+    expect(mocks.createBrowserTab).toHaveBeenCalledWith(
+      ...docPreviewCall('/srv/repo/docs/example.html')
     )
+  })
+
+  // Why the reuse case is pinned: two tabs of one document would each mint their own grant on the
+  // same file, and the reader asked to look at the document, not to open a second copy.
+  it('activates the tab a document is already open in', () => {
+    mocks.connectionId = 'ssh-1'
+    mocks.browserTabsByWorktree = {
+      'wt-1': [
+        {
+          id: 'browser-9',
+          docLocation: {
+            kind: 'workspace-doc',
+            worktreeId: 'wt-1',
+            filePath: '/home/alice/report.html'
+          }
+        }
+      ]
+    }
+
+    openFileInBrowserTab({ filePath: '/home/alice/report.html', worktreeId: 'wt-1' })
+
+    expect(mocks.setActiveBrowserTab).toHaveBeenCalledWith('browser-9')
     expect(mocks.createBrowserTab).not.toHaveBeenCalled()
+  })
+
+  it('opens a second document in its own tab', () => {
+    mocks.connectionId = 'ssh-1'
+    mocks.browserTabsByWorktree = {
+      'wt-1': [
+        {
+          id: 'browser-9',
+          docLocation: { kind: 'workspace-doc', worktreeId: 'wt-1', filePath: '/home/alice/a.html' }
+        }
+      ]
+    }
+
+    openFileInBrowserTab({ filePath: '/home/alice/b.html', worktreeId: 'wt-1' })
+
+    expect(mocks.setActiveBrowserTab).not.toHaveBeenCalled()
+    expect(mocks.createBrowserTab).toHaveBeenCalledWith(...docPreviewCall('/home/alice/b.html'))
   })
 
   it('renders an SSH file as a local doc preview', () => {
@@ -113,8 +163,9 @@ describe('openFileInBrowserTab', () => {
     })
 
     expect(plan).toEqual({ status: 'doc-preview' })
-    expect(mocks.openHtmlDocPreview).toHaveBeenCalledOnce()
-    expect(mocks.createBrowserTab).not.toHaveBeenCalled()
+    expect(mocks.createBrowserTab).toHaveBeenCalledWith(
+      ...docPreviewCall('/home/alice/report.html')
+    )
   })
 
   it('previews a paired runtime whose managed browser is unavailable', () => {
@@ -129,7 +180,7 @@ describe('openFileInBrowserTab', () => {
     })
 
     expect(mocks.toastError).not.toHaveBeenCalled()
-    expect(mocks.openHtmlDocPreview).toHaveBeenCalledOnce()
+    expect(mocks.createBrowserTab).toHaveBeenCalledOnce()
   })
 
   // Why the unfocused split: the preview opens in the background, and a host snapshot reads an
@@ -148,10 +199,9 @@ describe('openFileInBrowserTab', () => {
     expect(mocks.createEmptySplitGroup).toHaveBeenCalledWith('wt-1', 'group-1', 'right', {
       activate: false
     })
-    expect(mocks.openHtmlDocPreview).toHaveBeenCalledWith(expect.anything(), {
-      targetGroupId: 'group-2'
-    })
-    expect(mocks.createBrowserTab).not.toHaveBeenCalled()
+    expect(mocks.createBrowserTab).toHaveBeenCalledWith(
+      ...docPreviewCall('/srv/repo/example.html', { targetGroupId: 'group-2' })
+    )
   })
 
   it('creates local side previews in an activated right-hand split', () => {
@@ -183,7 +233,6 @@ describe('openFileInBrowserTab', () => {
     expect(mocks.toastError).toHaveBeenCalledWith('browser unavailable')
     expect(mocks.createEmptySplitGroup).not.toHaveBeenCalled()
     expect(mocks.createBrowserTab).not.toHaveBeenCalled()
-    expect(mocks.openHtmlDocPreview).not.toHaveBeenCalled()
   })
 
   // Why: the host's files.read is worktree-scoped, so this path would otherwise 404 inside the
@@ -203,7 +252,7 @@ describe('openFileInBrowserTab', () => {
       "Files outside the workspace can't be previewed on a paired server yet."
     )
     expect(mocks.createEmptySplitGroup).not.toHaveBeenCalled()
-    expect(mocks.openHtmlDocPreview).not.toHaveBeenCalled()
+    expect(mocks.createBrowserTab).not.toHaveBeenCalled()
   })
 
   it('keeps previewing an SSH document outside the worktree root', () => {
@@ -215,7 +264,7 @@ describe('openFileInBrowserTab', () => {
     })
 
     expect(plan).toEqual({ status: 'doc-preview' })
-    expect(mocks.openHtmlDocPreview).toHaveBeenCalledOnce()
+    expect(mocks.createBrowserTab).toHaveBeenCalledOnce()
     expect(mocks.toastError).not.toHaveBeenCalled()
   })
 
@@ -228,7 +277,7 @@ describe('openFileInBrowserTab', () => {
     })
 
     expect(mocks.createEmptySplitGroup).not.toHaveBeenCalled()
-    expect(mocks.openHtmlDocPreview).not.toHaveBeenCalled()
+    expect(mocks.createBrowserTab).not.toHaveBeenCalled()
   })
 })
 

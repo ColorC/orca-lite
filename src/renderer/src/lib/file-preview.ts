@@ -11,6 +11,8 @@ import { translate } from '@/i18n/i18n'
 import { useAppStore } from '@/store'
 import type { AppState } from '@/store/types'
 import { findSiblingGroupId } from '@/store/slices/tabs'
+import { browserPageDocLocationsEqual } from '../../../shared/browser-page-doc-location'
+import { ORCA_BROWSER_BLANK_URL } from '../../../shared/constants'
 
 export type PreviewableLanguage = 'html'
 /** Still the answer for flows that need a real `file://` URL (e.g. dropping a file on a browser pane). */
@@ -162,21 +164,31 @@ function openDocPreviewTab(
   state: AppState,
   params: { filePath: string; worktreeId: string; targetGroupId?: string }
 ): void {
-  const worktreeRoot = state.getKnownWorktreeById(params.worktreeId)?.path ?? null
-  const relativePath =
-    getRelativePathInsideRoot(params.filePath, worktreeRoot) ??
-    basename(params.filePath) ??
-    params.filePath
-  state.openHtmlDocPreview(
-    {
-      filePath: params.filePath,
-      relativePath,
-      worktreeId: params.worktreeId,
-      language: 'html',
-      runtimeEnvironmentId: getRuntimeEnvironmentIdForWorktree(state, params.worktreeId) ?? null
-    },
-    { targetGroupId: params.targetGroupId }
+  const docLocation = {
+    kind: 'workspace-doc' as const,
+    worktreeId: params.worktreeId,
+    filePath: params.filePath
+  }
+  // Why reuse and not a second tab: previewing a document already on screen is a request to look at
+  // it, and two tabs of one document would each hold their own grant on the same file.
+  const existing = (state.browserTabsByWorktree[params.worktreeId] ?? []).find((tab) =>
+    browserPageDocLocationsEqual(tab.docLocation ?? null, docLocation)
   )
+  if (existing) {
+    state.setActiveBrowserTab(existing.id)
+    return
+  }
+  state.createBrowserTab(params.worktreeId, ORCA_BROWSER_BLANK_URL, {
+    docLocation,
+    title: basename(params.filePath) || params.filePath,
+    targetGroupId: params.targetGroupId,
+    // Why explicitly client-local: the document is read through a grant this desktop mints, so the
+    // page never belongs to a remote runtime even when the worktree does.
+    browserRuntimeEnvironmentId: null,
+    // Why not activated: a preview opens beside the source the reader is still working in, and an
+    // explicit click is what moves them to it.
+    activate: false
+  })
 }
 
 export function openFileInBrowserTab(params: {
