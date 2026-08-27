@@ -356,6 +356,7 @@ describe('orca root help', () => {
     expect(logSpy.mock.calls[0][0]).toContain(
       'orchestration worker-list Report worker terminal resource accounting'
     )
+    expect(logSpy.mock.calls[0][0]).not.toContain('orchestration worker-cleanup')
     expect(callMock).not.toHaveBeenCalled()
   })
 
@@ -438,6 +439,21 @@ describe('orca root help', () => {
     expect(help).toContain(
       '--cursor <cursor>      Opaque cursor returned by a previous worker-read page'
     )
+    expect(help).not.toContain('Line cursor from a previous read')
+    expect(callMock).not.toHaveBeenCalled()
+  })
+
+  it('describes worker-list cursors as opaque page cursors', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    logSpy.mockClear()
+
+    await main(['orchestration', 'worker-list', '--help'], '/tmp/repo')
+
+    const help = String(logSpy.mock.calls[0][0])
+    expect(help).toContain('[--cursor <cursor>]')
+    expect(help).toContain('--cursor <cursor>      Opaque page cursor copied from page.nextCursor')
+    expect(help).toContain('Continue with the opaque page.nextCursor value unchanged.')
+    expect(help).not.toContain('--cursor <dispatch_id>')
     expect(help).not.toContain('Line cursor from a previous read')
     expect(callMock).not.toHaveBeenCalled()
   })

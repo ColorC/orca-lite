@@ -94,6 +94,10 @@ import {
 } from '../../shared/agent-status-osc'
 import { buildOrchestrationTaskDisplayMetadata } from '../../shared/orchestration-task-display'
 import {
+  buildWorkerAttentionContext,
+  projectWorkerAttentionContext
+} from './orchestration/worker-attention-context'
+import {
   isTerminalInputTooLargeWithYield,
   TERMINAL_INPUT_TOO_LARGE_ERROR,
   iterateTerminalInputChunks
@@ -107,6 +111,7 @@ import {
 } from '../../shared/agent-prompt-injection'
 import {
   type AgentPromptActivity,
+  type AgentPromptTurnStartEvidence,
   type AgentPromptWaitTextCache,
   readAgentPromptWaitText,
   resolveAgentPromptEffectTimeoutMs,
@@ -255,13 +260,17 @@ import {
 } from './orchestration/federation-ack-checkpoints'
 import { syncFederatedDispatch } from './orchestration/federation-sync'
 import { MailPointerRepointScheduler } from './orchestration/mail-pointer-repoint-scheduler'
-import { OrchestrationMailboxOwner } from './orchestration/mailbox-owner'
+import {
+  OrchestrationMailboxOwner,
+  type OrchestrationMailboxLeaf
+} from './orchestration/mailbox-owner'
 import { OrchestrationMailboxNotificationCoordinator } from './orchestration/mailbox-notification-coordinator'
 import { OrchestrationMailboxDeliveryTarget } from './orchestration/mailbox-delivery-target'
 import {
   OrchestrationMailboxPointerDelivery,
   type OrchestrationMessageWaiter
 } from './orchestration/mailbox-pointer-delivery'
+import type { OrchestrationMailboxPointerSubmitTarget } from './orchestration/mailbox-pointer-submit'
 import { selectExactWorkerProviderSession } from './orchestration/worker-provider-session'
 import type {
   Automation,
@@ -464,6 +473,7 @@ import {
   type RuntimeTerminalRead,
   type RuntimeTerminalRename,
   type RuntimeTerminalAgentStatus,
+  type RuntimeTerminalPromptDelivery,
   type RuntimeTerminalSend,
   type RuntimeTerminalCreate,
   type RuntimeTerminalPresentation,
@@ -1687,8 +1697,8 @@ function isAgentSessionOperationOutcomeUnknown(error: unknown): boolean {
   )
 }
 
-// Orphaned verdicts are bounded; active PTYs retain theirs until new evidence resolves them.
-const MAX_TRACKED_PTY_LIVENESS_VERDICTS = 256
+// Active PTYs retain truthful evidence; only detached history uses this bound.
+const MAX_HISTORICAL_PTY_LIVENESS_VERDICTS = 256
 
 type TrackedPtyLivenessVerdict = {
   verdict: PtyLivenessVerdict
@@ -2152,6 +2162,7 @@ const BRACKETED_PASTE_QUIET_MS = 1500
 // redraw cadence, and a shorter window submits mid-redraw.
 const AGENT_PROMPT_RENDER_TIMEOUT_MS = 8000
 const AGENT_PROMPT_RENDER_QUIET_MS = 1500
+const AGENT_PROMPT_CORRELATION_LIMIT_PER_PTY = 1_024
 // Why: Claude and Codex emit show-cursor after accepting bracketed paste.
 const AGENT_PROMPT_RENDER_MARKER = '\x1b[?25h'
 
@@ -3362,7 +3373,10 @@ export class OrcaRuntimeService {
       getLiveLeafForHandle: (handle) => this.getLiveLeafForHandle(handle).leaf,
       getMessageWaiters: (mailboxHandle) => this.messageWaitersByHandle.get(mailboxHandle),
       getTabTitle: (tabId) => this.tabs.get(tabId)?.title,
+      getCliCommand: (terminalHandle) => this.getTerminalOrchestrationCliCommand(terminalHandle),
       getTerminalHandleForLeafKey: (leafKey) => this.handleByLeafKey.get(leafKey),
+      resolveSubmitTarget: (leaf, ptyId) =>
+        this.resolveOrchestrationPointerSubmitTarget(leaf, ptyId),
       isLeafPtyProvenAbsent: (ptyId) => this.isLeafPtyProvenAbsent(ptyId),
       redriveMailbox: (mailboxHandle, reservedTypes) =>
         this.deliverPendingMessagesForHandle(mailboxHandle, reservedTypes),
@@ -3439,11 +3453,11 @@ export class OrcaRuntimeService {
   // iterates them all. Listeners are cleaned up via subscriptionCleanups.
   private notificationListeners = new Set<(event: MobileNotificationEvent) => void>()
   private ptysById = new Map<string, RuntimePtyWorktreeRecord>()
-  // Why a separate map: `connected` is a wire field that any inventory gap
+  // Why separate maps: `connected` is a wire field that any inventory gap
   // clears, so it cannot distinguish an observed exit from lost contact. This
-  // records the last liveness verdict we actually earned, and outlives the pty
-  // record so a close/stop receipt can still say the stop was unconfirmed.
-  private ptyLivenessVerdictByPtyId = new Map<string, TrackedPtyLivenessVerdict>()
+  // evidence remains complete for active identities while detached history is bounded.
+  private activePtyLivenessVerdictByPtyId = new Map<string, TrackedPtyLivenessVerdict>()
+  private historicalPtyLivenessVerdictByPtyId = new Map<string, TrackedPtyLivenessVerdict>()
   private ptyLivenessObservationSequence = 0
   private readonly pairedRendererSessionOwnedPtyIds = new Set<string>()
   private wslDistroByPtyId = new Map<string, string>()
@@ -3457,6 +3471,19 @@ export class OrcaRuntimeService {
   private agentPromptPermissionSequenceByPtyId = new Map<string, number>()
   private agentPromptExplicitStatusFloorByPtyId = new Map<string, number>()
   private agentPromptSubmissionTailByPtyId = new Map<string, Promise<void>>()
+  // Turn evidence is PTY-wide; keep a request owner so one observed turn
+  // cannot settle every queued prompt that shares the same baseline.
+  private agentPromptRequestBaselines = new Map<
+    string,
+    {
+      ptyId: string
+      generation: number
+      requestId: string
+      baselineWorkingSequence: number
+      baselineExplicitWorkingStartedAt: number | null
+    }
+  >()
+  private agentPromptTurnStartClaims = new Map<string, string>()
   private providerSequenceInitializedPtys = new Set<string>()
   private providerSequenceOffsetByPtyId = new Map<string, number>()
   private providerSnapshotPreferredPtys = new Set<string>()
@@ -6114,7 +6141,10 @@ export class OrcaRuntimeService {
     params: unknown,
     timeoutMs?: number,
     envelope?: RuntimeOrchestrationEnvelope,
-    internal?: { contractVerified?: boolean }
+    internal?: {
+      contractVerified?: boolean
+      expectedEnvironmentPairingRevision?: number
+    }
   ): Promise<unknown> {
     if (!this.orchestrationEnvironmentTransport) {
       throw new OrchestrationError(
@@ -6127,7 +6157,9 @@ export class OrcaRuntimeService {
         selector,
         'status.get',
         undefined,
-        timeoutMs
+        timeoutMs,
+        undefined,
+        internal?.expectedEnvironmentPairingRevision
       )
       if (statusResponse.ok === false) {
         throw new OrchestrationError(
@@ -6152,7 +6184,8 @@ export class OrcaRuntimeService {
       timeoutMs,
       method.startsWith('orchestration.')
         ? { ...envelope, orchestrationContractVersion: ORCHESTRATION_CONTRACT_VERSION }
-        : envelope
+        : envelope,
+      internal?.expectedEnvironmentPairingRevision
     )
     if (response.ok === false) {
       throw new OrchestrationError(response.error.code, response.error.message, response.error.data)
@@ -11280,6 +11313,7 @@ export class OrcaRuntimeService {
     }
     const handle = this.createPreAllocatedTerminalHandle()
     this.handleByPtyId.set(ptyId, handle)
+    this.activateHistoricalPtyLivenessVerdict(ptyId)
     return handle
   }
 
@@ -11295,6 +11329,7 @@ export class OrcaRuntimeService {
       this.invalidatePtyIncarnationHandle(ptyId)
     }
     this.handleByPtyId.set(ptyId, handle)
+    this.activateHistoricalPtyLivenessVerdict(ptyId)
     for (const leaf of this.getLeavesForPty(ptyId)) {
       this.adoptPreAllocatedHandle(leaf)
     }
@@ -11363,6 +11398,7 @@ export class OrcaRuntimeService {
         this.handleByLeafKey.delete(leafKey)
       }
     }
+    this.archivePtyLivenessVerdictIfInactive(ptyId)
   }
 
   private replaceSyntheticTerminalHandlesForRestoredPty(
@@ -12534,6 +12570,11 @@ export class OrcaRuntimeService {
         this.delayPtyBackedMobileSnapshotForForegroundAgent(ptyId, observedAt, foregroundRefresh)
       }
     }
+    if (agentStatus === 'working' || agentStatus === 'permission') {
+      this.orchestrationMailboxPointerDelivery.observeAgentWorking(ptyId)
+    } else if (agentStatus === 'idle') {
+      this.orchestrationMailboxPointerDelivery.observeAgentIdle(ptyId)
+    }
     for (const leaf of this.getLeavesForPty(ptyId)) {
       // Why: keep the latest OSC title on the leaf so worktree.ps can
       // recompute status from the live title each call. Without this,
@@ -12596,6 +12637,7 @@ export class OrcaRuntimeService {
     this.agentStatusOscProcessorsByPtyId.delete(ptyId)
     this.agentPromptLifecycleByPtyId.delete(ptyId)
     this.agentPromptPermissionSequenceByPtyId.delete(ptyId)
+    this.clearAgentPromptCorrelationForPty(ptyId)
     this.clearWaitBlockedCheckState(ptyId)
     const pty = this.ptysById.get(ptyId)
     if (pty) {
@@ -12920,6 +12962,7 @@ export class OrcaRuntimeService {
 
   private advancePtyLifecycleGeneration(ptyId: string): void {
     this.ptyLifecycleGenerationById.set(ptyId, this.nextPtyLifecycleGeneration++)
+    this.clearAgentPromptCorrelationForPty(ptyId)
     // Why: a stop whose exit never arrived would otherwise stay armed across a
     // same-id respawn and label the NEXT process's crash an operator close —
     // the exact lie this cause model exists to remove.
@@ -12937,6 +12980,19 @@ export class OrcaRuntimeService {
     this.providerBufferAcquisitionsByPtyId.delete(ptyId)
     this.providerVisibleStateByPtyId.delete(ptyId)
     this.providerVisibleRetryAtByPtyId.delete(ptyId)
+  }
+
+  private clearAgentPromptCorrelationForPty(ptyId: string): void {
+    for (const key of this.agentPromptRequestBaselines.keys()) {
+      if (key.startsWith(`${ptyId}\u0000`)) {
+        this.agentPromptRequestBaselines.delete(key)
+      }
+    }
+    for (const key of this.agentPromptTurnStartClaims.keys()) {
+      if (key.startsWith(`${ptyId}\u0000`)) {
+        this.agentPromptTurnStartClaims.delete(key)
+      }
+    }
   }
 
   synchronizePtyOutputSequenceFromProvider(
@@ -14827,7 +14883,7 @@ export class OrcaRuntimeService {
       : undefined
   }
 
-  getTerminalOrchestrationCliCommand(handle: string): 'orca' | 'orca-ide' {
+  getTerminalOrchestrationCliCommand(handle: string): 'orca' | 'orca-dev' | 'orca-ide' {
     let pty: RuntimePtyWorktreeRecord | null = null
     try {
       const ptyId = this.resolveLeafForHandle(handle)?.ptyId
@@ -14842,6 +14898,7 @@ export class OrcaRuntimeService {
       connectionId: pty.connectionId,
       isWsl: pty.isWsl,
       worktreeId: pty.worktreeId,
+      runtimeCliCommand: getAppEnvironment().isPackaged() ? undefined : 'orca-dev',
       projectRuntime: this.store
         ? resolveLocalProjectRuntimeForWorktreeId(this.requireStore(), pty.worktreeId)
         : undefined
@@ -16135,10 +16192,9 @@ export class OrcaRuntimeService {
       pty.disconnectedAt = Date.now()
       pty.lastExitCode = exitCode
       pty.lastExitCause = exitCause
-      if (exitCode >= 0 || options?.hostExitConfirmed === true) {
-        // A real wait status from the owning host is the death certificate; the
-        // synthetic -1 we emit on a failed/unroutable stop is not.
-        this.forgetPtyLivenessVerdict(ptyId)
+      if (processDeathCertified) {
+        // Keep the owning-host death certificate addressable after disconnect.
+        this.rememberPtyLivenessVerdict(ptyId, { status: 'exited' })
       }
       // Why: the exited process's live frames say nothing about a replacement.
       // A same-id respawn makes the leaf writable again before any new title,
@@ -19023,7 +19079,11 @@ export class OrcaRuntimeService {
     this.rememberPtyLivenessVerdict(ptyId, { status: 'unverifiable', reason })
   }
 
-  markPtyLivenessLive(ptyId: string): void {
+  markPtyLivenessLive(ptyId: string, observedNoLaterThan?: number): void {
+    const tracked = this.getTrackedPtyLivenessVerdict(ptyId)
+    if (observedNoLaterThan !== undefined && tracked && tracked.observedAt > observedNoLaterThan) {
+      return
+    }
     this.rememberPtyLivenessVerdict(ptyId, { status: 'live', ptyIds: [ptyId] })
   }
 
@@ -19046,7 +19106,7 @@ export class OrcaRuntimeService {
 
   /** Null when nothing has been observed either way, so callers keep their own default. */
   getPtyLivenessVerdict(ptyId: string): PtyLivenessVerdict | null {
-    return this.ptyLivenessVerdictByPtyId.get(ptyId)?.verdict ?? null
+    return this.getTrackedPtyLivenessVerdict(ptyId)?.verdict ?? null
   }
 
   getTerminalLivenessVerdict(handle: string): PtyLivenessVerdict | null {
@@ -19055,42 +19115,71 @@ export class OrcaRuntimeService {
   }
 
   private rememberPtyLivenessVerdict(ptyId: string, verdict: PtyLivenessVerdict): void {
-    if (verdict.status === 'exited') {
-      // An earned death certificate ends the question; nothing left to remember.
-      this.ptyLivenessVerdictByPtyId.delete(ptyId)
-      return
-    }
-    this.ptyLivenessVerdictByPtyId.delete(ptyId)
+    this.activePtyLivenessVerdictByPtyId.delete(ptyId)
+    this.historicalPtyLivenessVerdictByPtyId.delete(ptyId)
     this.ptyLivenessObservationSequence += 1
-    this.ptyLivenessVerdictByPtyId.set(ptyId, {
+    const tracked = {
       verdict,
       observedAt: this.ptyLivenessObservationSequence
-    })
-    while (this.ptyLivenessVerdictByPtyId.size > MAX_TRACKED_PTY_LIVENESS_VERDICTS) {
-      let oldestOrphaned: string | null = null
-      for (const candidate of this.ptyLivenessVerdictByPtyId.keys()) {
-        if (
-          !this.ptysById.has(candidate) &&
-          !this.handleByPtyId.has(candidate) &&
-          !this.leafExistsForPty(candidate)
-        ) {
-          oldestOrphaned = candidate
-          break
-        }
-      }
-      if (!oldestOrphaned) {
-        return
-      }
-      this.ptyLivenessVerdictByPtyId.delete(oldestOrphaned)
+    }
+    if (this.isActivePtyLivenessIdentity(ptyId)) {
+      this.activePtyLivenessVerdictByPtyId.set(ptyId, tracked)
+    } else {
+      this.rememberHistoricalPtyLivenessVerdict(ptyId, tracked)
     }
   }
 
   private forgetPtyLivenessVerdict(ptyId: string, observedNoLaterThan?: number): void {
-    const tracked = this.ptyLivenessVerdictByPtyId.get(ptyId)
+    const tracked = this.getTrackedPtyLivenessVerdict(ptyId)
     if (observedNoLaterThan !== undefined && tracked && tracked.observedAt > observedNoLaterThan) {
       return
     }
-    this.ptyLivenessVerdictByPtyId.delete(ptyId)
+    this.activePtyLivenessVerdictByPtyId.delete(ptyId)
+    this.historicalPtyLivenessVerdictByPtyId.delete(ptyId)
+  }
+
+  private getTrackedPtyLivenessVerdict(ptyId: string): TrackedPtyLivenessVerdict | undefined {
+    return (
+      this.activePtyLivenessVerdictByPtyId.get(ptyId) ??
+      this.historicalPtyLivenessVerdictByPtyId.get(ptyId)
+    )
+  }
+
+  private isActivePtyLivenessIdentity(ptyId: string): boolean {
+    return this.ptysById.has(ptyId) || this.handleByPtyId.has(ptyId) || this.leafExistsForPty(ptyId)
+  }
+
+  private rememberHistoricalPtyLivenessVerdict(
+    ptyId: string,
+    tracked: TrackedPtyLivenessVerdict
+  ): void {
+    this.historicalPtyLivenessVerdictByPtyId.delete(ptyId)
+    this.historicalPtyLivenessVerdictByPtyId.set(ptyId, tracked)
+    if (this.historicalPtyLivenessVerdictByPtyId.size <= MAX_HISTORICAL_PTY_LIVENESS_VERDICTS) {
+      return
+    }
+    const oldest = this.historicalPtyLivenessVerdictByPtyId.keys().next().value
+    if (oldest !== undefined) {
+      this.historicalPtyLivenessVerdictByPtyId.delete(oldest)
+    }
+  }
+
+  private archivePtyLivenessVerdictIfInactive(ptyId: string): void {
+    const tracked = this.activePtyLivenessVerdictByPtyId.get(ptyId)
+    if (!tracked || this.isActivePtyLivenessIdentity(ptyId)) {
+      return
+    }
+    this.activePtyLivenessVerdictByPtyId.delete(ptyId)
+    this.rememberHistoricalPtyLivenessVerdict(ptyId, tracked)
+  }
+
+  private activateHistoricalPtyLivenessVerdict(ptyId: string): void {
+    const tracked = this.historicalPtyLivenessVerdictByPtyId.get(ptyId)
+    if (!tracked) {
+      return
+    }
+    this.historicalPtyLivenessVerdictByPtyId.delete(ptyId)
+    this.activePtyLivenessVerdictByPtyId.set(ptyId, tracked)
   }
 
   getExactWorkerProviderSession(
@@ -19103,21 +19192,25 @@ export class OrcaRuntimeService {
       return null
     }
     let connectionId: string | null | undefined
+    let wslDistro: string | null | undefined
     let launchToken: string | null | undefined
     try {
       const ptyId = this.getTerminalAgentStatusPtyId(handle)
       const pty = this.ptysById.get(ptyId)
       connectionId = pty?.connectionId ?? null
+      wslDistro = pty?.wslDistro ?? this.wslDistroByPtyId.get(ptyId)
       launchToken = pty?.launchToken ?? null
     } catch {
       // Exact worker validation rejects this in production; test/legacy providers may not expose PTY metadata.
       connectionId = undefined
+      wslDistro = undefined
       launchToken = undefined
     }
     return selectExactWorkerProviderSession({
       paneKey,
       processIncarnation,
       connectionId,
+      wslDistro,
       launchToken,
       observedAfter,
       statuses: this.getAgentStatusSnapshotFn?.() ?? []
@@ -19451,6 +19544,10 @@ export class OrcaRuntimeService {
       beforeWrite?: (ptyId: string) => void | Promise<void>
       suffixFailureError?: string
       signal?: AbortSignal
+      acceptQueued?: boolean
+      observationTimeoutMs?: number
+      requestId?: string
+      onInputAccepted?: (send: RuntimeTerminalSend) => void
     } = {}
   ): Promise<RuntimeTerminalSend> {
     const payload = buildAgentPromptPasteBytes(prompt)
@@ -19461,7 +19558,7 @@ export class OrcaRuntimeService {
       }
       await assertTerminalInputWithinLimitWithYield(payload)
       const generation = this.getPtyLifecycleGeneration(pty.pty.ptyId)
-      const submits = await this.serializeAgentPromptSubmission(
+      const delivery = await this.serializeAgentPromptSubmission(
         pty.pty.ptyId,
         generation,
         async () => {
@@ -19476,8 +19573,13 @@ export class OrcaRuntimeService {
           )
         }
       )
-      const bytesWritten = Buffer.byteLength(payload, 'utf8') + submits
-      return { handle, accepted: true, bytesWritten }
+      const bytesWritten = Buffer.byteLength(payload, 'utf8') + delivery.submits
+      return {
+        handle,
+        accepted: true,
+        bytesWritten,
+        ...(delivery.prompt ? { prompt: delivery.prompt } : {})
+      }
     }
 
     const { leaf } = this.getLiveLeafForHandle(handle)
@@ -19491,13 +19593,98 @@ export class OrcaRuntimeService {
       throw new Error('terminal_not_writable')
     }
     const generation = this.getPtyLifecycleGeneration(leaf.ptyId)
-    const submits = await this.serializeAgentPromptSubmission(leaf.ptyId, generation, async () => {
+    const delivery = await this.serializeAgentPromptSubmission(leaf.ptyId, generation, async () => {
       this.assertLiveTerminalHandleTargetsPty(handle, leaf.ptyId!)
       this.assertAgentPromptGeneration(leaf.ptyId!, generation)
       return await this.writeTerminalAgentPrompt(handle, leaf.ptyId!, generation, payload, options)
     })
-    const bytesWritten = Buffer.byteLength(payload, 'utf8') + submits
-    return { handle, accepted: true, bytesWritten }
+    const bytesWritten = Buffer.byteLength(payload, 'utf8') + delivery.submits
+    return {
+      handle,
+      accepted: true,
+      bytesWritten,
+      ...(delivery.prompt ? { prompt: delivery.prompt } : {})
+    }
+  }
+
+  getTerminalPromptRequestBinding(handle: string): {
+    ptyId: string
+    processIncarnation: string
+    generation: number
+  } {
+    const live = this.getLivePtyForHandle(handle)
+    const ptyId = live?.pty.ptyId ?? this.getLiveLeafForHandle(handle).leaf.ptyId
+    if (!ptyId) {
+      throw new Error('terminal_not_writable')
+    }
+    const generation = this.getPtyLifecycleGeneration(ptyId)
+    const incarnationId = live?.pty.incarnationId ?? this.ptysById.get(ptyId)?.incarnationId
+    return {
+      ptyId,
+      processIncarnation: incarnationId ?? `${ptyId}:${generation}`,
+      generation
+    }
+  }
+
+  async observeTerminalAgentPrompt(
+    handle: string,
+    prompt: RuntimeTerminalPromptDelivery,
+    timeoutMs: number,
+    signal?: AbortSignal
+  ): Promise<RuntimeTerminalPromptDelivery> {
+    const binding = this.getTerminalPromptRequestBinding(handle)
+    if (
+      binding.processIncarnation !== prompt.processIncarnation ||
+      binding.generation !== prompt.generation
+    ) {
+      return { ...prompt, observation: 'incarnation_replaced' }
+    }
+    const waitTextCache: AgentPromptWaitTextCache = {}
+    const baseline = this.getAgentPromptActivity(handle, binding.ptyId, waitTextCache)
+    try {
+      await verifyAgentPromptSubmission({
+        baseline: {
+          ...baseline,
+          workingSequence: prompt.baselineWorkingSequence,
+          ...(prompt.baselinePermissionSequence !== undefined
+            ? { permissionSequence: prompt.baselinePermissionSequence }
+            : {}),
+          ...(prompt.baselineExplicitWorkingStartedAt !== undefined
+            ? { explicitWorkingStartedAt: prompt.baselineExplicitWorkingStartedAt }
+            : {})
+        },
+        readActivity: () => this.getAgentPromptActivity(handle, binding.ptyId, waitTextCache),
+        acceptTurnStart: (evidence) =>
+          this.acceptAgentPromptTurnStart(
+            binding.ptyId,
+            binding.generation,
+            prompt.requestId,
+            prompt.baselineWorkingSequence,
+            prompt.baselineExplicitWorkingStartedAt ?? null,
+            evidence
+          ),
+        // Old hosts omit the hook baseline, so their receipts retain title-only observation.
+        allowHookEvidence: prompt.baselineExplicitWorkingStartedAt !== undefined,
+        allowOutputEvidence: false,
+        signal,
+        timeoutMs
+      })
+      this.forgetAgentPromptRequest(binding.ptyId, binding.generation, prompt.requestId)
+      return {
+        ...prompt,
+        stages: ['input_accepted', 'submission_observed', 'turn_started'],
+        observation: 'supported'
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message === 'agent_prompt_stalled') {
+        return prompt
+      }
+      if (error instanceof Error && error.message === 'agent_prompt_blocked') {
+        this.forgetAgentPromptRequest(binding.ptyId, binding.generation, prompt.requestId)
+        return { ...prompt, observation: 'permission' }
+      }
+      throw error
+    }
   }
 
   async getTerminalAgentStatus(handle: string): Promise<RuntimeTerminalAgentStatus> {
@@ -20210,8 +20397,12 @@ export class OrcaRuntimeService {
       beforeWrite?: (ptyId: string) => void | Promise<void>
       suffixFailureError?: string
       signal?: AbortSignal
+      acceptQueued?: boolean
+      observationTimeoutMs?: number
+      requestId?: string
+      onInputAccepted?: (send: RuntimeTerminalSend) => void
     } = {}
-  ): Promise<number> {
+  ): Promise<{ submits: number; prompt?: RuntimeTerminalPromptDelivery }> {
     assertAgentPromptRequestActive(options.signal)
     this.assertAgentPromptGeneration(ptyId, generation)
     const permissionBaseline = this.getAgentPromptActivity(handle, ptyId)
@@ -20295,13 +20486,96 @@ export class OrcaRuntimeService {
     if (!suffixWrote) {
       throw new Error(options.suffixFailureError ?? 'terminal_not_writable')
     }
-    await verifyAgentPromptSubmission({
-      baseline,
-      readActivity: () => this.getAgentPromptActivity(handle, ptyId, waitTextCache),
-      timeoutMs: resolveAgentPromptEffectTimeoutMs(this.getPtyAgent(ptyId)),
-      signal: options.signal
-    })
-    return 1
+    const effectTimeoutMs = resolveAgentPromptEffectTimeoutMs(this.getPtyAgent(ptyId))
+    if (!options.acceptQueued || !options.requestId) {
+      await verifyAgentPromptSubmission({
+        baseline,
+        readActivity: () => this.getAgentPromptActivity(handle, ptyId, waitTextCache),
+        timeoutMs: effectTimeoutMs,
+        signal: options.signal
+      })
+      return { submits: 1 }
+    }
+    const binding = this.getTerminalPromptRequestBinding(handle)
+    const foregroundAgent = this.ptysById.get(ptyId)?.foregroundAgent
+    const launchAgent = this.ptysById.get(ptyId)?.launchAgent
+    const settlementAgent = isTerminalSendSettlementAgent(foregroundAgent)
+      ? foregroundAgent
+      : isTerminalSendSettlementAgent(launchAgent)
+        ? launchAgent
+        : null
+    const inputAccepted: RuntimeTerminalPromptDelivery = {
+      requestId: options.requestId,
+      stages:
+        baseline.status === 'working'
+          ? ['input_accepted', 'queued_pending_turn']
+          : ['input_accepted'],
+      provider: settlementAgent ?? 'unsupported',
+      observation: settlementAgent ? 'supported' : 'unsupported',
+      processIncarnation: binding.processIncarnation,
+      generation,
+      baselineWorkingSequence: baseline.workingSequence,
+      baselineExplicitWorkingStartedAt: baseline.explicitWorkingStartedAt,
+      baselinePermissionSequence: baseline.permissionSequence
+    }
+    const checkpoint: RuntimeTerminalSend = {
+      handle,
+      accepted: true,
+      bytesWritten: Buffer.byteLength(pastePayload, 'utf8') + 1,
+      prompt: inputAccepted
+    }
+    options.onInputAccepted?.(checkpoint)
+    // Providers without a lifecycle verifier still get an honest accepted
+    // receipt; they must not fail a Dispatch merely because Orca cannot prove
+    // submission through hooks.
+    if (!settlementAgent) {
+      return { submits: 1, prompt: inputAccepted }
+    }
+    this.registerAgentPromptRequest(
+      ptyId,
+      generation,
+      options.requestId,
+      baseline.workingSequence,
+      baseline.explicitWorkingStartedAt
+    )
+    try {
+      await verifyAgentPromptSubmission({
+        baseline,
+        readActivity: () => this.getAgentPromptActivity(handle, ptyId, waitTextCache),
+        acceptTurnStart: (evidence) =>
+          this.acceptAgentPromptTurnStart(
+            ptyId,
+            generation,
+            options.requestId!,
+            baseline.workingSequence,
+            baseline.explicitWorkingStartedAt,
+            evidence
+          ),
+        allowOutputEvidence: false,
+        signal: options.signal,
+        timeoutMs: options.observationTimeoutMs ?? effectTimeoutMs
+      })
+      this.forgetAgentPromptRequest(ptyId, generation, options.requestId)
+      return {
+        submits: 1,
+        prompt: {
+          ...inputAccepted,
+          stages: ['input_accepted', 'submission_observed', 'turn_started']
+        }
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message === 'agent_prompt_stalled') {
+        return { submits: 1, prompt: inputAccepted }
+      }
+      if (error instanceof Error && error.message === 'agent_prompt_blocked') {
+        this.forgetAgentPromptRequest(ptyId, generation, options.requestId)
+        return {
+          submits: 1,
+          prompt: { ...inputAccepted, observation: 'permission' }
+        }
+      }
+      throw error
+    }
   }
 
   private async serializeAgentPromptSubmission<T>(
@@ -20324,6 +20598,196 @@ export class OrcaRuntimeService {
         this.agentPromptSubmissionTailByPtyId.delete(queueKey)
       }
     }
+  }
+
+  private registerAgentPromptRequest(
+    ptyId: string,
+    generation: number,
+    requestId: string,
+    baselineWorkingSequence: number,
+    baselineExplicitWorkingStartedAt: number | null
+  ): void {
+    const requestKey = this.agentPromptRequestKey(ptyId, generation, requestId)
+    this.agentPromptRequestBaselines.delete(requestKey)
+    this.agentPromptRequestBaselines.set(requestKey, {
+      ptyId,
+      generation,
+      requestId,
+      baselineWorkingSequence,
+      baselineExplicitWorkingStartedAt
+    })
+    const prefix = `${ptyId}\u0000${generation}\u0000`
+    const matchingKeys = [...this.agentPromptRequestBaselines.keys()].filter((key) =>
+      key.startsWith(prefix)
+    )
+    for (const staleKey of matchingKeys.slice(0, -AGENT_PROMPT_CORRELATION_LIMIT_PER_PTY)) {
+      this.agentPromptRequestBaselines.delete(staleKey)
+    }
+  }
+
+  private forgetAgentPromptRequest(ptyId: string, generation: number, requestId: string): void {
+    this.agentPromptRequestBaselines.delete(
+      this.agentPromptRequestKey(ptyId, generation, requestId)
+    )
+  }
+
+  private acceptAgentPromptTurnStart(
+    ptyId: string,
+    generation: number,
+    requestId: string,
+    baselineWorkingSequence: number,
+    baselineExplicitWorkingStartedAt: number | null,
+    evidence: AgentPromptTurnStartEvidence
+  ): boolean {
+    if (
+      !this.isAgentPromptTurnStartAfterBaseline(evidence, {
+        baselineWorkingSequence,
+        baselineExplicitWorkingStartedAt
+      })
+    ) {
+      return false
+    }
+    // A receipt restored after a runtime restart has no in-memory registration;
+    // leave it queued rather than attributing an unrelated turn to it.
+    const requestKey = this.agentPromptRequestKey(ptyId, generation, requestId)
+    const request = this.agentPromptRequestBaselines.get(requestKey)
+    if (
+      !request ||
+      request.ptyId !== ptyId ||
+      request.generation !== generation ||
+      request.baselineWorkingSequence !== baselineWorkingSequence ||
+      request.baselineExplicitWorkingStartedAt !== baselineExplicitWorkingStartedAt
+    ) {
+      return false
+    }
+    let claimKey: string | null
+    if (evidence.kind === 'lifecycle') {
+      this.allocateAgentPromptLifecycleClaims(ptyId, generation, evidence)
+      claimKey = this.findAgentPromptTurnClaimKey(ptyId, generation, requestId)
+    } else {
+      for (const [candidateKey, candidate] of this.agentPromptRequestBaselines) {
+        if (
+          candidate.ptyId === ptyId &&
+          candidate.generation === generation &&
+          this.isAgentPromptTurnStartAfterBaseline(evidence, candidate)
+        ) {
+          if (candidateKey !== requestKey) {
+            return false
+          }
+          break
+        }
+      }
+      claimKey = this.getAgentPromptTurnClaimKey(
+        ptyId,
+        generation,
+        baselineWorkingSequence,
+        evidence
+      )
+    }
+    if (!claimKey) {
+      return false
+    }
+    const owner = this.agentPromptTurnStartClaims.get(claimKey)
+    if (owner && owner !== requestId) {
+      return false
+    }
+    this.agentPromptTurnStartClaims.set(claimKey, requestId)
+    this.agentPromptRequestBaselines.delete(requestKey)
+    const claimPrefix = `${ptyId}\u0000${generation}\u0000`
+    const matchingClaimKeys = [...this.agentPromptTurnStartClaims.keys()].filter((key) =>
+      key.startsWith(claimPrefix)
+    )
+    for (const staleKey of matchingClaimKeys.slice(0, -AGENT_PROMPT_CORRELATION_LIMIT_PER_PTY)) {
+      this.agentPromptTurnStartClaims.delete(staleKey)
+    }
+    return true
+  }
+
+  private allocateAgentPromptLifecycleClaims(
+    ptyId: string,
+    generation: number,
+    evidence: Extract<AgentPromptTurnStartEvidence, { kind: 'lifecycle' }>
+  ): void {
+    for (const candidate of this.agentPromptRequestBaselines.values()) {
+      if (
+        candidate.ptyId !== ptyId ||
+        candidate.generation !== generation ||
+        !this.isAgentPromptTurnStartAfterBaseline(evidence, candidate)
+      ) {
+        continue
+      }
+      if (this.findAgentPromptTurnClaimKey(ptyId, generation, candidate.requestId)) {
+        continue
+      }
+      const claimKey = this.getAgentPromptTurnClaimKey(
+        ptyId,
+        generation,
+        candidate.baselineWorkingSequence,
+        evidence
+      )
+      if (!claimKey) {
+        return
+      }
+      this.agentPromptTurnStartClaims.set(claimKey, candidate.requestId)
+    }
+  }
+
+  private findAgentPromptTurnClaimKey(
+    ptyId: string,
+    generation: number,
+    requestId: string
+  ): string | null {
+    const prefix = `${ptyId}\u0000${generation}\u0000`
+    for (const [claimKey, owner] of this.agentPromptTurnStartClaims) {
+      if (claimKey.startsWith(prefix) && owner === requestId) {
+        return claimKey
+      }
+    }
+    return null
+  }
+
+  private isAgentPromptTurnStartAfterBaseline(
+    evidence: AgentPromptTurnStartEvidence,
+    baseline: {
+      baselineWorkingSequence: number
+      baselineExplicitWorkingStartedAt: number | null
+    }
+  ): boolean {
+    return evidence.kind === 'lifecycle'
+      ? evidence.workingSequence > baseline.baselineWorkingSequence
+      : evidence.workingStartedAt > (baseline.baselineExplicitWorkingStartedAt ?? 0)
+  }
+
+  private getAgentPromptTurnClaimKey(
+    ptyId: string,
+    generation: number,
+    baselineWorkingSequence: number,
+    evidence: AgentPromptTurnStartEvidence
+  ): string | null {
+    const prefix = `${ptyId}\u0000${generation}\u0000`
+    if (evidence.kind === 'hook') {
+      return `${prefix}hook:${evidence.workingStartedAt}`
+    }
+    const lifecyclePrefix = `${prefix}lifecycle:`
+    const claimedSequences = new Set<number>()
+    for (const key of this.agentPromptTurnStartClaims.keys()) {
+      if (!key.startsWith(lifecyclePrefix)) {
+        continue
+      }
+      const sequence = Number(key.slice(lifecyclePrefix.length))
+      if (Number.isFinite(sequence)) {
+        claimedSequences.add(sequence)
+      }
+    }
+    let sequence = baselineWorkingSequence + 1
+    while (claimedSequences.has(sequence)) {
+      sequence += 1
+    }
+    return sequence <= evidence.workingSequence ? `${lifecyclePrefix}${sequence}` : null
+  }
+
+  private agentPromptRequestKey(ptyId: string, generation: number, requestId: string): string {
+    return `${ptyId}\u0000${generation}\u0000${requestId}`
   }
 
   private getAgentPromptActivity(
@@ -33429,6 +33893,7 @@ export class OrcaRuntimeService {
         this.setPtyManagementTitleFromObservedTitle(pty, state.title, titleObservedAt ?? 0)
       }
       this.ptysById.set(ptyId, pty)
+      this.activateHistoricalPtyLivenessVerdict(ptyId)
       if (wslDistro) {
         this.wslDistroByPtyId.set(ptyId, wslDistro)
       } else if (connectionId !== null) {
@@ -33668,7 +34133,7 @@ export class OrcaRuntimeService {
     const selectedLivePtyIds = new Set<string>()
     for (const session of sessions) {
       // The owning inventory positively observed this PTY again; prior lost-contact doubt is stale.
-      this.forgetPtyLivenessVerdict(session.id, livenessObservationAtStart)
+      this.markPtyLivenessLive(session.id, livenessObservationAtStart)
       const sessionConnectionId =
         parseAppSshPtyId(session.id)?.connectionId ??
         (typeof connectionId === 'string' ? connectionId : null)
@@ -33760,7 +34225,7 @@ export class OrcaRuntimeService {
         continue
       }
       if (!allLivePtyIds.has(pty.ptyId) && !this.leafExistsForPty(pty.ptyId)) {
-        const currentVerdict = this.ptyLivenessVerdictByPtyId.get(pty.ptyId)
+        const currentVerdict = this.getTrackedPtyLivenessVerdict(pty.ptyId)
         if (
           currentVerdict &&
           currentVerdict.observedAt > livenessObservationAtStart &&
@@ -33782,7 +34247,7 @@ export class OrcaRuntimeService {
           }
           pty.connected = true
           pty.disconnectedAt = null
-          this.forgetPtyLivenessVerdict(pty.ptyId)
+          this.markPtyLivenessLive(pty.ptyId, livenessObservationAtStart)
           continue
         }
         pty.connected = false
@@ -33791,7 +34256,7 @@ export class OrcaRuntimeService {
         // clears `connected` for every one of its PTYs at once. Only `false` here
         // is an observed absence; `null` means no provider could be asked.
         if (observed === false) {
-          this.forgetPtyLivenessVerdict(pty.ptyId)
+          this.rememberPtyLivenessVerdict(pty.ptyId, { status: 'exited' })
         } else if (observed === null) {
           this.markPtyLivenessUnverifiable(pty.ptyId, NO_OBSERVING_PROVIDER_REASON)
         }
@@ -33890,12 +34355,13 @@ export class OrcaRuntimeService {
         if (pty) {
           pty.connected = true
           pty.disconnectedAt = null
-          this.forgetPtyLivenessVerdict(ptyId)
+          this.markPtyLivenessLive(ptyId)
           this.refreshPtyForegroundAgent(ptyId)
         }
       } else if (pty && !this.leafExistsForPty(ptyId)) {
         pty.connected = false
         pty.disconnectedAt ??= Date.now()
+        this.rememberPtyLivenessVerdict(ptyId, { status: 'exited' })
       }
     }
     this.pruneDisconnectedPtyRecords()
@@ -33970,6 +34436,7 @@ export class OrcaRuntimeService {
         this.handles.delete(handle)
       }
     }
+    this.archivePtyLivenessVerdictIfInactive(ptyId)
   }
 
   private leafExistsForPty(ptyId: string): boolean {
@@ -35462,6 +35929,11 @@ export class OrcaRuntimeService {
     return this.getTerminalHandleForPaneKey(paneKey) ?? undefined
   }
 
+  /** Push-fed hook rows for local read-only fleet projection; callers must redact payload text. */
+  getOrchestrationFleetAgentStatusSnapshot(): readonly AgentStatusIpcPayload[] {
+    return this.getAgentStatusSnapshotFn?.() ?? []
+  }
+
   getAgentStatusLaunchConfigForPaneKey(
     paneKey: string,
     args?: { launchToken?: string }
@@ -35492,6 +35964,10 @@ export class OrcaRuntimeService {
       return undefined
     }
     const contexts: Record<string, AgentStatusOrchestrationContext> = {}
+    const statusesByPaneKey = new Map(
+      (this.getAgentStatusSnapshotFn?.() ?? []).map((status) => [status.paneKey, status])
+    )
+    const batchAttention = typeof db.getWorkerAttentionFactsForDispatches === 'function'
     const queriedHandles = new Set<string>()
     for (const leaf of this.leaves.values()) {
       if (!leaf.ptyId) {
@@ -35499,9 +35975,15 @@ export class OrcaRuntimeService {
       }
       const handle = this.issueHandle(leaf)
       queriedHandles.add(handle)
-      const context = this.getAgentStatusOrchestrationContextForHandle(handle, db)
+      const paneKey = this.makeRuntimePaneKey(leaf)
+      const context = this.getAgentStatusOrchestrationContextForHandle(
+        handle,
+        db,
+        statusesByPaneKey.get(paneKey),
+        batchAttention
+      )
       if (context) {
-        contexts[this.makeRuntimePaneKey(leaf)] = context
+        contexts[paneKey] = context
       }
     }
     for (const pty of this.ptysById.values()) {
@@ -35513,17 +35995,49 @@ export class OrcaRuntimeService {
         continue
       }
       queriedHandles.add(handle)
-      const context = this.getAgentStatusOrchestrationContextForHandle(handle, db)
+      const context = this.getAgentStatusOrchestrationContextForHandle(
+        handle,
+        db,
+        statusesByPaneKey.get(pty.paneKey),
+        batchAttention
+      )
       if (context) {
         contexts[pty.paneKey] = context
       }
     }
-    return Object.keys(contexts).length > 0 ? contexts : undefined
+    const entries = Object.entries(contexts)
+    if (entries.length === 0) {
+      return undefined
+    }
+    if (batchAttention) {
+      const now = Date.now()
+      const factsByDispatch = db.getWorkerAttentionFactsForDispatches(
+        entries.map(([, context]) => context.dispatchId),
+        now
+      )
+      for (const [paneKey, context] of entries) {
+        const facts = factsByDispatch.get(context.dispatchId)
+        if (facts) {
+          contexts[paneKey] = {
+            ...context,
+            attention: projectWorkerAttentionContext({
+              facts,
+              isRoot: facts.isRoot,
+              status: statusesByPaneKey.get(paneKey),
+              now
+            })
+          }
+        }
+      }
+    }
+    return contexts
   }
 
   private getAgentStatusOrchestrationContextForHandle(
     handle: string,
-    db = this.getOrchestrationDbIfAvailable()
+    db = this.getOrchestrationDbIfAvailable(),
+    status?: AgentStatusIpcPayload,
+    deferAttention = false
   ): AgentStatusOrchestrationContext | undefined {
     // Why: active dispatch is authoritative for reused terminals; settled context stale-groups later work once its row is gone.
     const dispatch =
@@ -35606,6 +36120,10 @@ export class OrcaRuntimeService {
     const parentPaneKey = parentTerminalHandle
       ? this.getPaneKeyForTerminalHandle(parentTerminalHandle)
       : undefined
+    const attention =
+      !deferAttention && db && typeof db.getWorkerAttentionFacts === 'function'
+        ? buildWorkerAttentionContext({ db, dispatch, task, status })
+        : undefined
 
     return {
       taskId: dispatch.task_id,
@@ -35616,7 +36134,8 @@ export class OrcaRuntimeService {
       ...(parentTerminalHandle ? { parentTerminalHandle } : {}),
       ...(parentPaneKey ? { parentPaneKey } : {}),
       ...(coordinatorHandle ? { coordinatorHandle } : {}),
-      ...(orchestrationRunId ? { orchestrationRunId } : {})
+      ...(orchestrationRunId ? { orchestrationRunId } : {}),
+      ...(attention ? { attention } : {})
     }
   }
 
@@ -35972,6 +36491,42 @@ export class OrcaRuntimeService {
     }
   }
 
+  private resolveOrchestrationPointerSubmitTarget(
+    stagedLeaf: OrchestrationMailboxLeaf,
+    ptyId: string
+  ): OrchestrationMailboxPointerSubmitTarget | null {
+    const leafKey = this.getLeafKey(stagedLeaf.tabId, stagedLeaf.leafId)
+    const currentLeaf = this.leaves.get(leafKey)
+    const parked = currentLeaf === undefined
+    const terminalHandle = parked
+      ? this.handleByPtyId.get(ptyId)
+      : this.handleByLeafKey.get(leafKey)
+    if (!terminalHandle) {
+      return null
+    }
+    const pty = this.ptysById.get(ptyId)
+    const leaf = parked
+      ? pty?.connected &&
+        pty.tabId === stagedLeaf.tabId &&
+        pty.paneKey === makePaneKey(stagedLeaf.tabId, stagedLeaf.leafId)
+        ? {
+            ...stagedLeaf,
+            writable: true,
+            lastAgentStatus: pty.lastAgentStatus,
+            lastAgentStatusObservedLive: pty.lastAgentStatusObservedLive,
+            lastOscTitle: pty.lastOscTitle
+          }
+        : null
+      : currentLeaf.ptyId === ptyId
+        ? currentLeaf
+        : null
+    if (!leaf) {
+      return null
+    }
+    const processIncarnation = this.getTerminalProcessIncarnation(terminalHandle)
+    return processIncarnation ? { leaf, terminalHandle, processIncarnation } : null
+  }
+
   private retireOrchestrationMailboxDeliveryForPty(ptyId: string): void {
     this.orchestrationMailboxNotifications.retirePty(ptyId)
     for (const leaf of this.getLeavesForPty(ptyId)) {
@@ -35989,7 +36544,11 @@ export class OrcaRuntimeService {
   private scheduleRestoredMessageRepoints(): void {
     let handles: string[]
     try {
-      handles = this._orchestrationDb?.getUndeliveredUnreadMailboxHandles?.() ?? []
+      const db = this._orchestrationDb
+      handles = [
+        ...(db?.getUndeliveredUnreadMailboxHandles?.() ?? []),
+        ...(db?.getPendingMailboxPointerHandles?.() ?? [])
+      ]
     } catch (error) {
       console.warn('[orchestration] failed to scan restored mailboxes', error)
       return

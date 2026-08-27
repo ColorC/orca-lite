@@ -72,6 +72,8 @@ export type ResolveSessionFileOptions = {
    *  directly — recent Claude Code names the transcript with a UUID that differs
    *  from the hook session_id, so the id-based glob below would miss it. */
   transcriptPath?: string
+  /** Attested WSL provider-session distro. Restricts exact-path resolution to that guest. */
+  wslDistro?: string
 }
 
 /**
@@ -103,7 +105,10 @@ export async function resolveSessionFilePath(
   const hookPath = options.transcriptPath?.trim()
   if (hookPath && extname(hookPath) === '.jsonl') {
     try {
-      const hostReadable = await toHostReadableTranscriptPath(hookPath, { signal })
+      const hostReadable = await toHostReadableTranscriptPath(hookPath, {
+        signal,
+        wslDistro: options.wslDistro
+      })
       if (hostReadable) {
         return hostReadable
       }
@@ -114,6 +119,15 @@ export async function resolveSessionFilePath(
       // it does not, so a stalled distro reads as unavailable, never "missing".
       unavailable = wslTranscriptFsRefusal(error)
     }
+  }
+
+  // A WSL worker may fall back to terminal evidence, but never to an id match on
+  // the host or another distro after its attested exact path misses.
+  if (options.wslDistro?.trim()) {
+    if (unavailable) {
+      throw unavailable
+    }
+    return null
   }
 
   const resolved = await resolveSessionFileById(transcriptAgent, sessionId, options, signal)

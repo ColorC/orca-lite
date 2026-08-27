@@ -2,6 +2,7 @@ import type { WorkerDispatchRow } from '../../types'
 import { OrchestrationError } from '../../orchestration-error'
 import type { OrchestrationDb } from '../orchestration-db'
 import { reconcileTaskAfterDispatchInterruption } from '../dispatch-context/task-dispatch-reconciliation'
+import { transitionLifecycleWithDb } from '../lifecycle-transition'
 
 export function reconcileFederatedWorkerStart(
   this: OrchestrationDb,
@@ -33,72 +34,106 @@ export function reconcileFederatedWorkerStart(
     }
 
     if (params.state === 'ready') {
-      this.db
-        .prepare(
-          `UPDATE worker_dispatches
-           SET state = 'ready', stage = ?, worktree_id = COALESCE(?, worktree_id),
-               agent_terminal_handle = COALESCE(?, agent_terminal_handle), setup_state = ?,
-               effects = COALESCE(?, effects),
-               residual_resources = COALESCE(?, residual_resources), last_error = NULL,
-               updated_at = datetime('now')
-           WHERE dispatch_id = ? AND state IN ('starting', 'start_unknown')`
-        )
-        .run(
-          params.stage,
-          params.worktreeId ?? null,
-          params.terminalHandle ?? null,
-          params.setupState ?? worker.setup_state,
-          // Why: keep the stored JSON as-is when the peer omits it — re-parsing it here throws on any malformed legacy row.
-          params.effects ? JSON.stringify(params.effects) : null,
-          params.residualResources ? JSON.stringify(params.residualResources) : null,
-          params.dispatchId
-        )
-      this.db
-        .prepare(
-          "UPDATE dispatch_contexts SET status = 'dispatched' WHERE id = ? AND status = 'pending'"
-        )
-        .run(params.dispatchId)
-      this.db
-        .prepare(
-          "UPDATE tasks SET status = 'dispatched', completed_at = NULL WHERE id = ? AND status = 'blocked'"
-        )
-        .run(dispatch.task_id)
+      transitionLifecycleWithDb(this.db, {
+        entity: 'worker',
+        id: params.dispatchId,
+        from: worker.state,
+        to: 'ready',
+        projection: {
+          stage: params.stage,
+          worktree_id: params.worktreeId ?? worker.worktree_id,
+          agent_terminal_handle: params.terminalHandle ?? worker.agent_terminal_handle,
+          setup_state: params.setupState ?? worker.setup_state,
+          effects: params.effects ? JSON.stringify(params.effects) : worker.effects,
+          residual_resources: params.residualResources
+            ? JSON.stringify(params.residualResources)
+            : worker.residual_resources,
+          last_error: null,
+          updated_at: new Date().toISOString()
+        },
+        receipt: { kind: 'federated_worker_ready' }
+      })
+      if (dispatch.status === 'pending') {
+        transitionLifecycleWithDb(this.db, {
+          entity: 'dispatch',
+          id: params.dispatchId,
+          from: 'pending',
+          to: 'dispatched',
+          receipt: { kind: 'federated_dispatch_ready' }
+        })
+      }
+      const task = this.getTask(dispatch.task_id)
+      if (task?.status === 'blocked') {
+        transitionLifecycleWithDb(this.db, {
+          entity: 'task',
+          id: dispatch.task_id,
+          from: 'blocked',
+          to: 'dispatched',
+          projection: { completed_at: null },
+          receipt: { kind: 'federated_task_ready' }
+        })
+      }
     } else if (params.state === 'start_unknown') {
-      this.db
-        .prepare(
-          `UPDATE worker_dispatches
-           SET stage = ?, last_error = ?, updated_at = datetime('now')
-           WHERE dispatch_id = ? AND state IN ('starting', 'start_unknown')`
-        )
-        .run(params.stage, params.lastError ?? worker.last_error, params.dispatchId)
+      transitionLifecycleWithDb(this.db, {
+        entity: 'worker',
+        id: params.dispatchId,
+        from: worker.state,
+        to: worker.state,
+        projection: {
+          stage: params.stage,
+          last_error: params.lastError ?? worker.last_error,
+          updated_at: new Date().toISOString()
+        },
+        receipt: { kind: 'federated_worker_start_unknown' }
+      })
     } else {
       const reason = params.lastError ?? `The worker server reported ${params.state}.`
-      this.db
-        .prepare(
-          `UPDATE worker_dispatches
-           SET state = ?, stage = ?, last_error = ?, updated_at = datetime('now')
-           WHERE dispatch_id = ? AND state IN ('starting', 'start_unknown')`
-        )
-        .run(params.state, params.stage, reason, params.dispatchId)
-      this.db
-        .prepare(
-          `UPDATE dispatch_contexts
-           SET status = 'failed', last_failure = ?, completed_at = datetime('now'),
-               capability_revoked_at = COALESCE(capability_revoked_at, datetime('now'))
-           WHERE id = ? AND status IN ('pending', 'dispatched')`
-        )
-        .run(reason, params.dispatchId)
+      transitionLifecycleWithDb(this.db, {
+        entity: 'worker',
+        id: params.dispatchId,
+        from: worker.state,
+        to: params.state,
+        projection: {
+          stage: params.stage,
+          last_error: reason,
+          updated_at: new Date().toISOString()
+        },
+        receipt: { kind: `federated_worker_${params.state}`, details: { reason } }
+      })
+      if (['pending', 'dispatched'].includes(dispatch.status)) {
+        transitionLifecycleWithDb(this.db, {
+          entity: 'dispatch',
+          id: params.dispatchId,
+          from: dispatch.status,
+          to: 'failed',
+          projection: {
+            last_failure: reason,
+            completed_at: new Date().toISOString(),
+            capability_revoked_at: dispatch.capability_revoked_at ?? new Date().toISOString()
+          },
+          receipt: { kind: 'federated_dispatch_failed', details: { reason } }
+        })
+      }
       reconcileTaskAfterDispatchInterruption(this, dispatch.task_id, params.dispatchId)
-      this.db
-        .prepare(
-          `UPDATE tasks SET status = 'failed', completed_at = datetime('now')
-           WHERE id = ? AND status IN ('blocked', 'dispatched')
-             AND NOT EXISTS (
-               SELECT 1 FROM dispatch_contexts
-               WHERE task_id = tasks.id AND status IN ('pending', 'dispatched')
-             )`
-        )
-        .run(dispatch.task_id)
+      const task = this.getTask(dispatch.task_id)
+      if (
+        task &&
+        ['blocked', 'dispatched'].includes(task.status) &&
+        !this.db
+          .prepare(
+            "SELECT 1 FROM dispatch_contexts WHERE task_id = ? AND status IN ('pending', 'dispatched')"
+          )
+          .get(dispatch.task_id)
+      ) {
+        transitionLifecycleWithDb(this.db, {
+          entity: 'task',
+          id: dispatch.task_id,
+          from: task.status,
+          to: 'failed',
+          projection: { completed_at: new Date().toISOString() },
+          receipt: { kind: 'federated_task_failed' }
+        })
+      }
       this.closeQuestionsForDispatch(params.dispatchId)
     }
     this.db.exec('COMMIT')

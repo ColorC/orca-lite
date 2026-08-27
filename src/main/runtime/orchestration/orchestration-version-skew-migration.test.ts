@@ -6,6 +6,7 @@ import Database from '../../sqlite/sync-database'
 import { LEGACY_CONTRACT_VERSION, LEGACY_RUN_ID, OrchestrationDb } from './db'
 import { resolveOrchestrationMigrationStartVersion } from './orchestration-schema-version-skew'
 import { createRootDispatch } from './db/root-dispatch-test-fixture'
+import { SCHEMA_VERSION } from './db/contract-constants'
 
 describe('OrchestrationDb version-skew migration', () => {
   let db: OrchestrationDb | undefined
@@ -189,5 +190,83 @@ describe('OrchestrationDb version-skew migration', () => {
     expect(raw.pragma('user_version', { simple: true })).toBe(20)
 
     raw.close()
+  })
+
+  it('repairs recovery columns missing from a partially-upgraded v32 schema', () => {
+    tempDir = mkdtempSync(join(tmpdir(), 'orca-db-version-skew-v32-'))
+    const dbPath = join(tempDir, 'orchestration.db')
+    db = new OrchestrationDb(dbPath)
+    db.close()
+    db = undefined
+
+    const raw = new Database(dbPath)
+    raw.exec(
+      'ALTER TABLE worker_terminal_resources DROP COLUMN recovery_attempt_count; ALTER TABLE worker_terminal_resources DROP COLUMN last_recovery_at;'
+    )
+    raw.pragma('user_version = 32')
+    expect(resolveOrchestrationMigrationStartVersion(raw, 32, 32)).toBe(6)
+    raw.close()
+
+    db = new OrchestrationDb(dbPath)
+    expect(db.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION)
+    expect(db.db.pragma('table_info(worker_terminal_resources)')).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'recovery_attempt_count' }),
+        expect.objectContaining({ name: 'last_recovery_at' })
+      ])
+    )
+    expect(db.db.pragma('table_info(messages)')).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'pointer_enter_pending' }),
+        expect.objectContaining({ name: 'pointer_pty_id' }),
+        expect.objectContaining({ name: 'pointer_process_incarnation' })
+      ])
+    )
+    expect(
+      db.db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_messages_pending_pointer_enter'"
+        )
+        .get()
+    ).toBeDefined()
+  })
+
+  it('cleans additive lifecycle rows when a v30 writer resets tasks before re-upgrade', () => {
+    tempDir = mkdtempSync(join(tmpdir(), 'orca-db-version-skew-v30-reset-'))
+    const dbPath = join(tempDir, 'orchestration.db')
+    db = new OrchestrationDb(dbPath)
+    const task = db.createTask({ spec: 'reset by an older writer' })
+    const started = db.createStartingWorkerDispatch({
+      creator: { kind: 'system' },
+      maxDepth: Number.MAX_SAFE_INTEGER,
+      taskId: task.id,
+      startOptions: {}
+    })
+    db.recordAttemptObservation({
+      id: 'observation_before_v30_reset',
+      dispatchId: started.dispatch.id,
+      sequence: 0,
+      authorityId: 'home',
+      authorityClock: 'home',
+      facet: 'process_turn',
+      payload: { process: 'running', turn: 'working' },
+      homeReceivedAt: 1
+    })
+    db.close()
+    db = undefined
+
+    const raw = new Database(dbPath)
+    // v30 resetTasks predates both additive tables, so it only deletes their legacy parents.
+    raw.exec(`
+      DELETE FROM worker_dispatches;
+      DELETE FROM dispatch_contexts;
+      DELETE FROM tasks;
+    `)
+    raw.pragma('user_version = 30')
+    raw.close()
+
+    db = new OrchestrationDb(dbPath)
+    expect(db.db.prepare('SELECT * FROM lifecycle_transition_receipts').all()).toEqual([])
+    expect(db.db.prepare('SELECT * FROM attempt_observation_facts').all()).toEqual([])
   })
 })

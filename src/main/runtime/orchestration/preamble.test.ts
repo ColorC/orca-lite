@@ -127,6 +127,20 @@ describe('buildDispatchPreamble', () => {
     expect(result).not.toContain('"dispatchCapability"')
   })
 
+  it('renders capability-bound worker_done and heartbeat recipes', () => {
+    const result = buildDispatchPreamble({
+      ...baseParams(),
+      dispatchCapability: 'dcap_test_secret'
+    })
+
+    expect(result).toMatch(
+      /orchestration send --from term_worker --dispatch-capability dcap_test_secret \\\n+    --type worker_done[\s\S]*?--task-id task_abc123 --dispatch-id ctx_def456/u
+    )
+    expect(result).toMatch(
+      /orchestration send --from term_worker --dispatch-capability dcap_test_secret \\\n+    --type heartbeat[\s\S]*?--task-id task_abc123 --dispatch-id ctx_def456/u
+    )
+  })
+
   it('idles prompt-returning workers while preserving direct user authority', () => {
     const result = buildDispatchPreamble(baseParams())
     const section = afterWorkerDoneSection(result)

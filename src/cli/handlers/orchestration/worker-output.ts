@@ -10,10 +10,49 @@ export type LegacyWorkerReadResult = {
 export function formatWorkerRead(
   value: OrchestrationWorkerReadResult | LegacyWorkerReadResult
 ): string {
-  if (!('source' in value) || value.source === 'terminal') {
+  if (!('source' in value)) {
     return value.terminal.tail.join('\n')
   }
-  return value.transcript.messages.map(formatWorkerTranscriptMessage).join('\n\n')
+  const details = formatWorkerReadDetails(value)
+  const output =
+    value.source === 'terminal'
+      ? value.terminal.tail.join('\n')
+      : value.transcript.messages.map(formatWorkerTranscriptMessage).join('\n\n')
+  if (output) {
+    return `${details}\n\n${output}`
+  }
+  const emptyMessage =
+    value.source === 'transcript'
+      ? 'No transcript messages returned. This exact transcript read did not request terminal evidence.'
+      : 'No terminal output returned.'
+  return `${details}\n\n${emptyMessage}`
+}
+
+function formatWorkerReadDetails(value: OrchestrationWorkerReadResult): string {
+  const source =
+    value.source === 'transcript'
+      ? `Source: transcript (provider=${value.provider})`
+      : 'Source: terminal'
+  const lines = [source]
+  if (value.sourceExact !== undefined) {
+    lines.push(`Source exact: ${value.sourceExact}`)
+  }
+  if (value.fallbackReason) {
+    lines.push(`Fallback reason: ${value.fallbackReason}`)
+  }
+  if (value.contentComplete !== undefined) {
+    lines.push(`Content complete: ${value.contentComplete}`)
+  }
+  if (value.clipping?.length) {
+    lines.push(`Clipping: ${value.clipping.join(', ')}`)
+  }
+  lines.push(
+    value.cursor
+      ? `Continuation cursor (opaque; pass unchanged to --cursor): ${value.cursor}`
+      : 'Continuation cursor: unavailable'
+  )
+  lines.push(...(value.warnings ?? []).map((warning) => `Warning: ${warning}`))
+  return lines.join('\n')
 }
 
 function formatWorkerTranscriptMessage(message: NativeChatMessage): string {

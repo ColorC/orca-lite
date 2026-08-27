@@ -10,12 +10,17 @@ import {
   type NativeChatLineDecoder
 } from '../../native-chat/transcript-tail-reader'
 import { transcriptFallbackId } from '../../native-chat/transcript-fallback-id'
+import type { IFilesystemProvider } from '../../providers/types'
 import {
   boundWorkerTranscriptMessages,
   clampWorkerTranscriptLimit
 } from './worker-transcript-payload'
+import {
+  readRemoteWorkerTranscript,
+  MAX_REMOTE_TRANSCRIPT_SCAN_BYTES
+} from './worker-transcript-remote-read'
 
-const MAX_FORWARD_TRANSCRIPT_SCAN_BYTES = 8 * 1024 * 1024
+const MAX_FORWARD_TRANSCRIPT_SCAN_BYTES = MAX_REMOTE_TRANSCRIPT_SCAN_BYTES
 
 type WorkerTranscriptReadFailure = {
   ok: false
@@ -29,6 +34,7 @@ type WorkerTranscriptReadSuccess = {
   messages: NativeChatMessage[]
   nextOffset: number
   limited: boolean
+  clipping: string[]
   warnings: string[]
 }
 
@@ -38,9 +44,13 @@ export async function readWorkerTranscript(args: {
   agent: AgentType
   sessionId: string
   transcriptPath?: string
+  /** Attested local WSL distro. Keeps host path translation on the selected guest. */
+  wslDistro?: string
   offset?: number
   endOffset?: number
   limit?: number
+  /** Remote execution-host provider. When present no local filesystem lookup occurs. */
+  filesystemProvider?: IFilesystemProvider
 }): Promise<WorkerTranscriptReadResult> {
   const transcriptAgent = resolveNativeChatTranscriptAgent(args.agent)
   if (!transcriptAgent) {
@@ -51,9 +61,20 @@ export async function readWorkerTranscript(args: {
     return { ok: false, reason: 'provider_unsupported', warnings: [] }
   }
   let filePath: string | null
+  if (args.filesystemProvider) {
+    // A remote provider can only read the hook-attested path. Never search the
+    // desktop's provider roots for a remote session (same-path sentinels are a
+    // real authority boundary, not merely a portability concern).
+    filePath = args.transcriptPath?.trim() || null
+    if (!filePath) {
+      return { ok: false, reason: 'remote_capability_unavailable', warnings: [] }
+    }
+    return readRemoteWorkerTranscript(args, filePath, decode)
+  }
   try {
     filePath = await resolveSessionFilePath(args.agent, args.sessionId, {
-      transcriptPath: args.transcriptPath
+      transcriptPath: args.transcriptPath,
+      wslDistro: args.wslDistro
     })
   } catch {
     return { ok: false, reason: 'transcript_unreadable', warnings: [] }
@@ -77,6 +98,10 @@ export async function readWorkerTranscript(args: {
       messages: bounded.messages,
       nextOffset: page.nextOffset,
       limited: page.limited || bounded.limited,
+      clipping: [
+        ...(page.limited ? ['message_limit_or_scan_window'] : []),
+        ...(bounded.limited ? ['transcript_payload'] : [])
+      ],
       warnings: [...page.warnings, ...bounded.warnings]
     }
   } catch (error) {
@@ -110,6 +135,7 @@ async function readInitialPage(
     messages: page.messages,
     nextOffset: page.consumedTo,
     limited: page.hasMore,
+    clipping: [],
     warnings: recordWarnings(page.malformedRecordCount, page.oversizedRecordCount)
   }
 }
@@ -136,6 +162,7 @@ async function readForwardPage(
       messages: [],
       nextOffset: startOffset,
       limited: false,
+      clipping: [],
       warnings: []
     }
   }
@@ -235,6 +262,7 @@ async function readForwardPage(
       messages,
       nextOffset,
       limited,
+      clipping: [],
       warnings: recordWarnings(malformedRecordCount, oversizedRecordCount, scanLimited)
     }
   }

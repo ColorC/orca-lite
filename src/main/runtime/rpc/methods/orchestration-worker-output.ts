@@ -13,6 +13,8 @@ import {
 } from '../../orchestration/worker-output-cursor'
 import { redactWorkerTerminalLines } from '../../orchestration/worker-transcript-payload'
 import { readWorkerTranscript } from '../../orchestration/worker-transcript-read'
+import { getSshFilesystemProvider } from '../../../providers/ssh-filesystem-dispatch'
+import { isWslHookRelayConnectionId } from '../../../../shared/wsl-hook-relay-contract'
 
 export async function readExactWorkerOutput(args: {
   runtime: OrcaRuntimeService
@@ -42,12 +44,25 @@ export async function readExactWorkerOutput(args: {
     }
     return fallbackOrThrow(args, 'session_not_reported')
   }
+  const isWslSession = isWslHookRelayConnectionId(session.connectionId)
+  if (isWslSession && !session.wslDistro) {
+    return fallbackOrThrow(args, 'remote_capability_unavailable')
+  }
+  const remoteFilesystemProvider =
+    session.connectionId && !isWslSession
+      ? getSshFilesystemProvider(session.connectionId)
+      : undefined
+  if (session.connectionId && !isWslSession && !remoteFilesystemProvider) {
+    return fallbackOrThrow(args, 'remote_capability_unavailable')
+  }
   const transcript = await readWorkerTranscript({
     agent: session.agent,
     sessionId: session.providerSession.id,
     transcriptPath: session.providerSession.transcriptPath,
+    wslDistro: session.wslDistro,
     offset: cursor?.source === 'transcript' ? cursor.position : undefined,
-    limit: args.limit
+    limit: args.limit,
+    filesystemProvider: remoteFilesystemProvider
   })
   if (!transcript.ok) {
     if (transcript.reason === 'source_changed') {
@@ -64,6 +79,7 @@ export async function readExactWorkerOutput(args: {
     session.agent,
     session.providerSession.key,
     session.providerSession.id,
+    session.connectionId ?? 'local',
     transcript.filePath
   ])
   if (cursor?.source === 'transcript' && cursor.sourceIdentity !== sourceIdentity) {
@@ -79,7 +95,9 @@ export async function readExactWorkerOutput(args: {
     sessionAfterRead.agent !== session.agent ||
     sessionAfterRead.providerSession.key !== session.providerSession.key ||
     sessionAfterRead.providerSession.id !== session.providerSession.id ||
-    sessionAfterRead.providerSession.transcriptPath !== session.providerSession.transcriptPath
+    sessionAfterRead.providerSession.transcriptPath !== session.providerSession.transcriptPath ||
+    sessionAfterRead.connectionId !== session.connectionId ||
+    sessionAfterRead.wslDistro !== session.wslDistro
   ) {
     throw sourceChanged()
   }
@@ -107,7 +125,10 @@ export async function readExactWorkerOutput(args: {
       ...(args.terminalLiveness ? { liveness: args.terminalLiveness } : {})
     },
     fallbackReason: null,
-    warnings: transcript.warnings
+    warnings: transcript.warnings,
+    sourceExact: true,
+    contentComplete: !transcript.limited,
+    ...(transcript.clipping.length > 0 ? { clipping: transcript.clipping } : {})
   }
 }
 
@@ -165,7 +186,10 @@ async function readTerminalOutput(
       ...(args.terminalLiveness ? { liveness: args.terminalLiveness } : {})
     },
     fallbackReason: null,
-    warnings: redactedTerminal.warnings
+    warnings: redactedTerminal.warnings,
+    sourceExact: true,
+    contentComplete: !terminal.truncated,
+    ...(terminal.truncated ? { clipping: ['terminal_buffer'] } : {})
   }
 }
 
@@ -182,6 +206,9 @@ async function fallbackOrThrow(
     ? {
         ...fallback,
         fallbackReason: reason,
+        sourceExact: false,
+        contentComplete: false,
+        clipping: [...(fallback.clipping ?? []), 'terminal_fallback'],
         warnings: [...new Set([...fallback.warnings, ...warnings])]
       }
     : fallback

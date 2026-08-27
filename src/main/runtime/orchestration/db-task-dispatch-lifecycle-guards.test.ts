@@ -258,6 +258,82 @@ describe('Task/Dispatch lifecycle guards', () => {
   )
 
   it.each(['stop', 'abandon'] as const)(
+    '%s records guarded receipts for context-only Dispatch and Task release',
+    (operation) => {
+      const database = createDatabase()
+      const task = database.createTask({ spec: `${operation} receipt release` })
+      const contextOnly = createRootDispatch(database, task.id, `term_${operation}`)
+
+      const released =
+        operation === 'stop'
+          ? database.beginWorkerStop(contextOnly.id, 'runtime_test')
+          : database.abandonWorkerDispatch(contextOnly.id)
+
+      expect(released).toMatchObject({
+        disposition: 'context_only',
+        alreadySettled: false,
+        releasedCurrentTask: true
+      })
+      expect(database.getLifecycleTransitionReceipts('dispatch', contextOnly.id)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            from_state: 'dispatched',
+            to_state: 'failed',
+            kind: `dispatch_context_only_${operation === 'stop' ? 'stopped' : 'abandoned'}`
+          })
+        ])
+      )
+      expect(database.getLifecycleTransitionReceipts('task', task.id)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            from_state: 'dispatched',
+            to_state: 'blocked',
+            kind: 'task_context_only_dispatch_released'
+          })
+        ])
+      )
+    }
+  )
+
+  it('rolls back both context-only projections when receipt append fails', () => {
+    const database = createDatabase()
+    const task = database.createTask({ spec: 'context-only atomic receipt' })
+    const contextOnly = createRootDispatch(database, task.id, 'term_context')
+    sqliteFor(database).exec(`
+      CREATE TRIGGER reject_context_release_receipt
+      BEFORE INSERT ON lifecycle_transition_receipts
+      WHEN NEW.entity = 'task'
+      BEGIN SELECT RAISE(ABORT, 'forced context release receipt failure'); END;
+    `)
+
+    expect(() => database.beginWorkerStop(contextOnly.id, 'runtime_test')).toThrow(
+      'forced context release receipt failure'
+    )
+    expect(database.getTask(task.id)?.status).toBe('dispatched')
+    expect(database.getDispatchContextById(contextOnly.id)).toMatchObject({
+      status: 'dispatched',
+      last_failure: null,
+      completed_at: null,
+      capability_revoked_at: null
+    })
+    expect(database.getLifecycleTransitionReceipts('dispatch', contextOnly.id)).toEqual([])
+    expect(database.getLifecycleTransitionReceipts('task', task.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          from_state: 'ready',
+          to_state: 'dispatched',
+          kind: 'task_dispatched'
+        })
+      ])
+    )
+    expect(
+      database
+        .getLifecycleTransitionReceipts('task', task.id)
+        .some((receipt) => receipt.kind === 'task_context_only_dispatch_released')
+    ).toBe(false)
+  })
+
+  it.each(['stop', 'abandon'] as const)(
     '%s preserves a live worker sibling and lets it report',
     (operation) => {
       const database = createDatabase()

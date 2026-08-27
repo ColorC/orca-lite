@@ -7,10 +7,11 @@ const ROLLOUT_LINUX =
   '/home/ada/.local/share/orca/codex-runtime-home/home/sessions/2026/07/24/rollout-wsl-sess.jsonl'
 const ROLLOUT_UNC =
   '\\\\wsl.localhost\\Ubuntu\\home\\ada\\.local\\share\\orca\\codex-runtime-home\\home\\sessions\\2026\\07\\24\\rollout-wsl-sess.jsonl'
+const DEBIAN_ROLLOUT_UNC = ROLLOUT_UNC.replace('Ubuntu', 'Debian')
 
 vi.mock('../wsl', () => ({
-  listWslDistrosAsync: vi.fn(async () => ['Ubuntu']),
-  getWslHomeAsync: vi.fn(async () => UBUNTU_HOME)
+  listWslDistrosAsync: vi.fn(async () => ['Ubuntu', 'Debian']),
+  getWslHomeAsync: vi.fn(async (distro: string) => UBUNTU_HOME.replace('Ubuntu', distro))
 }))
 
 // Only these UNC fixtures are readable. Every other `\\wsl.localhost\` path —
@@ -63,6 +64,8 @@ beforeEach(() => {
   vi.mocked(listWslDistrosAsync).mockClear()
   scanned.dirs = []
   scanned.hostRootHasRollout = false
+  READABLE_WSL_UNC_PATHS.clear()
+  READABLE_WSL_UNC_PATHS.add(ROLLOUT_UNC)
   setPlatform('win32')
 })
 
@@ -77,6 +80,33 @@ describe('resolveSessionFilePath on a Windows host with WSL', () => {
       codexSessionsDirs: []
     })
     expect(resolved).toBe(ROLLOUT_UNC)
+  })
+
+  it('keeps an attested distro when another guest has the same transcript path', async () => {
+    READABLE_WSL_UNC_PATHS.add(DEBIAN_ROLLOUT_UNC)
+
+    const resolved = await resolveSessionFilePath('codex', 'wsl-sess', {
+      transcriptPath: ROLLOUT_LINUX,
+      wslDistro: 'Ubuntu',
+      codexSessionsDirs: []
+    })
+
+    expect(resolved).toBe(ROLLOUT_UNC)
+    expect(vi.mocked(listWslDistrosAsync)).not.toHaveBeenCalled()
+    expect(vi.mocked(getWslHomeAsync)).not.toHaveBeenCalled()
+  })
+
+  it('does not fall through to another guest when the attested path is missing', async () => {
+    READABLE_WSL_UNC_PATHS.delete(ROLLOUT_UNC)
+    READABLE_WSL_UNC_PATHS.add(DEBIAN_ROLLOUT_UNC)
+
+    await expect(
+      resolveSessionFilePath('codex', 'wsl-sess', {
+        transcriptPath: ROLLOUT_LINUX,
+        wslDistro: 'Ubuntu',
+        codexSessionsDirs: []
+      })
+    ).resolves.toBeNull()
   })
 
   it('does not return a UNC twin that no distro actually has', async () => {

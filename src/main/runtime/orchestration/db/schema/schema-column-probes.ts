@@ -13,6 +13,13 @@ export function createMailboxDeliveryIndexesIfPossible(this: OrchestrationDb): v
         ON messages(to_handle, read, delivered_at, sequence)
     `)
   }
+  if (this.hasColumn('messages', 'pointer_enter_pending')) {
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_messages_pending_pointer_enter
+        ON messages(to_handle, sequence)
+        WHERE read = 0 AND pointer_enter_pending = 1;
+    `)
+  }
 
   if (
     !hasDeliveredAt ||

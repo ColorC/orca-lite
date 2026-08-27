@@ -222,8 +222,10 @@ export const ORCHESTRATION_FEDERATION_ATTACH_METHODS: RpcMethod[] = [
               : `Agent did not become ready (${wait.status}).`
           )
         }
-        const paneKey = runtime.getTerminalPaneKey(terminalHandle)
-        const processIncarnation = runtime.getTerminalProcessIncarnation(terminalHandle)
+        const authority = runtime.getOrchestrationDispatchAuthority(terminalHandle)
+        const paneKey = authority?.paneKey ?? runtime.getTerminalPaneKey(terminalHandle)
+        const processIncarnation =
+          authority?.processIncarnation ?? runtime.getTerminalProcessIncarnation(terminalHandle)
         if (!paneKey || !processIncarnation) {
           throw new Error('stable_pane_required')
         }
@@ -234,10 +236,12 @@ export const ORCHESTRATION_FEDERATION_ATTACH_METHODS: RpcMethod[] = [
           worktreeId: worktree.id,
           terminalHandle,
           setupState: setup.state,
-          effects
+          effects,
+          hostScope: authority?.hostScope ? JSON.stringify(authority.hostScope) : null,
+          terminalOwnership: params.terminal ? 'external' : 'created'
         })
         failedStage = 'dispatch_input'
-        await runtime.sendTerminalAgentPrompt(
+        const prompt = await runtime.sendTerminalAgentPrompt(
           terminalHandle,
           buildDispatchPreamble({
             taskId: params.taskId,
@@ -251,7 +255,12 @@ export const ORCHESTRATION_FEDERATION_ATTACH_METHODS: RpcMethod[] = [
             // host's code, against this host's cap.
             canDispatchSubWorkers: (params.depth ?? 1) < runtime.getNestedWorkerMaxDepth(),
             cliCommand: runtime.getTerminalOrchestrationCliCommand(terminalHandle)
-          })
+          }),
+          {
+            acceptQueued: true,
+            observationTimeoutMs: 0,
+            requestId: orchestrationMutation.requestId
+          }
         )
         effects.push({
           kind: 'dispatch_input',
@@ -271,6 +280,7 @@ export const ORCHESTRATION_FEDERATION_ATTACH_METHODS: RpcMethod[] = [
           setup,
           launch: launch.receipt,
           effects,
+          ...(prompt.prompt ? { prompt: prompt.prompt } : {}),
           residualResources: []
         }
       } catch (error) {

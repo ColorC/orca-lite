@@ -1,8 +1,5 @@
 import { z } from 'zod'
-import {
-  ORCHESTRATION_WORKER_READ_SOURCES,
-  type OrchestrationWorkerReadResult
-} from '../../../../shared/orchestration-worker-output'
+import { ORCHESTRATION_WORKER_READ_SOURCES } from '../../../../shared/orchestration-worker-output'
 import { contextOnlyAbandonWarning } from '../../orchestration/context-only-dispatch-release'
 import { OrchestrationError } from '../../orchestration/orchestration-error'
 import { defineMethod, type RpcMethod } from '../core'
@@ -15,10 +12,9 @@ import {
   showContextOnlyWorker
 } from './orchestration-worker-observation'
 import { readArchivedWorkerOutput } from './orchestration-worker-archive-read'
-import { readLegacyFederatedTerminal } from './orchestration-worker-legacy-federated-read'
 import { readExactWorkerOutput } from './orchestration-worker-output'
 import { exposeWorkerTerminalResource } from './orchestration-worker-release-completion'
-
+import { readFederatedWorkerOutput } from './orchestration-federated-worker-read'
 const WorkerDispatchParams = z.object({ dispatch: requiredString('Missing --dispatch') })
 const WorkerReadParams = WorkerDispatchParams.extend({
   cursor: z.union([z.number().int().nonnegative(), z.string().min(1).max(2_048)]).optional(),
@@ -110,7 +106,12 @@ export const ORCHESTRATION_WORKER_CONTROL_METHODS: RpcMethod[] = [
           observation: {
             ...remote.observation,
             // Legacy servers published `running`; normalize at the compatibility boundary.
-            status: remote.observation.status === 'running' ? 'live' : remote.observation.status
+            // An absent status means the old peer could not provide an execution-host
+            // verdict, so preserve that uncertainty instead of inferring an exit.
+            status:
+              remote.observation.status === 'running'
+                ? 'live'
+                : (remote.observation.status ?? 'unverifiable')
           }
         }
       }
@@ -159,38 +160,16 @@ export const ORCHESTRATION_WORKER_CONTROL_METHODS: RpcMethod[] = [
       const federated = db.getFederatedDispatch(params.dispatch)
       if (federated) {
         const server = resolvePinnedFederatedServer(runtime, federated)
-        try {
-          const remote = (await runtime.callOrchestrationWorkerServer(
-            server.environmentId,
-            'orchestration.federationReadOutput',
-            {
-              dispatchId: params.dispatch,
-              cursor: params.cursor,
-              limit: params.limit,
-              source: params.source
-            },
-            15_000
-          )) as { runtimeEpoch: string; output: OrchestrationWorkerReadResult }
-          return {
-            ...remote.output,
-            server: { environmentId: server.environmentId, name: server.name },
-            remoteRuntimeEpoch: remote.runtimeEpoch
-          }
-        } catch (error) {
-          if (!(error instanceof OrchestrationError) || error.code !== 'method_not_found') {
-            throw error
-          }
-          return readLegacyFederatedTerminal({
-            runtime,
-            server,
-            federated,
-            workerState: db.getWorkerDispatch(params.dispatch)?.state ?? 'unknown',
-            dispatchId: params.dispatch,
-            source: params.source,
-            cursor: params.cursor,
-            limit: params.limit
-          })
-        }
+        return readFederatedWorkerOutput({
+          runtime,
+          db,
+          server,
+          federated,
+          dispatchId: params.dispatch,
+          source: params.source,
+          cursor: params.cursor,
+          limit: params.limit
+        })
       }
       const dispatch = db.getDispatchContextById(params.dispatch)
       const worker = db.getWorkerDispatch(params.dispatch)
@@ -209,6 +188,18 @@ export const ORCHESTRATION_WORKER_CONTROL_METHODS: RpcMethod[] = [
       }
       const resource = db.getWorkerTerminalResourceByOwner(params.dispatch)
       if (resource && ['releasing', 'unknown', 'released'].includes(resource.release_state)) {
+        // Archive capture is not close evidence; recheck the execution host while releasing.
+        let liveness: 'live' | 'unverifiable' | 'exited' =
+          resource.release_state === 'released' ? 'exited' : 'unverifiable'
+        if (resource.release_state === 'releasing') {
+          const observed = await inspectWorkerTerminal(runtime, db, params.dispatch)
+          liveness =
+            observed.status === 'live'
+              ? 'live'
+              : observed.status === 'exited'
+                ? 'exited'
+                : 'unverifiable'
+        }
         return readArchivedWorkerOutput({
           db,
           dispatchId: params.dispatch,
@@ -216,7 +207,8 @@ export const ORCHESTRATION_WORKER_CONTROL_METHODS: RpcMethod[] = [
           resource,
           source: params.source,
           cursor: params.cursor,
-          limit: params.limit
+          limit: params.limit,
+          liveness
         })
       }
       const observation = await inspectWorkerTerminal(runtime, db, params.dispatch)

@@ -1,6 +1,6 @@
 import type { CommandHandler } from '../../dispatch'
 import { printResult } from '../../format'
-import { getOptionalStringFlag, getRequiredStringFlag } from '../../flags'
+import { getOptionalStringFlag } from '../../flags'
 import { RuntimeClientError } from '../../runtime-client'
 import type { RuntimeStatus } from '../../../shared/runtime-types'
 import { ORCHESTRATION_WORKER_LAUNCH_PREFERENCES_RUNTIME_CAPABILITY } from '../../../shared/protocol-version'
@@ -26,6 +26,11 @@ export const ORCHESTRATION_WORKER_LAUNCH_HANDLER: Record<string, CommandHandler>
         )
       }
     }
+    const task = getOptionalStringFlag(flags, 'task')
+    const spec = getOptionalStringFlag(flags, 'spec')
+    const taskTitle = getOptionalStringFlag(flags, 'task-title')
+    const deps = getOptionalStringFlag(flags, 'deps')
+    const parent = getOptionalStringFlag(flags, 'parent')
     const result = await callOrchestrationMutation<{
       runId: string
       taskId: string
@@ -37,7 +42,11 @@ export const ORCHESTRATION_WORKER_LAUNCH_HANDLER: Record<string, CommandHandler>
       effects: unknown[]
       residualResources: unknown[]
     }>(client, flags, 'orchestration.workerStart', {
-      task: getRequiredStringFlag(flags, 'task'),
+      task,
+      ...(spec ? { spec } : {}),
+      ...(taskTitle ? { taskTitle } : {}),
+      ...(deps ? { deps } : {}),
+      ...(parent ? { parent } : {}),
       on: getOptionalStringFlag(flags, 'on'),
       worktree: getOptionalStringFlag(flags, 'worktree'),
       name: getOptionalStringFlag(flags, 'name'),

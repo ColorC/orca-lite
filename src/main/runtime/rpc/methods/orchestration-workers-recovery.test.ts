@@ -183,6 +183,9 @@ describe('orchestration worker recovery', () => {
       connected: false,
       writable: false
     } as never)
+    // `connected: false` is transport state; an exited result requires the
+    // runtime's authoritative host-side verdict.
+    vi.spyOn(runtime, 'getTerminalLivenessVerdict').mockReturnValue({ status: 'exited' })
 
     await expect(
       call('orchestration.workerShow', { dispatch: dispatch.id })

@@ -82,6 +82,22 @@ export function resolveCreatorDepth(this: OrchestrationDb, creator: DispatchCrea
   return depths.length > 0 ? Math.max(...depths) : ROOT_DISPATCH_DEPTH
 }
 
+/** Proven creator Attempt identity; null when system-owned, absent, or ambiguous. */
+export function resolveCreatorDispatchId(
+  this: OrchestrationDb,
+  creator: DispatchCreator
+): string | null {
+  if (creator.kind === 'system') {
+    return null
+  }
+  const local = this.findActiveDispatchForAssignee(creator.handle, creator.paneKey)
+  const remote = findPotentiallyLiveAttachmentsForCreator.call(this, creator)
+  if ((local ? 1 : 0) + remote.length !== 1) {
+    return null
+  }
+  return local?.id ?? remote[0]?.dispatch_id ?? null
+}
+
 /**
  * Remote attachments matching this caller's pane AND exact process incarnation.
  *
@@ -148,9 +164,14 @@ export function resolveChildDispatchDepth(
 
 export type DispatchDepthMethods = {
   resolveCreatorDepth: typeof resolveCreatorDepth
+  resolveCreatorDispatchId: typeof resolveCreatorDispatchId
   resolveChildDispatchDepth: typeof resolveChildDispatchDepth
 }
 
 export function attachDispatchDepth(ctor: { prototype: object }): void {
-  Object.assign(ctor.prototype, { resolveCreatorDepth, resolveChildDispatchDepth })
+  Object.assign(ctor.prototype, {
+    resolveCreatorDepth,
+    resolveCreatorDispatchId,
+    resolveChildDispatchDepth
+  })
 }
