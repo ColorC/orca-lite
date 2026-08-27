@@ -111,9 +111,14 @@ describe('EditorPanelShell path header', () => {
 
   // Why assert the other modes too: a gate that hides the header everywhere would satisfy the
   // preview claim while silently removing the path from every ordinary file tab.
-  it.each(['edit', 'diff', 'conflict-review'] as const)('keeps the header for a %s tab', (mode) => {
-    expect(renderShell(openFile(mode))).toContain('data-editor-panel-header')
-  })
+  // markdown-preview especially: it is the other rendered-document mode, so a gate that reasons
+  // about "previews" rather than this one surface would take its header away too.
+  it.each(['edit', 'diff', 'conflict-review', 'markdown-preview'] as const)(
+    'keeps the header for a %s tab',
+    (mode) => {
+      expect(renderShell(openFile(mode))).toContain('data-editor-panel-header')
+    }
+  )
 
   it('hides the header for check-details and combined diffs, as it always has', () => {
     expect(renderShell(openFile('check-details'))).not.toContain('data-editor-panel-header')

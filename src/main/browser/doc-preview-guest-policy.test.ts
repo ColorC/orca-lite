@@ -432,6 +432,24 @@ describe('doc preview guest policy', () => {
       expect(getAuthorizedDocPreviewGuest(grant.id, HOST_RENDERER_ID)).toBeNull()
     })
 
+    // Why this is what makes three latch call sites safe: install, did-start-navigation and
+    // did-navigate all feed the same latch, so without the no-rebind guard the second and third
+    // would let a later navigation move a bound guest onto another grant — and a tool asking for
+    // that grant would be handed a guest showing someone else's document.
+    it('never rebinds a bound guest onto a second grant', () => {
+      const { grant, guest } = boundGuest()
+      const other = mintGrant()
+
+      startMainFrameNavigation(guest, buildDocPreviewUrl(other.id, 'index.html'))
+      guest.handlers['did-navigate']?.(
+        {} as never,
+        buildDocPreviewUrl(other.id, 'index.html') as never
+      )
+
+      expect(getAuthorizedDocPreviewGuest(other.id, HOST_RENDERER_ID)).toBeNull()
+      expect(getAuthorizedDocPreviewGuest(grant.id, HOST_RENDERER_ID)).toBe(guest.contents)
+    })
+
     // Why both directions: two previews open at once must not be able to drive each other's guest.
     it('keeps two live previews on their own guests', () => {
       const first = boundGuest()

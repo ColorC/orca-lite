@@ -14774,7 +14774,8 @@
           "previewMenuControl": "Preview options",
           "openSourceControl": "Open source file",
           "openExternallyControl": "Open with default app",
-          "copyDocumentRelativePathControl": "Copy relative path"
+          "copyDocumentRelativePathControl": "Copy relative path",
+          "openExternallyUnknownHostError": "Can't open '{{value0}}': the host that owns it is no longer known."
         }
       },
       "diff": {

@@ -8,6 +8,7 @@ import {
 import { ORCA_BROWSER_GUEST_WEB_PREFERENCES_ATTRIBUTE } from '../../../../shared/browser-guest-web-preferences'
 import { BrowserGuestAnnotateOverlays } from '@/components/browser-pane/annotate/browser-guest-annotate-overlays'
 import { useGuestDragPassthrough } from '@/components/browser-pane/host-guest/use-guest-drag-passthrough'
+import { isWebviewDragPassthroughActive } from '@/components/browser-pane/host-guest/webview-drag-passthrough'
 import { moveFocusToRendererBeforeWebviewDetach } from '@/components/browser-pane/host-guest/webview-registry'
 import {
   buildDocPreviewGrantRequest,
@@ -63,6 +64,13 @@ function attachDocPreviewWebview({
   // and only the pair together tracks what Back can actually return to.
   webview.addEventListener('did-navigate', onNavigated)
   webview.addEventListener('did-navigate-in-page', onNavigated)
+  // Why here and not in the enrolling hook: appending is what makes this guest hittable, and the
+  // registry's contract is that the path doing so settles it. Dragging the preview's own tab
+  // remounts this component mid-drag, and a hook effect lands a turn too late — for the rest of
+  // that turn the fresh guest eats the pointer stream and the drag freezes.
+  if (isWebviewDragPassthroughActive()) {
+    webview.style.pointerEvents = 'none'
+  }
   container.appendChild(webview)
   webview.setAttribute('src', url)
 

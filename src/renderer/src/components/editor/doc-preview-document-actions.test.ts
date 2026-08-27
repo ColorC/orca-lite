@@ -11,7 +11,14 @@ const mocks = vi.hoisted(() => ({
   activeRuntimeEnvironmentId: undefined as string | undefined,
   openFile: vi.fn(),
   openFilePath: vi.fn().mockResolvedValue(true),
-  downloadAndOpen: vi.fn()
+  downloadAndOpen: vi.fn(),
+  toastError: vi.fn()
+}))
+
+vi.mock('sonner', () => ({ toast: { error: mocks.toastError } }))
+vi.mock('@/i18n/i18n', () => ({
+  translate: (_key: string, fallback: string, params?: Record<string, string>) =>
+    fallback.replace('{{value0}}', params?.value0 ?? '')
 }))
 
 vi.mock('@/lib/connection-owner-resolution', () => ({
@@ -131,15 +138,42 @@ describe('openDocPreviewExternally', () => {
     )
   })
 
-  // Why an unknown owner downloads rather than opens: "not resolved yet" is not "local", and the
-  // OS branch is the one that cannot be taken back.
-  it('downloads when the owner cannot be resolved at all', () => {
+  // Why refusing beats downloading here: with no owner at all the download route reads the absolute
+  // path on this machine, so a client holding a same-named file would be shown its contents under
+  // the remote document's name — the wrong-file outcome, one layer below the OS branch.
+  it('refuses instead of reading this machine when no owner resolves', () => {
     mocks.connectionIdForFile = undefined
     mocks.connectionIdForWorkspace = undefined
 
     openDocPreviewExternally(REMOTE_DOCUMENT)
 
     expect(mocks.openFilePath).not.toHaveBeenCalled()
+    expect(mocks.downloadAndOpen).not.toHaveBeenCalled()
+    expect(mocks.toastError).toHaveBeenCalledWith(expect.stringContaining('report/index.html'))
+  })
+
+  // Why this one varies only the root: every other case that loses the root also names another
+  // host, so without it nothing proves the root is required for the OS branch on its own.
+  it('refuses a document whose workspace root is unknown even when nothing names another host', () => {
+    mocks.worktreePath = null
+
+    openDocPreviewExternally(REMOTE_DOCUMENT)
+
+    expect(mocks.openFilePath).not.toHaveBeenCalled()
+    expect(mocks.downloadAndOpen).not.toHaveBeenCalled()
+    expect(mocks.toastError).toHaveBeenCalled()
+  })
+
+  // Why keep the tab's field as a fallback: the worktree stops resolving an owner once its runtime
+  // is torn down, and the tab that is still open is then the only record of who owned the document.
+  it('falls back to the tab runtime owner when the worktree resolves none', () => {
+    mocks.worktreeRuntimeOwnerId = null
+    mocks.activeRuntimeEnvironmentId = 'env-9'
+
+    openDocPreviewExternally({ ...REMOTE_DOCUMENT, runtimeEnvironmentId: 'env-9' })
+
+    expect(mocks.openFilePath).not.toHaveBeenCalled()
+    expect(mocks.toastError).not.toHaveBeenCalled()
     expect(mocks.downloadAndOpen).toHaveBeenCalled()
   })
 

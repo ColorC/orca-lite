@@ -245,6 +245,30 @@ describe('HtmlDocPreview browser chrome', () => {
     expect(guest.style.pointerEvents).toBe('')
   })
 
+  // Why append time and not the enrolling effect: dragging the preview's OWN tab across a split
+  // remounts this component mid-drag, and an effect settles a turn later — for the rest of that
+  // turn the fresh guest is hittable and eats the pointer stream, which is the original freeze.
+  it('holds a guest that appears mid-drag click-through the moment it is appended', async () => {
+    const appendedPointerEvents: string[] = []
+    const originalAppendChild = HTMLElement.prototype.appendChild
+    HTMLElement.prototype.appendChild = function <T extends Node>(node: T): T {
+      const element = node as unknown as HTMLElement
+      if (element.tagName?.toLowerCase() === 'webview') {
+        appendedPointerEvents.push(element.style.pointerEvents)
+      }
+      return originalAppendChild.call(this, node) as T
+    }
+    const release = acquireWebviewsDragPassthrough()
+
+    try {
+      await renderPreview(container, root)
+      expect(appendedPointerEvents).toEqual(['none'])
+    } finally {
+      HTMLElement.prototype.appendChild = originalAppendChild
+      release()
+    }
+  })
+
   // Why: the chip sits in the row's height-pinned slot, and a wrapper of its own between the two
   // would leave it its natural height again — the toolbar would shrink for document tabs.
   it('hands the identity chip straight to the height-pinned address slot', async () => {
