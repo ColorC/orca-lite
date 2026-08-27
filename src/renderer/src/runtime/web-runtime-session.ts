@@ -35,6 +35,7 @@ import type {
 import type { TerminalPaneLayoutNode } from '../../../shared/terminal-tab-types'
 import type { TuiAgent } from '../../../shared/tui-agent'
 import { createBrowserUuid } from '../lib/browser-uuid'
+import { activateTabAndFocusPane } from '../lib/activate-tab-and-focus-pane'
 import { getRuntimeEnvironmentIdForWorktree } from '../lib/worktree-runtime-owner'
 import { useAppStore } from '../store'
 import { hasRuntimeRpcErrorCode, unwrapRuntimeRpcResult } from './runtime-rpc-client'
@@ -1544,19 +1545,23 @@ export function splitWebRuntimeTerminal(
     direction,
     pendingMirrorSuppressionId
   )
-  void window.api.runtimeEnvironments
-    .call({
-      selector: environmentId,
-      method: 'terminal.split',
-      params: {
-        terminal: remote.handle,
-        direction,
-        telemetrySource
-      },
-      timeoutMs: 15_000
-    })
-    .then((response) => {
-      unwrapRuntimeRpcResult(response as RuntimeRpcResponse<{ split: RuntimeTerminalSplit }>)
+  const intentOwner = captureWebSessionIntentOwner(environmentId)
+  const focusTarget = captureWebRuntimeSplitFocusTarget()
+  const callEnvironment = captureRuntimeEnvironmentCall(environmentId, intentOwner.pairingRevision)
+  void callEnvironment({
+    method: 'terminal.split',
+    params: {
+      terminal: remote.handle,
+      direction,
+      telemetrySource
+    },
+    timeoutMs: 15_000
+  })
+    .then(async (response) => {
+      const result = unwrapRuntimeRpcResult(
+        response as RuntimeRpcResponse<{ split: RuntimeTerminalSplit }>
+      )
+      await focusSplitWebRuntimeTerminalPane(intentOwner, focusTarget, result?.split)
     })
     .catch((error) => {
       releasePendingMirrorSuppression()
@@ -1567,6 +1572,89 @@ export function splitWebRuntimeTerminal(
       console.warn('[web-runtime-session] failed to split terminal:', message)
     })
   return true
+}
+
+type WebRuntimeSplitFocusTarget = {
+  worktreeId: string
+  tabId: string
+  leafId: string | null
+  executionHostId: string | null
+}
+
+function captureWebRuntimeSplitFocusTarget(): WebRuntimeSplitFocusTarget | null {
+  const state = useAppStore.getState()
+  const worktreeId = state?.activeWorktreeId
+  if (!worktreeId) {
+    return null
+  }
+  const tabId = resolveWebSessionVisibleTabId(state, worktreeId)
+  if (!tabId) {
+    return null
+  }
+  return {
+    worktreeId,
+    tabId,
+    leafId: state.terminalLayoutsByTabId?.[tabId]?.activeLeafId ?? null,
+    executionHostId: state.activeWorkspaceExecutionHostId ?? null
+  }
+}
+
+function matchesWebRuntimeSplitFocusTarget(
+  target: WebRuntimeSplitFocusTarget,
+  hostTabId: string,
+  newLeafId?: string
+): boolean {
+  const state = useAppStore.getState()
+  if (
+    state.activeWorktreeId !== target.worktreeId ||
+    (state.activeWorkspaceExecutionHostId ?? null) !== target.executionHostId
+  ) {
+    return false
+  }
+  const currentTabId = resolveWebSessionVisibleTabId(state, target.worktreeId)
+  if (!currentTabId || toHostSessionTabId(currentTabId) !== hostTabId) {
+    return false
+  }
+  const currentLeafId = state.terminalLayoutsByTabId?.[currentTabId]?.activeLeafId ?? null
+  return target.leafId === null || currentLeafId === target.leafId || currentLeafId === newLeafId
+}
+
+async function focusSplitWebRuntimeTerminalPane(
+  intentOwner: WebSessionIntentOwner,
+  focusTarget: WebRuntimeSplitFocusTarget | null,
+  split: RuntimeTerminalSplit | undefined
+): Promise<void> {
+  const hostTabId = split?.tabId?.trim()
+  const leafId = split?.leafId?.trim()
+  if (
+    !hostTabId ||
+    !leafId ||
+    !focusTarget ||
+    !matchesWebSessionIntentOwner(intentOwner) ||
+    !matchesWebRuntimeSplitFocusTarget(focusTarget, hostTabId)
+  ) {
+    return
+  }
+  recordWebSessionFocusIntent(
+    intentOwner,
+    focusTarget.worktreeId,
+    hostTabId,
+    leafId,
+    focusTarget.tabId
+  )
+  await refreshWebRuntimeSessionTabsSnapshot(intentOwner.environmentId, focusTarget.worktreeId, {
+    expectedEnvironmentPairingRevision: intentOwner.pairingRevision,
+    // Why: publication can precede the RPC receipt, so replay after recording the intent.
+    acceptCurrentSnapshot: true
+  })
+  if (
+    !matchesWebSessionIntentOwner(intentOwner) ||
+    !matchesWebRuntimeSplitFocusTarget(focusTarget, hostTabId, leafId)
+  ) {
+    clearWebSessionFocusIntentIfMatches(intentOwner, focusTarget.worktreeId, hostTabId)
+    return
+  }
+  activateTabAndFocusPane(toWebTerminalSurfaceTabId(hostTabId), leafId)
 }
 
 export function consumePendingWebRuntimeSplitMirrorTelemetry(
