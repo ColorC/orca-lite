@@ -30,6 +30,15 @@ export function WorkspaceDocPagePane({
     () => getRelativePathInsideRoot(filePath, worktreeRoot) ?? filePath,
     [filePath, worktreeRoot]
   )
+  // Why the reader's whole surface and not just this page's activity: a preview keeps its pane
+  // mounted behind a terminal or an editor, and focusing its guest from there would take the
+  // keyboard away from what the reader is actually in.
+  const isReaderSurface = useAppStore(
+    (store) =>
+      store.activeTabTypeByWorktree[worktreeId] === 'browser' &&
+      store.activeBrowserTabIdByWorktree[worktreeId] === page.workspaceId
+  )
+
   if (!docLocation) {
     return null
   }
@@ -39,6 +48,7 @@ export function WorkspaceDocPagePane({
     // grab in flight, exactly as a URL page's pane does.
     <div className="absolute inset-0 flex min-h-0 flex-col" hidden={!isActive}>
       <HtmlDocPreview
+        holdsGuestFocus={isActive && isReaderSurface}
         previewId={page.id}
         filePath={filePath}
         relativePath={relativePath}

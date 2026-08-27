@@ -113,7 +113,11 @@ type StubWebview = Element & {
   reload: () => void
 }
 
-async function renderPreview(container: HTMLDivElement, root: Root): Promise<StubWebview> {
+async function renderPreview(
+  container: HTMLDivElement,
+  root: Root,
+  options: { holdsGuestFocus?: boolean } = {}
+): Promise<StubWebview> {
   const { HtmlDocPreview } = await import('./HtmlDocPreview')
   await act(async () => {
     root.render(
@@ -123,6 +127,7 @@ async function renderPreview(container: HTMLDivElement, root: Root): Promise<Stu
           filePath={ABSOLUTE_PATH}
           relativePath={ENTRY_RELATIVE_PATH}
           worktreeId="wt-1"
+          holdsGuestFocus={options.holdsGuestFocus ?? false}
         />
       </TooltipProvider>
     )
@@ -476,5 +481,53 @@ describe('HtmlDocPreview browser chrome', () => {
     })
 
     expect(clipboard.writes).toEqual([ENTRY_RELATIVE_PATH])
+  })
+})
+
+// Why this is a test and not left to the pane: main answers a reported link click only from a
+// focused guest, so a preview whose guest never takes focus has no route out at all — the failure
+// is silent, and only the reader pressing a link ever sees it.
+describe('HtmlDocPreview guest focus', () => {
+  let container: HTMLDivElement
+  let root: Root
+  let focused: Element[]
+  let focusSpy: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    focused = []
+    focusSpy = vi
+      .spyOn(HTMLElement.prototype, 'focus')
+      .mockImplementation(function (this: HTMLElement) {
+        focused.push(this)
+      })
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+  })
+
+  afterEach(async () => {
+    await act(async () => root.unmount())
+    container.remove()
+    focusSpy.mockRestore()
+  })
+
+  async function settleFrames(): Promise<void> {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    })
+  }
+
+  it('hands the guest focus once the preview is the surface the reader is in', async () => {
+    const webview = await renderPreview(container, root, { holdsGuestFocus: true })
+    await settleFrames()
+
+    expect(focused).toContain(webview)
+  })
+
+  it('leaves focus alone while the reader is looking at something else', async () => {
+    const webview = await renderPreview(container, root, { holdsGuestFocus: false })
+    await settleFrames()
+
+    expect(focused).not.toContain(webview)
   })
 })

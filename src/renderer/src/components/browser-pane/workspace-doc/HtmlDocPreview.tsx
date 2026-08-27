@@ -106,11 +106,15 @@ function attachDocPreviewWebview({
   }
 }
 
+/** Frames a preview keeps offering focus to a guest that is still attaching. */
+const GUEST_FOCUS_FRAMES = 10
+
 export function HtmlDocPreview({
   previewId,
   filePath,
   relativePath,
   worktreeId,
+  holdsGuestFocus = false,
   runtimeEnvironmentId = null,
   externalSshTargetId = null
 }: {
@@ -118,6 +122,8 @@ export function HtmlDocPreview({
   filePath: string
   relativePath: string
   worktreeId: string
+  /** Whether this preview is the surface the reader is in, and so may hold the keyboard. */
+  holdsGuestFocus?: boolean
   runtimeEnvironmentId?: string | null
   externalSshTargetId?: string | null
 }): React.JSX.Element {
@@ -262,6 +268,35 @@ export function HtmlDocPreview({
       detach?.()
     }
   }, [filePath, previewId, remintCount, resetHistory, syncHistory, worktreeId])
+
+  // Why the guest is handed focus rather than left to the press that opens a link: main answers a
+  // reported link click only from a focused guest, and a preview has no chrome of its own to pass
+  // focus on — a URL page's address bar is what hands it over. Without this the one route out of a
+  // preview stays shut until something else happens to focus the document.
+  useEffect(() => {
+    if (!holdsGuestFocus || state !== 'ready') {
+      return
+    }
+    let frameId = 0
+    let attempts = 0
+    const focusGuest = (): void => {
+      const webview = webviewRef.current
+      attempts += 1
+      try {
+        webview?.focus()
+      } catch {
+        // Why swallowed: WebViewElement.focus() reads null internals once the guest is destroyed.
+        return
+      }
+      // Why retried: the guest takes focus only once it is attached and laid out, a frame or two
+      // after it reports ready.
+      if (document.activeElement !== webview && attempts < GUEST_FOCUS_FRAMES) {
+        frameId = window.requestAnimationFrame(focusGuest)
+      }
+    }
+    frameId = window.requestAnimationFrame(focusGuest)
+    return () => window.cancelAnimationFrame(frameId)
+  }, [holdsGuestFocus, previewId, remintCount, state])
 
   // Why: a grant is pinned to the owner ids resolved when it was minted, so after a pairing or
   // SSH reconnect the old one reads nothing and reloading the guest would just refetch the
