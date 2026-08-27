@@ -3,9 +3,8 @@
 // Two ids run through this hook and they are not interchangeable. Annotations belong to the preview
 // tab and have to survive a re-mint; the guest a tool acts on is named by the grant currently on
 // screen, which a re-mint replaces. Swapping them is invisible until a preview re-mints.
-import { act } from 'react'
+import { act, createElement, useRef } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { createElement, useRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const calls = vi.hoisted(() => ({
