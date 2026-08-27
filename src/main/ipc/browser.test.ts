@@ -828,7 +828,10 @@ describe('registerBrowserHandlers', () => {
         markers: [],
         token: 'annotationviewporttoken'
       },
-      guest
+      // Why a resolver and not the guest: the op is serialized per page, so it has to read the
+      // registry when it runs — a navigation while it waited may have swapped the contents.
+      // Which guest it then resolves is pinned in browser-manager-annotation-bridge.test.ts.
+      expect.any(Function)
     )
   })
 

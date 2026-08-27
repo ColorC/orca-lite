@@ -67,14 +67,41 @@ export function getDocPreviewGrant(grantId: string): DocPreviewGrant | null {
   return grantsById.get(grantId) ?? null
 }
 
+/**
+ * Why anything listens at all: a grant is the only thing that names a preview's lifetime. State
+ * elsewhere in main keyed by a preview's tool target — grab intent, a queued grab chain — has no
+ * other signal telling it the surface is gone, and would otherwise accrete one entry per grant
+ * for the life of the process.
+ */
+const revocationListeners = new Set<(grantId: string) => void>()
+
+export function onDocPreviewGrantRevoked(listener: (grantId: string) => void): () => void {
+  revocationListeners.add(listener)
+  return () => revocationListeners.delete(listener)
+}
+
+function notifyRevoked(grantId: string): void {
+  for (const listener of revocationListeners) {
+    listener(grantId)
+  }
+}
+
 export function revokeDocPreviewGrant(grantId: string): boolean {
   canonicalRootByGrantId.delete(grantId)
-  return grantsById.delete(grantId)
+  const revoked = grantsById.delete(grantId)
+  if (revoked) {
+    notifyRevoked(grantId)
+  }
+  return revoked
 }
 
 export function revokeAllDocPreviewGrants(): void {
   canonicalRootByGrantId.clear()
+  const revokedIds = [...grantsById.keys()]
   grantsById.clear()
+  for (const grantId of revokedIds) {
+    notifyRevoked(grantId)
+  }
 }
 
 function hasUnsafeSegment(segments: string[]): boolean {

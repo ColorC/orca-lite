@@ -137,7 +137,7 @@ export function BrowserPageToolbar({
         active: markupIsActive,
         disabled: isBlankTab || grab.state !== 'idle',
         onToggle: () => (markupIsActive ? markupCancel() : void markupStart()),
-        surfaceActive: isActive
+        canShowDiscoveryHint: isActive
       }}
       shareControl={
         shareableArtifactFile ? (

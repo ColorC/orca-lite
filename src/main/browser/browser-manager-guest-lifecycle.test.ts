@@ -92,6 +92,41 @@ describe('browserManager', () => {
     expect(browserManager.getSessionProfileIdForTab('browser-1')).toBe('work')
   })
 
+  // Why both doors: a page id that borrowed the preview namespace would make one id resolve in two
+  // authorities, and the tool channels dispatch on exactly that prefix.
+  it.each(['registerGuest', 'registerOffscreenGuest'] as const)(
+    'refuses %s for a page id in the preview namespace',
+    (entryPoint) => {
+      const guest = {
+        id: 129,
+        isDestroyed: vi.fn(() => false),
+        getType: vi.fn(() => 'webview'),
+        setBackgroundThrottling: guestSetBackgroundThrottlingMock,
+        setWindowOpenHandler: guestSetWindowOpenHandlerMock,
+        on: guestOnMock,
+        off: guestOffMock,
+        openDevTools: guestOpenDevToolsMock
+      }
+      webContentsFromIdMock.mockReturnValue(guest)
+      browserManager.attachGuestPolicies(guest as never)
+      const browserPageId = `doc-preview-grant:${'b'.repeat(32)}`
+
+      if (entryPoint === 'registerGuest') {
+        expect(
+          browserManager.registerGuest({
+            browserPageId,
+            webContentsId: guest.id,
+            rendererWebContentsId
+          })
+        ).toBe(false)
+      } else {
+        browserManager.registerOffscreenGuest({ browserPageId, webContentsId: guest.id })
+      }
+
+      expect(browserManager.getGuestWebContentsId(browserPageId)).toBeNull()
+    }
+  )
+
   it('blocks non-web guest navigations after attach', () => {
     const guest = {
       isDestroyed: vi.fn(() => false),

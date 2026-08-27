@@ -9,6 +9,9 @@ import { getAuthorizedDocPreviewGuest } from '../browser/doc-preview-guest-polic
  * only ever reaches the preview registry, a browser page id only ever reaches the browser page
  * registry. A tool operates on a guest at the reader's initiative and grants it nothing, so
  * answering for previews here does not put them on any browser-page path.
+ *
+ * Offscreen pages (headless `orca serve`) are deliberately unresolvable here: they register no
+ * hosting renderer, and every tool channel is renderer-driven, so nothing on that host asks.
  */
 export function resolveBrowserToolTargetGuest(
   toolTargetId: string,

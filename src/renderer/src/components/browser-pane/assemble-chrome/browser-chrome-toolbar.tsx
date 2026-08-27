@@ -24,8 +24,13 @@ export type BrowserChromeMarkupTool = {
   active: boolean
   disabled: boolean
   onToggle: () => void
-  /** Whether this surface is the focused one — gates the draw-tool discovery popover. */
-  surfaceActive: boolean
+  /**
+   * Whether this surface may spend the draw tool's one-per-install discovery popover. False on a
+   * hidden pane (a portaled layer would anchor to a zero-size trigger) and false on any surface
+   * that does not own the nudge — a preview consuming it would burn the single view on a reader
+   * who came for a document, before the browsing pane ever offered it.
+   */
+  canShowDiscoveryHint: boolean
 }
 
 export type BrowserChromeToolAction = {
@@ -162,7 +167,7 @@ export function BrowserChromeToolbar({
         onClick={markup.onToggle}
         disabled={markup.disabled}
         active={markup.active}
-        surfaceActive={markup.surfaceActive}
+        surfaceActive={markup.canShowDiscoveryHint}
       />
 
       {shareControl}

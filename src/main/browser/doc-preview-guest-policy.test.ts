@@ -27,8 +27,11 @@ function installOnFakeGuest(
   send: ReturnType<typeof vi.fn>
   setWebRTCIPHandlingPolicy: ReturnType<typeof vi.fn>
   windowOpenHandler: (details: { url: string }) => { action: string }
+  /** Why without the `destroyed` event: Chromium tears the contents down before main runs it. */
+  markContentsDestroyed: () => void
 } {
   const handlers: GuestHandlers = {}
+  let contentsDestroyed = false
   const send = vi.fn()
   const isFocused = vi.fn(() => true)
   const setWebRTCIPHandlingPolicy = vi.fn()
@@ -40,7 +43,7 @@ function installOnFakeGuest(
   }
   const guest = {
     isFocused,
-    isDestroyed: () => false,
+    isDestroyed: () => contentsDestroyed,
     getURL: () => initialUrl,
     on: vi.fn(register),
     once: vi.fn(register),
@@ -57,7 +60,10 @@ function installOnFakeGuest(
     isFocused,
     send,
     setWebRTCIPHandlingPolicy,
-    windowOpenHandler: (details) => windowOpenHandler(details)
+    windowOpenHandler: (details) => windowOpenHandler(details),
+    markContentsDestroyed: () => {
+      contentsDestroyed = true
+    }
   }
 }
 
@@ -406,6 +412,16 @@ describe('doc preview guest policy', () => {
       const { grant, guest } = boundGuest()
 
       guest.handlers['destroyed']?.()
+
+      expect(getAuthorizedDocPreviewGuest(grant.id, HOST_RENDERER_ID)).toBeNull()
+    })
+
+    // Why this is separate from the destroy event: the contents die before main runs that listener,
+    // so in that window the registration still looks live and only this check refuses it.
+    it('refuses a guest whose contents died before the destroy event arrived', () => {
+      const { grant, guest } = boundGuest()
+
+      guest.markContentsDestroyed()
 
       expect(getAuthorizedDocPreviewGuest(grant.id, HOST_RENDERER_ID)).toBeNull()
     })

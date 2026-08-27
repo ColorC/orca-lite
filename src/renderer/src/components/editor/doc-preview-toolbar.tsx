@@ -21,6 +21,7 @@ export function DocPreviewToolbar({
   onReload,
   onHardReload,
   onCopyPath,
+  onCopyRelativePath,
   onOpenSource,
   onOpenExternally,
   elementTools,
@@ -35,6 +36,7 @@ export function DocPreviewToolbar({
   /** Drops the grant and mints a new one — the preview's equivalent of ignoring every cache. */
   onHardReload: () => void
   onCopyPath: () => void
+  onCopyRelativePath: () => void
   onOpenSource: () => void
   onOpenExternally: () => void
   elementTools: BrowserChromeElementTools
@@ -83,8 +85,10 @@ export function DocPreviewToolbar({
         active: markupActive,
         disabled: markupDisabled,
         onToggle: onToggleMarkup,
-        // The preview only mounts for the tab on screen, so its trigger always has real layout.
-        surfaceActive: true
+        // Why false on a surface that is plainly visible: the draw-tool nudge fires once per
+        // install, and it belongs to the browsing pane. A reader who opened a document should not
+        // be the one who spends it.
+        canShowDiscoveryHint: false
       }}
       viewSource={{
         onSelect: onOpenSource,
@@ -106,6 +110,7 @@ export function DocPreviewToolbar({
           onHardReload={onHardReload}
           onOpenSource={onOpenSource}
           onCopyPath={onCopyPath}
+          onCopyRelativePath={onCopyRelativePath}
         />
       }
     />

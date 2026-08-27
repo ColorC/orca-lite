@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { buildDocPreviewUrl, parseDocPreviewUrl } from './doc-preview-scheme'
+import {
+  buildDocPreviewUrl,
+  parseDocPreviewToolTargetId,
+  parseDocPreviewUrl,
+  toDocPreviewToolTargetId
+} from './doc-preview-scheme'
 
 const GRANT = 'a'.repeat(32)
 
@@ -41,5 +46,27 @@ describe('doc preview URLs', () => {
 
   it('rejects an undecodable percent sequence rather than passing raw bytes through', () => {
     expect(parseDocPreviewUrl(`orca-preview://${GRANT}/%E0%A4%A.html`)).toBeNull()
+  })
+})
+
+describe('preview tool target ids', () => {
+  it('round-trips a grant id', () => {
+    expect(parseDocPreviewToolTargetId(toDocPreviewToolTargetId(GRANT))).toBe(GRANT)
+  })
+
+  // Why the suffix must be validated and not just the prefix: main dispatches tool requests on this
+  // namespace, so anything it accepts here is a string a renderer can aim at the preview authority.
+  it('rejects a prefixed id whose suffix is not a grant id', () => {
+    expect(parseDocPreviewToolTargetId('doc-preview-grant:')).toBeNull()
+    expect(parseDocPreviewToolTargetId('doc-preview-grant:page-1')).toBeNull()
+    expect(parseDocPreviewToolTargetId(`doc-preview-grant:${'g'.repeat(32)}`)).toBeNull()
+    expect(parseDocPreviewToolTargetId(`doc-preview-grant:${GRANT}extra`)).toBeNull()
+    expect(parseDocPreviewToolTargetId(`doc-preview-grant:${GRANT.toUpperCase()}`)).toBeNull()
+  })
+
+  it('rejects an id that is not in the namespace at all', () => {
+    expect(parseDocPreviewToolTargetId(GRANT)).toBeNull()
+    expect(parseDocPreviewToolTargetId(`page:${GRANT}`)).toBeNull()
+    expect(parseDocPreviewToolTargetId('')).toBeNull()
   })
 })

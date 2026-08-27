@@ -89,10 +89,13 @@ export function registerBrowserGuestViewHandlers(): void {
       // Why resolve here: this is a tool acting on a guest the reader is looking at, so it answers
       // for a doc preview too — and routing through the shared authority also pins the request to
       // the renderer that owns the target, which page-id-only resolution never checked.
-      const guest = resolveBrowserToolTargetGuest(args.browserPageId, event.sender.id)
-      if (!guest) {
+      const resolveGuest = (): Electron.WebContents | null =>
+        resolveBrowserToolTargetGuest(args.browserPageId, event.sender.id)
+      if (!resolveGuest()) {
         return false
       }
+      // Why hand over the resolver rather than that guest: the op is serialized per tab, and the
+      // one it finally runs against must be the one on screen then, not the one this request saw.
       return browserManager.setAnnotationViewportBridge(
         args.browserPageId,
         {
@@ -101,7 +104,7 @@ export function registerBrowserGuestViewHandlers(): void {
           markers: args.markers,
           token: args.token
         },
-        guest
+        resolveGuest
       )
     }
   )

@@ -14773,7 +14773,8 @@
           "workspaceFileChipLabel": "Workspace file",
           "previewMenuControl": "Preview options",
           "openSourceControl": "Open source file",
-          "openExternallyControl": "Open with default app"
+          "openExternallyControl": "Open with default app",
+          "copyDocumentRelativePathControl": "Copy relative path"
         }
       },
       "diff": {

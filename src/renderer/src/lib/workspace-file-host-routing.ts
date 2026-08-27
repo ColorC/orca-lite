@@ -1,4 +1,4 @@
-import { getConnectionId } from '@/lib/connection-context'
+import { getConnectionId, getConnectionIdForFile } from '@/lib/connection-context'
 import {
   isRemoteRuntimeFileOperation,
   type RuntimeFileOperationArgs
@@ -18,6 +18,23 @@ export function buildWorkspaceFileContext(
     worktreeId: worktreeId || null,
     worktreePath,
     connectionId: getConnectionId(worktreeId || null) ?? undefined
+  }
+}
+
+/**
+ * Same, for a surface that already resolved ownership per file rather than per workspace. A folder
+ * workspace can span repos on different hosts, so its workspace-scoped answer is `undefined` where
+ * the file's own answer is a concrete host — and `undefined` reads downstream as "local".
+ */
+export function buildWorkspaceFileContextForFile(
+  worktreeId: string,
+  worktreePath: string,
+  filePath: string,
+  runtimeEnvironmentId?: string | null
+): RuntimeFileOperationArgs {
+  return {
+    ...buildWorkspaceFileContext(worktreeId, worktreePath, runtimeEnvironmentId),
+    connectionId: getConnectionIdForFile(worktreeId || null, filePath) ?? undefined
   }
 }
 

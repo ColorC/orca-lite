@@ -17,12 +17,15 @@ export function DocPreviewOverflowMenu({
   onReload,
   onHardReload,
   onOpenSource,
-  onCopyPath
+  onCopyPath,
+  onCopyRelativePath
 }: {
   onReload: () => void
   onHardReload: () => void
   onOpenSource: () => void
   onCopyPath: () => void
+  /** Why it lives here: the preview hides the editor's path header, which was the only way to copy it. */
+  onCopyRelativePath: () => void
 }): React.JSX.Element {
   return (
     <DropdownMenu>
@@ -55,7 +58,17 @@ export function DocPreviewOverflowMenu({
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={onCopyPath}>
           <Copy className="size-3.5" />
-          {translate('auto.components.editor.HtmlDocPreview.copyDocumentPathControl', 'Copy file path')}
+          {translate(
+            'auto.components.editor.HtmlDocPreview.copyDocumentPathControl',
+            'Copy file path'
+          )}
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={onCopyRelativePath}>
+          <Copy className="size-3.5" />
+          {translate(
+            'auto.components.editor.HtmlDocPreview.copyDocumentRelativePathControl',
+            'Copy relative path'
+          )}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

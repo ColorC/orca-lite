@@ -260,6 +260,7 @@ export function HtmlDocPreview({
         onReload={handleReload}
         onHardReload={handleHardReload}
         onCopyPath={() => void window.api.ui.writeClipboardText(identity.absolutePath)}
+        onCopyRelativePath={() => void window.api.ui.writeClipboardText(relativePath)}
         onOpenSource={() => openDocPreviewSource(previewDocument)}
         onOpenExternally={() => openDocPreviewExternally(previewDocument)}
         elementTools={elementTools}

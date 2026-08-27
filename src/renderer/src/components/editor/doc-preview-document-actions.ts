@@ -1,6 +1,7 @@
+import { getConnectionIdForFileFromState } from '@/lib/connection-owner-resolution'
 import { detectLanguage } from '@/lib/language-detect'
 import {
-  buildWorkspaceFileContext,
+  buildWorkspaceFileContextForFile,
   canClientOsOpenWorkspaceFile
 } from '@/lib/workspace-file-host-routing'
 import { useAppStore } from '@/store'
@@ -38,14 +39,28 @@ export function openDocPreviewSource(document: DocPreviewDocument): void {
  * the terminal's "Download & open with default app" does.
  */
 export function openDocPreviewExternally(document: DocPreviewDocument): void {
-  const worktreeRoot =
-    useAppStore.getState().getKnownWorktreeById(document.worktreeId)?.path ?? null
-  const fileContext = buildWorkspaceFileContext(
+  const state = useAppStore.getState()
+  const worktreeRoot = state.getKnownWorktreeById(document.worktreeId)?.path ?? null
+  // Why the per-file resolver: this is the same document the grant authorized, and that grant was
+  // minted against the file's own owner. A folder workspace spanning hosts answers `undefined`
+  // workspace-wide, which downstream reads as local — the OS would then be handed a remote
+  // absolute path and either do nothing or open an unrelated file of the same name.
+  const connectionId = getConnectionIdForFileFromState(
+    state,
+    document.worktreeId,
+    document.filePath
+  )
+  const fileContext = buildWorkspaceFileContextForFile(
     document.worktreeId,
     worktreeRoot ?? '',
+    document.filePath,
     document.runtimeEnvironmentId
   )
-  if (canClientOsOpenWorkspaceFile(fileContext, document.filePath)) {
+  // Why the extra conditions rather than the shared predicate alone: it reads an unresolved owner
+  // and an unknown workspace root as "local", and both are states a preview really reaches. Only a
+  // document proven to live on this machine goes to the OS; everything else downloads first.
+  const ownedByThisMachine = connectionId === null && worktreeRoot !== null
+  if (ownedByThisMachine && canClientOsOpenWorkspaceFile(fileContext, document.filePath)) {
     void window.api.shell.openFilePath(document.filePath)
     return
   }

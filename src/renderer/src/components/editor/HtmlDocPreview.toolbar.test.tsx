@@ -11,6 +11,8 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { acquireWebviewsDragPassthrough } from '@/components/browser-pane/host-guest/webview-drag-passthrough'
 
 const GRANT_ID = 'a'.repeat(32)
+// The draw-tool hint's own storage key; the hook that owns it keeps it private.
+const MARKUP_DRAW_HINT_SEEN_KEY = 'orca.browser.markup-draw-hint-seen'
 const ENTRY_RELATIVE_PATH = 'docs/reports/index.html'
 const ABSOLUTE_PATH = '/repo/docs/reports/index.html'
 
@@ -56,7 +58,12 @@ const store = vi.hoisted(() => ({
 // preview at all — the client OS has no copy of it.
 vi.mock('@/lib/connection-context', () => ({
   getConnectionId: () => 'ssh-1',
+  getConnectionIdForFile: () => 'ssh-1',
   getConnectionIdFromState: () => 'ssh-1'
+}))
+
+vi.mock('@/lib/connection-owner-resolution', () => ({
+  getConnectionIdForFileFromState: () => 'ssh-1'
 }))
 
 vi.mock('@/components/terminal-pane/terminal-remote-file-download-open', () => ({
@@ -388,5 +395,39 @@ describe('HtmlDocPreview browser chrome', () => {
       expect(store.downloads).toEqual([ABSOLUTE_PATH])
       expect(osOpens).toEqual([])
     })
+
+    // Why the storage flag and not the popover: the nudge fires once per install, and the harm is
+    // consuming that one view — a reader who opened a document would spend the browsing pane's
+    // introduction to a tool they were not shown.
+    it('never spends the once-per-install draw-tool hint', async () => {
+      window.localStorage.removeItem(MARKUP_DRAW_HINT_SEEN_KEY)
+
+      await renderPreview(container, root)
+
+      expect(window.localStorage.getItem(MARKUP_DRAW_HINT_SEEN_KEY)).toBeNull()
+    })
+  })
+
+  // Why it has to be somewhere: the preview hides the editor's path header, and the relative path
+  // was only ever copyable from there — the chip and the menu both give the absolute one.
+  it('still offers the workspace-relative path the hidden editor header used to copy', async () => {
+    await renderPreview(container, root)
+
+    await act(async () => {
+      // Why not click(): the Radix trigger opens on pointerdown, which happy-dom does not synthesize.
+      button(container, 'Preview options').dispatchEvent(
+        new window.PointerEvent('pointerdown', { bubbles: true, button: 0 })
+      )
+    })
+    const relativeCopy = [...document.querySelectorAll('[role="menuitem"]')].find((item) =>
+      item.textContent?.includes('Copy relative path')
+    )
+    expect(relativeCopy).toBeDefined()
+
+    await act(async () => {
+      ;(relativeCopy as HTMLElement).click()
+    })
+
+    expect(clipboard.writes).toEqual([ENTRY_RELATIVE_PATH])
   })
 })
