@@ -97,8 +97,9 @@ import { MAX_QUICK_COMMANDS } from '../../shared/terminal-quick-commands'
 import {
   AGENT_PROMPT_BRACKETED_PASTE_END,
   AGENT_PROMPT_BRACKETED_PASTE_START,
-  AGENT_PROMPT_SUBMIT_DELAY_MS,
-  buildAgentPromptPasteBytes
+  buildAgentPromptPasteBytes,
+  getAgentPromptSubmitDelayMs,
+  getTerminalPasteIngestMs
 } from '../../shared/agent-prompt-injection'
 import { CLIPBOARD_TEXT_MEASURE_YIELD_CODE_UNITS } from '../../shared/clipboard-text'
 import { projectHostSetupProjectionFromRepos } from '../../shared/project-host-setup-projection'
@@ -1049,6 +1050,17 @@ const TEST_REPO_ID = 'repo-1'
 const TEST_REPO_PATH = '/tmp/repo'
 const TEST_WORKTREE_PATH = '/tmp/worktree-a'
 const TEST_WORKTREE_ID = `${TEST_REPO_ID}::${TEST_WORKTREE_PATH}`
+/** The render gate's hard cap bounds the wait *after* the paste lands, so it carries the
+ *  payload's ingest bound on top of the flat 8 s settlement budget. */
+function renderGateCapMs(prompt: string): number {
+  return (
+    8_000 +
+    getTerminalPasteIngestMs(
+      process.platform,
+      Buffer.byteLength(buildAgentPromptPasteBytes(prompt), 'utf8')
+    )
+  )
+}
 const TEST_FOLDER_PROJECT_GROUP_ID = 'folder-project-group-1'
 const TEST_FOLDER_WORKSPACE_ID = 'folder-workspace-1'
 const TEST_FOLDER_WORKSPACE_KEY = `folder:${TEST_FOLDER_WORKSPACE_ID}`
@@ -11801,6 +11813,50 @@ describe('OrcaRuntimeService', () => {
     })
   })
 
+  it('binds shell ownership evidence to the headless snapshot sequence', async () => {
+    const runtime = createRuntime()
+    let resolveConfirmation: ((confirmed: boolean) => void) | undefined
+    const confirmShellForeground = vi.fn(
+      () => new Promise<boolean>((resolve) => void (resolveConfirmation = resolve))
+    )
+    runtime.setPtyController({
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null,
+      confirmShellForeground
+    })
+    syncSinglePty(runtime, 'pty-1')
+
+    runtime.onPtyData('pty-1', '\x1b[?1049hTUI\x1b]133;D;137\x07shell-marker', 100)
+    const shellSnapshotPromise = runtime.serializeHiddenOutputRecoveryBuffer('pty-1')
+    await vi.waitFor(() => expect(confirmShellForeground).toHaveBeenCalledTimes(1))
+    let snapshotSettled = false
+    void shellSnapshotPromise.then(() => {
+      snapshotSettled = true
+    })
+    await Promise.resolve()
+    expect(snapshotSettled).toBe(false)
+
+    resolveConfirmation?.(true)
+    const shellSnapshot = await shellSnapshotPromise
+    // Why alternateScreen stays true here: the mirror never rewrites its own
+    // model — without a daemon barrier injecting the reset in-stream (direct
+    // provider path), the snapshot publishes the poisoned mode alongside the
+    // proof and the renderer's dead-TUI branch grounds the pane.
+    expect(shellSnapshot).toMatchObject({
+      alternateScreen: true,
+      terminalOwner: 'shell',
+      seq: '\x1b[?1049hTUI\x1b]133;D;137\x07shell-marker'.length
+    })
+    expect(confirmShellForeground).toHaveBeenCalledTimes(1)
+
+    runtime.onPtyData('pty-1', '\x1b]133;C\x07\x1b[?1049hLIVE-TUI', 101)
+    const liveSnapshot = await runtime.serializeHiddenOutputRecoveryBuffer('pty-1')
+
+    expect(liveSnapshot?.alternateScreen).toBe(true)
+    expect(liveSnapshot?.terminalOwner).toBeUndefined()
+  })
+
   it('keeps an empty headless snapshot authoritative for hidden-output recovery', async () => {
     const serializeBuffer = vi.fn().mockResolvedValue({
       data: 'stale renderer content\r\n',
@@ -11827,6 +11883,7 @@ describe('OrcaRuntimeService', () => {
       }
       outputSequence: number
       writeChain: Promise<void>
+      ownership: { settle: () => Promise<void>; owner: undefined }
     }
     const runtimePrivate = runtime as unknown as {
       headlessTerminals: Map<string, HeadlessStateForTest>
@@ -11837,7 +11894,8 @@ describe('OrcaRuntimeService', () => {
         getSnapshot: () => ({ rehydrateSequences: '', snapshotAnsi: '', cols: 90, rows: 30 })
       },
       outputSequence: 17,
-      writeChain: Promise.resolve()
+      writeChain: Promise.resolve(),
+      ownership: { settle: async () => {}, owner: undefined }
     })
 
     await expect(runtime.serializeHiddenOutputRecoveryBuffer('pty-empty')).resolves.toEqual({
@@ -17490,7 +17548,7 @@ describe('OrcaRuntimeService', () => {
     (Object.keys(TUI_AGENT_CONFIG) as TuiAgent[]).filter(
       (agent) => agent !== 'claude' && agent !== 'codex'
     )
-  )('preserves the legacy fixed submit delay for %s', async (agent) => {
+  )('holds Enter for the full open-loop submit delay for %s', async (agent) => {
     vi.useFakeTimers()
     try {
       const writes: string[] = []
@@ -17509,8 +17567,12 @@ describe('OrcaRuntimeService', () => {
         launchAgent: agent
       })
 
+      const submitDelayMs = getAgentPromptSubmitDelayMs(
+        process.platform,
+        Buffer.byteLength(buildAgentPromptPasteBytes('review this change'), 'utf8')
+      )
       const sendPromise = runtime.sendTerminalAgentPrompt(handle, 'review this change')
-      await vi.advanceTimersByTimeAsync(AGENT_PROMPT_SUBMIT_DELAY_MS - 1)
+      await vi.advanceTimersByTimeAsync(submitDelayMs - 1)
       expect(writes).not.toContain('\r')
 
       await vi.advanceTimersByTimeAsync(1)
@@ -17581,7 +17643,7 @@ describe('OrcaRuntimeService', () => {
       })
 
       const sendPromise = runtime.sendTerminalAgentPrompt(handle, 'review this change')
-      await vi.advanceTimersByTimeAsync(7_999)
+      await vi.advanceTimersByTimeAsync(renderGateCapMs('review this change') - 1)
       expect(writes).not.toContain('\r')
 
       await vi.advanceTimersByTimeAsync(1)
@@ -17662,7 +17724,9 @@ describe('OrcaRuntimeService', () => {
       })
 
       const sendPromise = runtime.sendTerminalAgentPrompt(handle, 'review this change')
-      await vi.advanceTimersByTimeAsync(8_099)
+      // The marker at 100 ms re-arms the cap, but the ingest term is absolute: a prompt this
+      // small is already ingested by then, so the fallback is one flat render timeout later.
+      await vi.advanceTimersByTimeAsync(100 + 8_000 - 1)
       expect(writes).not.toContain('\r')
 
       await vi.advanceTimersByTimeAsync(1)

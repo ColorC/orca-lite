@@ -100,11 +100,13 @@ import {
 import {
   AGENT_PROMPT_BRACKETED_PASTE_END,
   AGENT_PROMPT_SUBMIT,
-  AGENT_PROMPT_SUBMIT_DELAY_MS,
-  buildAgentPromptPasteBytes
+  buildAgentPromptPasteBytes,
+  getAgentPromptSubmitDelayMs,
+  getTerminalPasteIngestMs
 } from '../../shared/agent-prompt-injection'
 import {
   type AgentPromptActivity,
+  resolveAgentPromptEffectTimeoutMs,
   verifyAgentPromptSubmission
 } from './agent-prompt-submission-verification'
 import {
@@ -653,6 +655,7 @@ import {
   REMOTE_RUNTIME_SHARED_CONTROL_CAPABILITY,
   RUNTIME_CAPABILITIES,
   RUNTIME_PROTOCOL_VERSION,
+  SESSION_TABS_AUTHORITATIVE_INVENTORY_RUNTIME_CAPABILITY,
   TERMINAL_PAIRED_PARKING_RUNTIME_CAPABILITY,
   type RuntimeCapability
 } from '../../shared/protocol-version'
@@ -660,6 +663,7 @@ import {
   configureAiVaultSessionSources,
   listAiVaultSessions
 } from '../ai-vault/cached-session-list'
+import { configureHostReadableTranscriptPathSources } from '../native-chat/host-readable-transcript-path'
 import { resolveLocalAiVaultSessionTitles } from '../ai-vault/session-title-resolver'
 import type { AiVaultListArgs, AiVaultListResult } from '../../shared/ai-vault-types'
 import type {
@@ -1196,6 +1200,7 @@ import {
 } from '../ipc/watcher-removal-drain'
 import { withWorktreeSpan } from '../observability/instrumentation'
 import { HeadlessEmulator } from '../daemon/headless-emulator'
+import { PtyShellOwnershipMirror } from './pty-shell-ownership-mirror'
 import {
   isNativeWindowsConptyPty,
   registerConptyDa1OverrideInstaller,
@@ -1860,6 +1865,7 @@ type RuntimeHeadlessTerminal = {
   // the seq actually painted into this emulator, not the latest PTY seq.
   outputSequence: number
   writeChain: Promise<void>
+  ownership: PtyShellOwnershipMirror
 }
 
 export type RuntimePtyDataAdmission = Readonly<{
@@ -1913,6 +1919,7 @@ type RuntimeTerminalBufferSnapshot = {
   /** Effective kitty flags proven at this snapshot's own `seq`. Absent means
    *  the winning source could not prove them. */
   kittyKeyboardFlags?: number
+  terminalOwner?: 'shell'
 }
 
 type HeadlessSeedMetadata = {
@@ -1924,6 +1931,7 @@ type HeadlessSeedMetadata = {
    *  emulator so hidden `CSI ? u` answers the real flags instead of ?0u
    *  (terminal-query-authority.md §kitty). */
   kittyKeyboardFlags?: number
+  terminalOwner?: 'shell'
 }
 
 type RuntimePtyController = {
@@ -2019,6 +2027,7 @@ type RuntimePtyController = {
     ptyId: string
   ): Promise<{ foregroundProcess: string | null; hasChildProcesses: boolean; unavailable?: true }>
   confirmForegroundProcess?(ptyId: string): Promise<string | null>
+  confirmShellForeground?(ptyId: string): Promise<boolean>
   hasChildProcesses?(ptyId: string): Promise<boolean>
   clearBuffer?(ptyId: string): Promise<void>
   resize?(ptyId: string, cols: number, rows: number): boolean
@@ -2120,6 +2129,10 @@ const FOREGROUND_AGENT_WRAPPER_RETRY_TIMEOUT_MS = 6_500
 const BRACKETED_PASTE_BEGIN = '\x1b[200~'
 const BRACKETED_PASTE_END = '\x1b[201~'
 const BRACKETED_PASTE_QUIET_MS = 1500
+// Why: both are windows *after* the paste is ingested, so each is added to the
+// payload's ingest bound rather than standing in for it (see getTerminalPasteIngestMs).
+// The quiet window stays at 1500: nothing measured describes an agent's post-paste
+// redraw cadence, and a shorter window submits mid-redraw.
 const AGENT_PROMPT_RENDER_TIMEOUT_MS = 8000
 const AGENT_PROMPT_RENDER_QUIET_MS = 1500
 // Why: Claude and Codex emit show-cursor after accepting bracketed paste.
@@ -2160,6 +2173,19 @@ async function waitForAgentPromptPromise<T>(promise: Promise<T>, signal?: AbortS
       (value) => finish({ value }),
       (error: unknown) => finish({ error })
     )
+  })
+}
+
+// Why not setTimeout(0): it costs a full ~15.19 ms Windows timer tick per chunk (~0.95 s/MB)
+// and never bought backpressure -- 16 KiB per tick paces ~1.07 MB/s, 11x above ConPTY's
+// ~96 KB/s drain, so the in-flight buffer grew regardless. setImmediate keeps the only thing
+// the yield actually did (let abort/permission/data callbacks run between chunks) at ~0.01 ms,
+// and TERMINAL_INPUT_MAX_BYTES still bounds what can be in flight either way.
+// Why the global and not node:timers/promises: only the global is intercepted by fake timers,
+// so a chunked paste stays observable on the test clock.
+function yieldBetweenTerminalInputChunks(): Promise<void> {
+  return new Promise<void>((resolve) => {
+    setImmediate(resolve)
   })
 }
 
@@ -3229,7 +3255,8 @@ export class OrcaRuntimeService {
   // reconnect-scan bounding for sequential soft freezes.
   private readonly terminalFocusNavigationCoalescer =
     new TerminalFocusNavigationCoalescer<RuntimeTerminalFocus>()
-  private pendingMobileSessionPtyInventoryRefresh: Promise<Set<string> | null> | null = null
+  private pendingMobileSessionPtyAggregateInventoryRefresh: Promise<PtyControllerInventory | null> | null =
+    null
   private leaves = new Map<string, RuntimeLeafRecord>()
   // Why: PTY output is a per-keystroke hot path. Looking up affected leaves by
   // ptyId keeps active TUI redraws independent of the total open terminal count.
@@ -3244,6 +3271,8 @@ export class OrcaRuntimeService {
   private syntheticTerminalHandles = new Set<string>()
   private detachedPreAllocatedLeaves = new Map<string, RuntimeLeafRecord>()
   private graphSyncCallbacks: (() => void)[] = []
+  private sessionTabsInventoryPublicationEpoch: number | null = null
+  private sessionTabsInventoryWaiters = new Set<() => void>()
   private waitersByHandle = new Map<string, Set<TerminalWaiter>>()
   private ptyExitListenersByPtyId = new Map<string, Set<() => void>>()
   private ptyController: RuntimePtyController | null = null
@@ -3879,6 +3908,9 @@ export class OrcaRuntimeService {
     // even on headless `orca serve` hosts where registerCoreHandlers never runs.
     if (deps?.getAdditionalAiVaultCodexHomePaths) {
       configureAiVaultSessionSources({
+        getAdditionalCodexHomePaths: deps.getAdditionalAiVaultCodexHomePaths
+      })
+      configureHostReadableTranscriptPathSources({
         getAdditionalCodexHomePaths: deps.getAdditionalAiVaultCodexHomePaths
       })
     }
@@ -6421,7 +6453,9 @@ export class OrcaRuntimeService {
         (process.env.ORCA_E2E_DISABLE_RUNTIME_SHARED_CONTROL !== '1' ||
           capability !== REMOTE_RUNTIME_SHARED_CONTROL_CAPABILITY) &&
         (process.env.ORCA_E2E_DISABLE_PAIRED_TERMINAL_PARKING !== '1' ||
-          capability !== TERMINAL_PAIRED_PARKING_RUNTIME_CAPABILITY)
+          capability !== TERMINAL_PAIRED_PARKING_RUNTIME_CAPABILITY) &&
+        (process.env.ORCA_E2E_DISABLE_AUTHORITATIVE_SESSION_TABS_INVENTORY !== '1' ||
+          capability !== SESSION_TABS_AUTHORITATIVE_INVENTORY_RUNTIME_CAPABILITY)
     )
     if (hasOffscreen || hasHeadlessCommands) {
       capabilities.push(BROWSER_HEADLESS_RUNTIME_CAPABILITY)
@@ -7299,7 +7333,19 @@ export class OrcaRuntimeService {
         this.mobileSessionTabsNotifyCoalescer.schedule(worktreeId)
       }
     }
+    // Why: only the authoritative window grants inventory authority; headless qualifies because it becomes authoritative before its next sync.
+    const isAuthoritativeGraphPublisher = windowId === this.authoritativeWindowId
     this.markGraphReady(windowId)
+    if (
+      isAuthoritativeGraphPublisher &&
+      (windowId === HEADLESS_RUNTIME_WINDOW_ID || graph.mobileSessionTabs !== undefined)
+    ) {
+      if (mobileSessionResyncWorktrees.size === 0) {
+        this.markSessionTabsInventoryPublished()
+      } else {
+        this.sessionTabsInventoryPublicationEpoch = null
+      }
+    }
     if (rendererGeneration !== undefined) {
       this.rendererGeneration = rendererGeneration
     }
@@ -7411,6 +7457,13 @@ export class OrcaRuntimeService {
   async listAllMobileSessionTabs(
     clientNavigationId?: string
   ): Promise<RuntimeMobileSessionTabsResult[]> {
+    return (await this.collectAllMobileSessionTabs(clientNavigationId)).snapshots
+  }
+
+  private async collectAllMobileSessionTabs(clientNavigationId?: string): Promise<{
+    snapshots: RuntimeMobileSessionTabsResult[]
+    ptyInventory: PtyControllerInventory | null
+  }> {
     for (const worktreeId of this.getKnownWorkspaceSessionWorktreeIds()) {
       this.hydrateHeadlessMobileSessionTabsFromWorkspaceSession(worktreeId, {
         allowAttachedWindow: true,
@@ -7418,13 +7471,132 @@ export class OrcaRuntimeService {
       })
     }
     this.hydrateHeadlessMobileSessionTabsFromWorkspaceSession()
-    await this.refreshMobileSessionPtyRecords()
-    return [...this.mobileSessionTabsByWorktree.values()].map((snapshot) =>
-      this.projectMobileSessionTabsForClient(
-        this.toMobileSessionTabsResult(snapshot),
-        clientNavigationId
-      )
-    )
+    const ptyInventory = await this.refreshMobileSessionPtyInventory()
+    this.restoreLivePairedRendererSessionOwnedMobileTerminals(null)
+    return {
+      snapshots: [...this.mobileSessionTabsByWorktree.values()].map((snapshot) =>
+        this.projectMobileSessionTabsForClient(
+          this.toMobileSessionTabsResult(snapshot),
+          clientNavigationId
+        )
+      ),
+      ptyInventory
+    }
+  }
+
+  async listAllMobileSessionTabsInventory(
+    clientNavigationId?: string,
+    signal?: AbortSignal
+  ): Promise<{ snapshots: RuntimeMobileSessionTabsResult[]; authoritative?: true }> {
+    this.assertSessionTabsInventoryRequestActive(signal)
+    const primedPublicationEpoch = this.getAuthoritativeSessionTabsInventoryEpoch()
+    const primed = await this.collectAllMobileSessionTabs(clientNavigationId)
+    this.assertSessionTabsInventoryRequestActive(signal)
+    if (
+      primedPublicationEpoch !== null &&
+      this.getAuthoritativeSessionTabsInventoryEpoch() === primedPublicationEpoch
+    ) {
+      return await this.settleSessionTabsInventory(primed, clientNavigationId, signal)
+    }
+    while (true) {
+      const publicationEpoch = this.getAuthoritativeSessionTabsInventoryEpoch()
+      if (publicationEpoch === null) {
+        await this.waitForSessionTabsInventoryPublication(signal)
+        continue
+      }
+      const inventory = await this.collectAllMobileSessionTabs(clientNavigationId)
+      this.assertSessionTabsInventoryRequestActive(signal)
+      if (this.getAuthoritativeSessionTabsInventoryEpoch() === publicationEpoch) {
+        return await this.settleSessionTabsInventory(inventory, clientNavigationId, signal)
+      }
+    }
+  }
+
+  // Why: a failed census only invalidates the emptiness verdict, never the
+  // list. An incomplete census usually means a concurrent scan invalidated
+  // this one mid-relaunch and daemon-backed tabs could not be restored yet, so
+  // retry the collection once; a still-incomplete retry serves its snapshots
+  // unlabeled rather than erroring the request.
+  private async settleSessionTabsInventory(
+    inventory: {
+      snapshots: RuntimeMobileSessionTabsResult[]
+      ptyInventory: PtyControllerInventory | null
+    },
+    clientNavigationId?: string,
+    signal?: AbortSignal
+  ): Promise<{ snapshots: RuntimeMobileSessionTabsResult[]; authoritative?: true }> {
+    if (this.isCompleteSessionTabsPtyCensus(inventory.ptyInventory)) {
+      return { snapshots: inventory.snapshots, authoritative: true }
+    }
+    const retried = await this.collectAllMobileSessionTabs(clientNavigationId)
+    this.assertSessionTabsInventoryRequestActive(signal)
+    // Why: the retry ran outside the epoch fence, so it never claims authority.
+    return { snapshots: retried.snapshots }
+  }
+
+  supportsAuthoritativeSessionTabsInventory(): boolean {
+    return process.env.ORCA_E2E_DISABLE_AUTHORITATIVE_SESSION_TABS_INVENTORY !== '1'
+  }
+
+  private assertSessionTabsInventoryRequestActive(signal?: AbortSignal): void {
+    if (signal?.aborted) {
+      throw new Error('client_disconnected')
+    }
+  }
+
+  private isCompleteSessionTabsPtyCensus(inventory: PtyControllerInventory | null): boolean {
+    if (!inventory) {
+      return false
+    }
+    const knownHostIds = this.listKnownExecutionHostIds(inventory.queriedHostIds)
+    return ![...knownHostIds].some((hostId) => {
+      const parsed = parseExecutionHostId(hostId)
+      return parsed?.kind !== 'runtime' && !inventory.queriedHostIds.has(hostId)
+    })
+  }
+
+  private waitForSessionTabsInventoryPublication(signal?: AbortSignal): Promise<void> {
+    if (this.getAuthoritativeSessionTabsInventoryEpoch() !== null) {
+      return Promise.resolve()
+    }
+    return new Promise<void>((resolve, reject) => {
+      const cleanup = (): void => {
+        this.sessionTabsInventoryWaiters.delete(onPublished)
+        signal?.removeEventListener('abort', onAbort)
+      }
+      const onPublished = (): void => {
+        cleanup()
+        resolve()
+      }
+      const onAbort = (): void => {
+        cleanup()
+        reject(new Error('client_disconnected'))
+      }
+      this.sessionTabsInventoryWaiters.add(onPublished)
+      signal?.addEventListener('abort', onAbort, { once: true })
+      if (signal?.aborted) {
+        onAbort()
+      } else if (this.getAuthoritativeSessionTabsInventoryEpoch() !== null) {
+        onPublished()
+      }
+    })
+  }
+
+  private getAuthoritativeSessionTabsInventoryEpoch(): number | null {
+    return this.graphStatus === 'ready' &&
+      this.sessionTabsInventoryPublicationEpoch === this.rendererGraphEpoch
+      ? this.rendererGraphEpoch
+      : null
+  }
+
+  private markSessionTabsInventoryPublished(): void {
+    if (this.sessionTabsInventoryPublicationEpoch === this.rendererGraphEpoch) {
+      return
+    }
+    this.sessionTabsInventoryPublicationEpoch = this.rendererGraphEpoch
+    for (const publish of [...this.sessionTabsInventoryWaiters]) {
+      publish()
+    }
   }
 
   private hydrateHeadlessMobileSessionTabsFromWorkspaceSession(
@@ -9157,19 +9329,29 @@ export class OrcaRuntimeService {
   private async refreshMobileSessionPtyRecords(
     targetWorktreeId: string | null = null
   ): Promise<Set<string> | null> {
+    const inventory = await this.refreshMobileSessionPtyInventory(targetWorktreeId)
+    return inventory ? new Set(inventory.livePtyIds) : null
+  }
+
+  private async refreshMobileSessionPtyInventory(
+    targetWorktreeId: string | null = null
+  ): Promise<PtyControllerInventory | null> {
     if (targetWorktreeId !== FLOATING_TERMINAL_WORKTREE_ID) {
-      const pending = this.pendingMobileSessionPtyInventoryRefresh
+      // Non-floating refreshes all query the aggregate controller inventory;
+      // coalesce targeted and all-worktree callers so they cannot invalidate
+      // one another through the shared aggregate generation fence.
+      const pending = this.pendingMobileSessionPtyAggregateInventoryRefresh
       if (pending) {
         return pending
       }
       // Why: reconnect exit bursts share one authoritative daemon inventory
       // instead of multiplying a full cross-generation list RPC per stale tab.
       const refresh = this.performMobileSessionPtyRecordsRefresh(targetWorktreeId).finally(() => {
-        if (this.pendingMobileSessionPtyInventoryRefresh === refresh) {
-          this.pendingMobileSessionPtyInventoryRefresh = null
+        if (this.pendingMobileSessionPtyAggregateInventoryRefresh === refresh) {
+          this.pendingMobileSessionPtyAggregateInventoryRefresh = null
         }
       })
-      this.pendingMobileSessionPtyInventoryRefresh = refresh
+      this.pendingMobileSessionPtyAggregateInventoryRefresh = refresh
       return refresh
     }
     return await this.performMobileSessionPtyRecordsRefresh(targetWorktreeId)
@@ -9177,14 +9359,14 @@ export class OrcaRuntimeService {
 
   private async performMobileSessionPtyRecordsRefresh(
     targetWorktreeId: string | null
-  ): Promise<Set<string> | null> {
+  ): Promise<PtyControllerInventory | null> {
     if (!this.ptyController?.listProcesses && !this.ptyController?.hasPty) {
       return null
     }
     // Why: floating PTY identity is explicit, so polling must not resolve every Git/SSH worktree.
     const isFloatingWorkspace = targetWorktreeId === FLOATING_TERMINAL_WORKTREE_ID
     const resolvedWorktrees = isFloatingWorkspace ? [] : await this.listResolvedWorktrees()
-    return await this.refreshPtyWorktreeRecordsFromController(
+    return await this.refreshPtyWorktreeRecordsWithControllerInventory(
       resolvedWorktrees,
       isFloatingWorkspace ? targetWorktreeId : null
     )
@@ -13127,6 +13309,7 @@ export class OrcaRuntimeService {
     oscLinks?: TerminalOscLinkRange[]
     alternateScreen?: boolean
     scrollbackAnsi?: string
+    terminalOwner?: 'shell'
   } | null> {
     return this.serializeHeadlessTerminalBuffer(ptyId, { ...opts, includeEmpty: true })
   }
@@ -13147,6 +13330,7 @@ export class OrcaRuntimeService {
     alternateScreen?: boolean
     scrollbackAnsi?: string
     pendingEscapeTailAnsi?: string
+    terminalOwner?: 'shell'
   } | null> {
     const headlessSnapshot = await this.serializeHeadlessTerminalBuffer(ptyId, {
       ...opts,
@@ -13247,6 +13431,12 @@ export class OrcaRuntimeService {
         if (metadata.oscLinks !== undefined) {
           state.emulator.setRestoredOscLinks(metadata.oscLinks)
         }
+        // Why derived from the emulator: the seed bytes bypass ownership.scan,
+        // so the scanner must inherit the restored alternate-screen state or a
+        // pane seeded mid-TUI never arms its recovery trigger.
+        state.ownership.seedOwner(metadata.terminalOwner, {
+          alternateScreen: state.emulator.isAlternateScreen
+        })
         this.providerSnapshotPreferredPtys.delete(ptyId)
       })
       .catch(() => {
@@ -13354,6 +13544,9 @@ export class OrcaRuntimeService {
         // (they feed main's tracker only), so its serializer lastTitle can be
         // stale here. Prefer main's tracked title; the renderer's is only the
         // seed when main has observed none (fresh relaunch, cold tracker).
+        state.ownership.seedOwner(undefined, {
+          alternateScreen: state.emulator.isAlternateScreen
+        })
         const seedTitle = this.getTrackedRawTitleForPty(ptyId) ?? rendered.lastTitle
         if (seedTitle) {
           state.emulator.setLastTitle(seedTitle)
@@ -13429,6 +13622,9 @@ export class OrcaRuntimeService {
     const completion = state.writeChain.then(async () => {
       // Why: the ingestion-time ownership decision is closed over this
       // chain link; async scheduling cannot retroactively change it.
+      // Why inside the chain: the ownership mirror must observe live bytes in
+      // the same total order as seeds (seedOwner also runs on this chain).
+      state.ownership.scan(data)
       await state.emulator.write(data, { forwardQueryReplies })
       state.outputSequence = outputSequence
     })
@@ -13488,7 +13684,28 @@ export class OrcaRuntimeService {
     if (viewAttributes) {
       emulator.applyPushedViewAttributes(viewAttributes)
     }
-    state = { emulator, outputSequence: 0, writeChain: Promise.resolve() }
+    const constructed: RuntimeHeadlessTerminal = {
+      emulator,
+      outputSequence: 0,
+      writeChain: Promise.resolve(),
+      ownership: new PtyShellOwnershipMirror(async () => {
+        const controller = this.ptyController
+        const lifecycleGeneration = this.getPtyLifecycleGeneration(ptyId)
+        if (
+          !controller?.confirmShellForeground ||
+          this.headlessTerminals.get(ptyId) !== constructed
+        ) {
+          return false
+        }
+        const confirmed = await controller.confirmShellForeground(ptyId)
+        return (
+          confirmed &&
+          this.headlessTerminals.get(ptyId) === constructed &&
+          this.getPtyLifecycleGeneration(ptyId) === lifecycleGeneration
+        )
+      })
+    }
+    state = constructed
     return state
   }
 
@@ -13540,6 +13757,9 @@ export class OrcaRuntimeService {
         if (snapshot.oscLinks !== undefined) {
           state.emulator.setRestoredOscLinks(snapshot.oscLinks)
         }
+        state.ownership.seedOwner(snapshot.terminalOwner, {
+          alternateScreen: state.emulator.isAlternateScreen
+        })
         state.outputSequence = snapshot.seq
       })
       .catch(() => {
@@ -13598,6 +13818,7 @@ export class OrcaRuntimeService {
     alternateScreen?: boolean
     pendingEscapeTailAnsi?: string
     kittyKeyboardFlags?: number
+    terminalOwner?: 'shell'
   } | null> {
     if (this.providerSnapshotPreferredPtys.has(ptyId)) {
       // Why: pre-attach stream bytes only form a suffix of restored state. A
@@ -14078,6 +14299,7 @@ export class OrcaRuntimeService {
     alternateScreen?: boolean
     scrollbackAnsi?: string
     kittyKeyboardFlags?: number
+    terminalOwner?: 'shell'
     // Why: dangling mid-escape tail the restorer must write LAST, after any
     // reset, so the next live chunk completes it instead of rendering it
     // literally (Bug E / #7329).
@@ -14088,11 +14310,12 @@ export class OrcaRuntimeService {
       return null
     }
     await state.writeChain
+    await state.ownership.settle()
     // Why: normal history is separated from an active alternate frame, so the
     // caller's scrollback policy can be honored without painting it into alt.
-    const isAlternateScreen = state.emulator.isAlternateScreen
     const scrollbackRows = opts.scrollbackRows ?? 0
     const snapshot = state.emulator.getSnapshot({ scrollbackRows })
+    const terminalOwner = state.ownership.owner
     const data = snapshot.rehydrateSequences + snapshot.snapshotAnsi
     return data.length > 0 || opts.includeEmpty === true
       ? this.preferTrackedLastTitle(ptyId, {
@@ -14115,10 +14338,11 @@ export class OrcaRuntimeService {
           ...(snapshot.pendingEscapeTailAnsi
             ? { pendingEscapeTailAnsi: snapshot.pendingEscapeTailAnsi }
             : {}),
+          ...(terminalOwner ? { terminalOwner } : {}),
           // Why: lets the renderer skip the destructive scrollback clear when
           // restoring an alt-screen snapshot — clearing wipes xterm's own
           // history that the TUI relies on for scroll-up after a tab return.
-          alternateScreen: isAlternateScreen,
+          alternateScreen: snapshot.modes?.alternateScreen ?? state.emulator.isAlternateScreen,
           // Why NOT folded into data: the renderer writes its post-replay
           // reset after data, and any ESC after a dangling partial aborts it.
           // The restorer writes this last (Bug E fix).
@@ -14138,6 +14362,7 @@ export class OrcaRuntimeService {
     // sever the reply sink now so they cannot write to a respawned PTY that
     // reused this id (belt to the sink's state-identity check).
     state.emulator.disableQueryReplyForwarding()
+    state.ownership.dispose()
     state.writeChain.finally(() => state.emulator.dispose()).catch(() => state.emulator.dispose())
   }
 
@@ -15821,16 +16046,7 @@ export class OrcaRuntimeService {
     this.layouts.delete(ptyId)
     this.layoutQueues.delete(ptyId)
     this.freshSubscribeGuard.delete(ptyId)
-    const pendingRestore = this.pendingRestoreTimers.get(ptyId)
-    if (pendingRestore) {
-      clearTimeout(pendingRestore.timer)
-      this.pendingRestoreTimers.delete(ptyId)
-    }
-    const pendingSoft = this.pendingSoftLeavers.get(ptyId)
-    if (pendingSoft) {
-      clearTimeout(pendingSoft.timer)
-      this.pendingSoftLeavers.delete(ptyId)
-    }
+    this.cancelPendingDriverMutations(ptyId)
     // Why: a cold restore can respawn under the same session id within the
     // delayed-Enter window; the armed Enter would inject \r into the
     // replacement and stamp rows it never received.
@@ -16487,6 +16703,7 @@ export class OrcaRuntimeService {
   // frame. Returns `true` whenever there was a lock to reclaim, `false` only
   // when there was nothing to reclaim.
   async reclaimTerminalForDesktop(ptyId: string): Promise<boolean> {
+    this.cancelPendingDriverMutations(ptyId)
     if (this.isMobileSubscriberActive(ptyId)) {
       this.setMobileDisplayMode(ptyId, 'desktop')
       await this.applyMobileDisplayMode(ptyId)
@@ -16506,16 +16723,6 @@ export class OrcaRuntimeService {
     }
     const heldOverride = this.terminalFitOverrides.get(ptyId)
     if (heldOverride && this.hasRemoteDesktopLayoutState(ptyId)) {
-      const pending = this.pendingRestoreTimers.get(ptyId)
-      if (pending) {
-        clearTimeout(pending.timer)
-        this.pendingRestoreTimers.delete(ptyId)
-      }
-      const softLeaver = this.pendingSoftLeavers.get(ptyId)
-      if (softLeaver) {
-        clearTimeout(softLeaver.timer)
-        this.pendingSoftLeavers.delete(ptyId)
-      }
       // Why: applyRemoteDesktopLayout no-ops while the driver still reads mobile.
       this.setDriver(ptyId, { kind: 'idle' })
       // Why: best-effort, like the local held branch below. A host whose resize
@@ -16528,11 +16735,6 @@ export class OrcaRuntimeService {
       return true
     }
     if (heldOverride) {
-      const pending = this.pendingRestoreTimers.get(ptyId)
-      if (pending) {
-        clearTimeout(pending.timer)
-        this.pendingRestoreTimers.delete(ptyId)
-      }
       // Why: with no subscribers, resolveDesktopRestoreTarget can fall through
       // to current PTY size — which is at phone dims (wrong). Prefer a fresh
       // desktop renderer measurement when one exists; otherwise use the
@@ -16555,6 +16757,21 @@ export class OrcaRuntimeService {
       return true
     }
     return false
+  }
+
+  // Why: teardown and desktop reclaim supersede delayed mobile mutations,
+  // revoking soft-leave grace admission for input floors.
+  private cancelPendingDriverMutations(ptyId: string): void {
+    const pendingRestore = this.pendingRestoreTimers.get(ptyId)
+    if (pendingRestore) {
+      clearTimeout(pendingRestore.timer)
+      this.pendingRestoreTimers.delete(ptyId)
+    }
+    const pendingSoft = this.pendingSoftLeavers.get(ptyId)
+    if (pendingSoft) {
+      clearTimeout(pendingSoft.timer)
+      this.pendingSoftLeavers.delete(ptyId)
+    }
   }
 
   // Why: the shared "banner must be gone now" step for an explicit desktop
@@ -19121,6 +19338,9 @@ export class OrcaRuntimeService {
       reserveWrite?: (ptyId: string) => void
       afterWrite?: (ptyId: string) => void | Promise<void>
       suffixFailureError?: string
+      // Why: the pre-Enter wait now scales with the payload, so an abandoned request must be
+      // able to stop it instead of writing Enter minutes after the caller gave up.
+      signal?: AbortSignal
     } = {}
   ): Promise<RuntimeTerminalSend> {
     const pty = this.getLivePtyForHandle(handle)
@@ -19767,16 +19987,20 @@ export class OrcaRuntimeService {
   private getFreshExplicitAgentStatusForHandle(handle: string): {
     status: NonNullable<RuntimeTerminalAgentStatus['status']>
     updatedAt: number
+    /** When this state was entered. Pinned across same-state pings, so it identifies the turn. */
+    stateStartedAt: number
   } | null {
     const paneKey = this.getPaneKeyForTerminalHandle(handle)
     const now = Date.now()
     let bestStatus: NonNullable<RuntimeTerminalAgentStatus['status']> | null = null
     let bestUpdatedAt = -1
+    let bestStateStartedAt = -1
 
     const consider = (
       state: AgentStatusEntry['state'] | undefined,
       updatedAt: number | null | undefined,
-      restoredUnconfirmed = false
+      restoredUnconfirmed = false,
+      stateStartedAt?: number | null
     ): void => {
       if (!state || restoredUnconfirmed) {
         return
@@ -19790,22 +20014,25 @@ export class OrcaRuntimeService {
       if (updatedAt > bestUpdatedAt || (updatedAt === bestUpdatedAt && status === 'permission')) {
         bestStatus = status
         bestUpdatedAt = updatedAt
+        bestStateStartedAt = typeof stateStartedAt === 'number' ? stateStartedAt : updatedAt
       }
     }
 
     if (paneKey) {
       const retained = this.latestAgentStatusByPaneKey.get(paneKey)
-      consider(retained?.payload.state, retained?.updatedAt)
+      consider(retained?.payload.state, retained?.updatedAt, false, retained?.stateStartedAt)
     }
 
     for (const entry of this.getAgentStatusSnapshotFn?.() ?? []) {
       if (entry.terminalHandle !== handle && (!paneKey || entry.paneKey !== paneKey)) {
         continue
       }
-      consider(entry.state, entry.receivedAt, entry.restoredUnconfirmed)
+      consider(entry.state, entry.receivedAt, entry.restoredUnconfirmed, entry.stateStartedAt)
     }
 
-    return bestStatus ? { status: bestStatus, updatedAt: bestUpdatedAt } : null
+    return bestStatus
+      ? { status: bestStatus, updatedAt: bestUpdatedAt, stateStartedAt: bestStateStartedAt }
+      : null
   }
 
   private async writeTerminalAction(
@@ -19817,19 +20044,28 @@ export class OrcaRuntimeService {
       reserveWrite?: (ptyId: string) => void
       afterWrite?: (ptyId: string) => void | Promise<void>
       suffixFailureError?: string
+      signal?: AbortSignal
     } = {}
   ): Promise<void> {
     // Why: direct terminal.send can carry paste-sized text from RPC/mobile
     // clients; chunk text before PTY/ConPTY while preserving suffix separation.
-    const hasText = typeof action.text === 'string' && action.text.length > 0
+    const text = typeof action.text === 'string' ? action.text : ''
     const hasSuffix = action.enter || action.interrupt
-    if (hasText) {
-      await this.writeTerminalInputChunks(ptyId, action.text!, options)
+    if (text) {
+      await this.writeTerminalInputChunks(ptyId, text, options)
     }
     if (hasSuffix) {
       const suffix = (action.enter ? '\r' : '') + (action.interrupt ? '\x03' : '')
-      if (hasText) {
-        await new Promise((resolve) => setTimeout(resolve, 500))
+      if (text) {
+        // Why: same hazard as the agent-prompt path -- Enter must not overtake text the
+        // execution host is still ingesting, and a flat 500 ms cannot cover 16 MB.
+        await waitForAgentPromptDelay(
+          getAgentPromptSubmitDelayMs(
+            this.getPtyWriteHostPlatform(ptyId),
+            Buffer.byteLength(text, 'utf8')
+          ),
+          options.signal
+        )
       }
       try {
         await options.beforeWrite?.(ptyId)
@@ -19847,7 +20083,7 @@ export class OrcaRuntimeService {
       await options.afterWrite?.(ptyId)
       return
     }
-    if (hasText) {
+    if (text) {
       return
     }
 
@@ -19881,9 +20117,30 @@ export class OrcaRuntimeService {
       await options.afterWrite?.(ptyId)
       chunk = chunks.next()
       if (!chunk.done) {
-        await new Promise((resolve) => setTimeout(resolve, 0))
+        await yieldBetweenTerminalInputChunks()
       }
     }
+  }
+
+  /** Platform of the host whose pty transport ingests our writes -- deliberately NOT the OS
+   *  the command runs under. A WSL pane is spawned as `wsl.exe` through the Windows ConPTY
+   *  (see local-pty-provider), so it pays the ConPTY ingest cost even though its shell is
+   *  Linux; an SSH pane is spawned by node-pty on the remote host, so the client's
+   *  process.platform says nothing about it. */
+  private getPtyWriteHostPlatform(ptyId: string): NodeJS.Platform {
+    const pty = this.ptysById.get(ptyId)
+    const connectionId = pty?.connectionId
+    if (!connectionId) {
+      return process.platform
+    }
+    const remotePlatform = getRegisteredSshState(connectionId)?.remotePlatform
+    if (remotePlatform) {
+      return remotePlatform
+    }
+    // Why: remotePlatform only arrives with the relay handshake; until then the worktree path
+    // flavor is the same signal getAgentLaunchPlatformForRepo already trusts for a remote repo.
+    const worktreePath = pty ? splitWorktreeIdForFilesystem(pty.worktreeId)?.worktreePath : null
+    return worktreePath && isWindowsAbsolutePathLike(worktreePath) ? 'win32' : 'linux'
   }
 
   private async writeTerminalAgentPrompt(
@@ -19901,7 +20158,12 @@ export class OrcaRuntimeService {
     this.assertAgentPromptGeneration(ptyId, generation)
     const permissionBaseline = this.getAgentPromptActivity(handle, ptyId)
     this.assertAgentPromptPermissionSafe(permissionBaseline, permissionBaseline)
-    const renderGate = this.createAgentPromptRenderGate(ptyId)
+    // Why: the floor for every wait below. Enter must never overtake bytes the execution
+    // host is still feeding the child, and that cost is proportional to the payload.
+    const writeHostPlatform = this.getPtyWriteHostPlatform(ptyId)
+    const pasteByteLength = Buffer.byteLength(pastePayload, 'utf8')
+    const pasteIngestMs = getTerminalPasteIngestMs(writeHostPlatform, pasteByteLength)
+    const renderGate = this.createAgentPromptRenderGate(ptyId, pasteIngestMs)
     let wrotePasteBytes = false
     let completedPaste = false
     try {
@@ -19928,7 +20190,7 @@ export class OrcaRuntimeService {
         wrotePasteBytes = true
         chunk = nextChunk
         if (!chunk.done) {
-          await new Promise((resolve) => setTimeout(resolve, 0))
+          await yieldBetweenTerminalInputChunks()
         }
       }
       completedPaste = true
@@ -19951,7 +20213,10 @@ export class OrcaRuntimeService {
         renderGate.dispose()
       }
     } else {
-      await waitForAgentPromptDelay(AGENT_PROMPT_SUBMIT_DELAY_MS, options.signal)
+      await waitForAgentPromptDelay(
+        getAgentPromptSubmitDelayMs(writeHostPlatform, pasteByteLength),
+        options.signal
+      )
     }
     assertAgentPromptRequestActive(options.signal)
     this.assertAgentPromptGeneration(ptyId, generation)
@@ -19974,6 +20239,7 @@ export class OrcaRuntimeService {
     await verifyAgentPromptSubmission({
       baseline,
       readActivity: () => this.getAgentPromptActivity(handle, ptyId),
+      timeoutMs: resolveAgentPromptEffectTimeoutMs(this.getPtyAgent(ptyId)),
       signal: options.signal
     })
     return 1
@@ -20030,8 +20296,19 @@ export class OrcaRuntimeService {
       generation: this.getPtyLifecycleGeneration(ptyId),
       permissionSequence: this.agentPromptPermissionSequenceByPtyId.get(ptyId) ?? 0,
       workingSequence: lifecycle?.workingSequence ?? 0,
+      // Why: hook status is the only turn-start signal agents without title coverage have, and it
+      // reaches here without the window-gated synthetic title frame (#16095). Anchored on
+      // stateStartedAt, not updatedAt — same-state tool/prompt pings refresh updatedAt and would
+      // otherwise pass off an in-progress turn as a new one.
+      explicitWorkingStartedAt: explicit?.status === 'working' ? explicit.stateStartedAt : null,
+      outputSequence: this.getPtyOutputSequence(ptyId),
       status
     }
+  }
+
+  private getPtyAgent(ptyId: string): TuiAgent | null {
+    const pty = this.ptysById.get(ptyId)
+    return pty?.launchAgent ?? pty?.foregroundAgent ?? null
   }
 
   private assertAgentPromptPermissionSafe(
@@ -20052,32 +20329,37 @@ export class OrcaRuntimeService {
     }
   }
 
-  private createAgentPromptRenderGate(ptyId: string): {
+  /** `pasteIngestMs` is the payload's ingest bound on the executing host. Nothing here may
+   *  settle before it elapses: the agent can repaint mid-ingest, so marker-then-quiet alone
+   *  would fire Enter into a paste ConPTY is still feeding. */
+  private createAgentPromptRenderGate(
+    ptyId: string,
+    pasteIngestMs: number
+  ): {
     arm: () => void
     wait: () => Promise<void>
     dispose: () => void
   } | null {
-    const pty = this.ptysById.get(ptyId)
-    const agent = pty?.launchAgent ?? pty?.foregroundAgent
-    if (!isTerminalSendSettlementAgent(agent)) {
+    if (!isTerminalSendSettlementAgent(this.getPtyAgent(ptyId))) {
       return null
     }
     let armed = false
     let canSettle = false
     let settled = false
+    let ingested = pasteIngestMs <= 0
+    // Why absolute: the ingest clock starts once, here, but the cap is armed twice (at arm()
+    // and again on the marker). Re-adding the whole window would charge ingest twice.
+    const ingestDeadlineAt = Date.now() + pasteIngestMs
     let markerCarry = ''
     let quietTimer: NodeJS.Timeout | null = null
     let hardTimer: NodeJS.Timeout | null = null
+    let ingestTimer: NodeJS.Timeout | null = null
     let resolveRender!: () => void
     const rendered = new Promise<void>((resolve) => {
       resolveRender = resolve
     })
 
-    const finish = (): void => {
-      if (settled) {
-        return
-      }
-      settled = true
+    const clearGateTimers = (): void => {
       if (quietTimer) {
         clearTimeout(quietTimer)
         quietTimer = null
@@ -20086,9 +20368,25 @@ export class OrcaRuntimeService {
         clearTimeout(hardTimer)
         hardTimer = null
       }
+      if (ingestTimer) {
+        clearTimeout(ingestTimer)
+        ingestTimer = null
+      }
+    }
+    const finish = (): void => {
+      if (settled) {
+        return
+      }
+      settled = true
+      clearGateTimers()
       resolveRender()
     }
     const armQuietTimer = (): void => {
+      // Why: the quiet window measures the agent going still after a *complete* paste.
+      // Silence during ingest is not settlement, so it cannot start the clock.
+      if (!ingested) {
+        return
+      }
       if (quietTimer) {
         clearTimeout(quietTimer)
       }
@@ -20098,7 +20396,21 @@ export class OrcaRuntimeService {
       if (hardTimer) {
         clearTimeout(hardTimer)
       }
-      hardTimer = setTimeout(finish, AGENT_PROMPT_RENDER_TIMEOUT_MS)
+      // Why: the cap bounds the wait *after* the bytes land; a flat 8000 ms would expire
+      // mid-paste past ~770 KB on Windows and write Enter into it.
+      hardTimer = setTimeout(
+        finish,
+        AGENT_PROMPT_RENDER_TIMEOUT_MS + Math.max(0, ingestDeadlineAt - Date.now())
+      )
+    }
+    if (!ingested) {
+      ingestTimer = setTimeout(() => {
+        ingestTimer = null
+        ingested = true
+        if (canSettle) {
+          armQuietTimer()
+        }
+      }, pasteIngestMs)
     }
     const unsubscribe = this.subscribeToTerminalData(ptyId, (data) => {
       if (!armed || settled) {
@@ -20130,14 +20442,7 @@ export class OrcaRuntimeService {
       },
       dispose: () => {
         unsubscribe()
-        if (quietTimer) {
-          clearTimeout(quietTimer)
-          quietTimer = null
-        }
-        if (hardTimer) {
-          clearTimeout(hardTimer)
-          hardTimer = null
-        }
+        clearGateTimers()
       }
     }
   }
@@ -24384,7 +24689,20 @@ export class OrcaRuntimeService {
     }
   }
 
-  private markLocalWorkspaceTrustedForAgent(agent: TuiAgent, workspacePath: string): void {
+  private markWorkspaceTrustedForAgent(
+    agent: TuiAgent,
+    connectionId: string | null | undefined,
+    workspacePath: string
+  ): Promise<void> {
+    return connectionId
+      ? this.markRemoteWorkspaceTrustedForAgent(agent, connectionId, workspacePath)
+      : this.markLocalWorkspaceTrustedForAgent(agent, workspacePath)
+  }
+
+  private async markLocalWorkspaceTrustedForAgent(
+    agent: TuiAgent,
+    workspacePath: string
+  ): Promise<void> {
     const preset = TUI_AGENT_CONFIG[agent].preflightTrust
     if (!preset) {
       return
@@ -24395,7 +24713,9 @@ export class OrcaRuntimeService {
       } else if (preset === 'copilot') {
         markCopilotFolderTrusted(workspacePath)
       } else if (preset === 'codex') {
-        markCodexProjectTrusted(workspacePath)
+        // Why: the Codex write queues behind any in-flight hook grant, so the
+        // agent must not launch until it has actually landed.
+        await markCodexProjectTrusted(workspacePath)
       }
     } catch {
       // Best-effort: the user can still accept the agent trust prompt manually.
@@ -24920,7 +25240,7 @@ export class OrcaRuntimeService {
         try {
           const startupTrustAgent = effectiveDraftPaste?.agent ?? effectiveCreatedWithAgent
           if (startupTrustAgent) {
-            this.markLocalWorkspaceTrustedForAgent(startupTrustAgent, worktree.path)
+            await this.markLocalWorkspaceTrustedForAgent(startupTrustAgent, worktree.path)
           }
           const terminal = await this.createTerminal(`id:${worktree.id}`, {
             command: effectiveStartup.command,
@@ -25713,7 +26033,7 @@ export class OrcaRuntimeService {
         // session later, matching `orca terminal create` background semantics.
         const startupTrustAgent = effectiveDraftPaste?.agent ?? effectiveCreatedWithAgent
         if (startupTrustAgent) {
-          this.markLocalWorkspaceTrustedForAgent(startupTrustAgent, worktreePath)
+          await this.markLocalWorkspaceTrustedForAgent(startupTrustAgent, worktreePath)
         }
         const terminal = await this.createTerminal(`id:${worktree.id}`, {
           command: sequencedStartup.command,
@@ -28199,11 +28519,7 @@ export class OrcaRuntimeService {
       return opts
     }
 
-    if (workspace.connectionId) {
-      await this.markRemoteWorkspaceTrustedForAgent(agent, workspace.connectionId, workspace.path)
-    } else {
-      this.markLocalWorkspaceTrustedForAgent(agent, workspace.path)
-    }
+    await this.markWorkspaceTrustedForAgent(agent, workspace.connectionId, workspace.path)
 
     return {
       ...opts,
@@ -28337,15 +28653,7 @@ export class OrcaRuntimeService {
     if (!startup) {
       throw new Error('agent_session_identity_required')
     }
-    if (workspace.connectionId) {
-      await this.markRemoteWorkspaceTrustedForAgent(
-        request.agent,
-        workspace.connectionId,
-        workspace.path
-      )
-    } else {
-      this.markLocalWorkspaceTrustedForAgent(request.agent, workspace.path)
-    }
+    await this.markWorkspaceTrustedForAgent(request.agent, workspace.connectionId, workspace.path)
     if (_caller.signal?.aborted) {
       throw new Error('client_disconnected')
     }
@@ -28506,15 +28814,7 @@ export class OrcaRuntimeService {
       if (!startup) {
         throw new Error('agent_session_identity_required')
       }
-      if (workspace.connectionId) {
-        await this.markRemoteWorkspaceTrustedForAgent(
-          request.agent,
-          workspace.connectionId,
-          workspace.path
-        )
-      } else {
-        this.markLocalWorkspaceTrustedForAgent(request.agent, workspace.path)
-      }
+      await this.markWorkspaceTrustedForAgent(request.agent, workspace.connectionId, workspace.path)
       if (caller.signal?.aborted) {
         throw new Error('client_disconnected')
       }
@@ -29146,11 +29446,7 @@ export class OrcaRuntimeService {
       throw new Error('Repository for the selected workspace is no longer available.')
     }
     const startup = this.buildStartupForAgent(repo, opts.agent, opts.prompt)
-    if (repo.connectionId) {
-      await this.markRemoteWorkspaceTrustedForAgent(opts.agent, repo.connectionId, worktree.path)
-    } else {
-      this.markLocalWorkspaceTrustedForAgent(opts.agent, worktree.path)
-    }
+    await this.markWorkspaceTrustedForAgent(opts.agent, repo.connectionId, worktree.path)
     return await this.createTerminal(`id:${worktree.id}`, {
       command: startup.startup.command,
       env: startup.startup.env,
@@ -29539,15 +29835,7 @@ export class OrcaRuntimeService {
     if (opts.agentPrompt && startupPlan.followupPrompt) {
       throw new Error(`Agent ${opts.agent} does not support startup prompt quick commands.`)
     }
-    if (workspace.connectionId) {
-      await this.markRemoteWorkspaceTrustedForAgent(
-        opts.agent,
-        workspace.connectionId,
-        workspace.path
-      )
-    } else {
-      this.markLocalWorkspaceTrustedForAgent(opts.agent, workspace.path)
-    }
+    await this.markWorkspaceTrustedForAgent(opts.agent, workspace.connectionId, workspace.path)
     return {
       command: startupPlan.launchCommand,
       env: startupPlan.env,
@@ -31596,6 +31884,8 @@ export class OrcaRuntimeService {
       return false
     }
     if (fence.recovery === 'renderer') {
+      const restoresPublishedInventory =
+        this.sessionTabsInventoryPublicationEpoch === this.rendererGraphEpoch - 1
       this.graphStatus = 'ready'
       this.setTerminalSideEffectConsumerAvailable(true)
       for (const leaf of this.leaves.values()) {
@@ -31603,6 +31893,9 @@ export class OrcaRuntimeService {
       }
       this.reconcilePtyIncarnationHandles()
       this.refreshWritableFlags()
+      if (restoresPublishedInventory) {
+        this.markSessionTabsInventoryPublished()
+      }
       return true
     }
     this.graphReloadLifecycle.begin(windowId)
@@ -31715,6 +32008,7 @@ export class OrcaRuntimeService {
     this.clearPtyIncarnationHandles()
     this.rejectAllWaiters('terminal_handle_stale')
     this.refreshWritableFlags()
+    this.markSessionTabsInventoryPublished()
   }
 
   private assertGraphReady(): void {
