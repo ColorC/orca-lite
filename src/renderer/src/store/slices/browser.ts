@@ -1756,15 +1756,21 @@ export const createBrowserSlice: StateCreator<AppState, [], [], BrowserSlice> = 
       if (!workspace) {
         return s
       }
+      // Why a document page keeps its blank url here too: this is the third door onto a page's url,
+      // and a document's url is blank by construction. A grant committed here would reach
+      // persistence, the publish boundary and the address bar, exactly as at the other two doors.
+      const nextPageUrl = page.docLocation ? ORCA_BROWSER_BLANK_URL : nextUrl
       // Why: annotations point at DOM coords of the loaded document; a real URL change invalidates those markers.
-      const shouldClearAnnotations = normalizeUrl(page.url) !== nextUrl
+      const shouldClearAnnotations = normalizeUrl(page.url) !== nextPageUrl
       const nextPages = (s.browserPagesByWorkspace[workspace.id] ?? []).map((entry) =>
         entry.id === pageId
           ? {
               ...entry,
-              url: nextUrl,
-              title: normalizeBrowserTitle(entry.title, nextUrl),
-              loading: true,
+              url: nextPageUrl,
+              title: normalizeBrowserTitle(entry.title, nextPageUrl, entry.docLocation),
+              // Why not simply true: a document page's guest is inert, so there is nothing to wait
+              // for and the loading affordance would never clear.
+              loading: !entry.docLocation,
               loadError: options?.preserveLoadError ? entry.loadError : null
             }
           : entry

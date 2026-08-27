@@ -529,5 +529,29 @@ describe('HtmlDocPreview guest focus', () => {
     await settleFrames()
 
     expect(focused).not.toContain(webview)
+
+    // And the window coming back does not reopen the offer a preview behind a terminal refused.
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'))
+    })
+    await settleFrames()
+
+    expect(focused).not.toContain(webview)
+  })
+
+  // Why the window's own focus has to re-offer: another app taking the front pulls focus out of the
+  // guest, and coming back lands it on the embedder. The guest is where a clicked link is reported
+  // from, so without this the route out of the preview stays shut until something remounts it.
+  it('offers the guest focus again after the window gets it back', async () => {
+    const webview = await renderPreview(container, root, { holdsGuestFocus: true })
+    await settleFrames()
+    focused.length = 0
+
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'))
+    })
+    await settleFrames()
+
+    expect(focused).toContain(webview)
   })
 })

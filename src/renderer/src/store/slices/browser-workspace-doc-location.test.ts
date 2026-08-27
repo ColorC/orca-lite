@@ -136,6 +136,46 @@ describe('a browser page that shows a workspace document', () => {
     expect(store.getState().browserPagesByWorkspace[tab.id]?.[0]?.title).toBe('New Tab')
   })
 
+  // Why the third url door is fenced even though nothing reaches it today: creation and the title
+  // update are fenced, and a door left open is one navigation report away from committing a grant
+  // to the page every persisted, mirrored and published reader takes its url from.
+  it('keeps its blank url when a navigation commits one onto it', () => {
+    const store = createStoreWithWorktree()
+    const tab = store.getState().createBrowserTab(WORKTREE_ID, LIVE_GRANT_URL, {
+      docLocation: DOC_LOCATION,
+      title: 'index.html',
+      browserRuntimeEnvironmentId: null
+    })
+    const pageId = store.getState().browserPagesByWorkspace[tab.id]?.[0]?.id ?? ''
+
+    store.getState().setBrowserPageUrl(pageId, LIVE_GRANT_URL)
+
+    const page = store.getState().browserPagesByWorkspace[tab.id]?.[0]
+    expect(page?.url).toBe(ORCA_BROWSER_BLANK_URL)
+    expect(page?.title).toBe('index.html')
+    // Nothing to wait for behind a blank url: an inert guest never reports the load that clears it.
+    expect(page?.loading).toBe(false)
+    expect(store.getState().browserTabsByWorktree[WORKTREE_ID]?.[0]?.url).toBe(
+      ORCA_BROWSER_BLANK_URL
+    )
+    expect(JSON.stringify(persistedSession(store))).not.toContain('orca-preview://')
+  })
+
+  // The presence half for the door above: an ordinary page still takes the url it is given, so a
+  // door that had stopped writing urls entirely would fail here rather than pass by writing none.
+  it('still commits a navigation url onto an ordinary browser tab', () => {
+    const store = createStoreWithWorktree()
+    const tab = store.getState().createBrowserTab(WORKTREE_ID, 'https://example.com/')
+    const pageId = store.getState().browserPagesByWorkspace[tab.id]?.[0]?.id ?? ''
+
+    store.getState().setBrowserPageUrl(pageId, 'https://example.com/next')
+
+    expect(store.getState().browserPagesByWorkspace[tab.id]?.[0]).toMatchObject({
+      url: 'https://example.com/next',
+      loading: true
+    })
+  })
+
   it('never asks for the address bar it does not have', () => {
     const store = createStoreWithWorktree()
 

@@ -294,8 +294,20 @@ export function HtmlDocPreview({
         frameId = window.requestAnimationFrame(focusGuest)
       }
     }
-    frameId = window.requestAnimationFrame(focusGuest)
-    return () => window.cancelAnimationFrame(frameId)
+    const offerFocus = (): void => {
+      window.cancelAnimationFrame(frameId)
+      attempts = 0
+      frameId = window.requestAnimationFrame(focusGuest)
+    }
+    offerFocus()
+    // Why re-offered on the window's own focus: another app taking the front takes focus out of the
+    // guest, and coming back puts it on the embedder. Nothing hands it on, so the route out of the
+    // preview would stay shut until something remounted it.
+    window.addEventListener('focus', offerFocus)
+    return () => {
+      window.removeEventListener('focus', offerFocus)
+      window.cancelAnimationFrame(frameId)
+    }
   }, [holdsGuestFocus, previewId, remintCount, state])
 
   // Why: a grant is pinned to the owner ids resolved when it was minted, so after a pairing or
