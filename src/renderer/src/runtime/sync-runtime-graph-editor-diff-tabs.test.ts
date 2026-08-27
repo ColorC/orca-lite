@@ -96,29 +96,59 @@ describe('buildMobileSessionTabSnapshots', () => {
     expect(snapshot?.activeTabType).toBeNull()
   })
 
-  // Why: an HTML preview is served to one desktop guest through a grant no mobile client holds, so
-  // publishing it would show a second, plain copy of a file the reader already has a tab for.
-  it('omits client-local HTML preview tabs from mobile file snapshots', () => {
-    const previewId = 'wt-1::html-preview::docs/report.html'
+  // Why held back: a workspace document is served to one desktop guest through a grant no mobile
+  // client holds, and the wire has no tab kind for it — an old client would take it for an ordinary
+  // browser tab and offer navigation for a page that has no URL.
+  it('omits a browser tab located by a workspace document from mobile snapshots', () => {
+    const docWorkspaceId = 'browser-doc'
+    const urlWorkspaceId = 'browser-url'
     const state = makeState({
-      browserTabsByWorktree: {},
-      tabBarOrderByWorktree: { 'wt-1': [previewId] },
-      openFiles: [
-        {
-          id: previewId,
-          filePath: '/repo/docs/report.html',
-          relativePath: 'docs/report.html',
-          worktreeId: 'wt-1',
-          language: 'html',
-          mode: 'html-preview',
-          isDirty: false
-        }
-      ]
-    })
+      tabBarOrderByWorktree: { 'wt-1': [docWorkspaceId, urlWorkspaceId] },
+      browserTabsByWorktree: {
+        'wt-1': [
+          {
+            id: docWorkspaceId,
+            worktreeId: 'wt-1',
+            activePageId: 'page-doc',
+            pageIds: ['page-doc'],
+            url: 'data:text/html,',
+            title: 'report.html',
+            loading: false,
+            faviconUrl: null,
+            canGoBack: false,
+            canGoForward: false,
+            loadError: null,
+            createdAt: 1,
+            docLocation: {
+              kind: 'workspace-doc',
+              worktreeId: 'wt-1',
+              filePath: '/repo/docs/report.html'
+            }
+          },
+          {
+            id: urlWorkspaceId,
+            worktreeId: 'wt-1',
+            activePageId: 'page-url',
+            pageIds: ['page-url'],
+            url: 'https://example.com/',
+            title: 'Example',
+            loading: false,
+            faviconUrl: null,
+            canGoBack: false,
+            canGoForward: false,
+            loadError: null,
+            createdAt: 2
+          }
+        ]
+      }
+    } as unknown as Parameters<typeof makeState>[0])
 
     const snapshot = buildMobileSessionTabSnapshots(state)[0]
 
-    expect(snapshot?.tabs).toEqual([])
+    // The presence half: the ordinary browser tab beside it does publish, so a filter that dropped
+    // every browser tab — or a publisher that had stopped emitting them — fails here rather than
+    // passing on an empty list.
+    expect(snapshot?.tabs).toMatchObject([{ type: 'browser', browserWorkspaceId: urlWorkspaceId }])
   })
 
   it('does not recover unsupported combined diff tabs through split-group fallback', () => {

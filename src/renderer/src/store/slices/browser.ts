@@ -32,6 +32,7 @@ import {
   normalizeBrowserHistoryUrl
 } from '../../../../shared/workspace-session-browser-history'
 import { destroyWorkspaceWebviews } from './browser-webview-cleanup'
+import { releaseDocPreviewGrant } from '@/lib/doc-preview-grants'
 import {
   getRecentlyClosedTabPosition,
   restoreRecentlyClosedTabPosition,
@@ -921,6 +922,10 @@ export const createBrowserSlice: StateCreator<AppState, [], [], BrowserSlice> = 
     // page to close and must not enter the reopen stack as if the user had closed something.
     const isCleanup = options?.reason === 'cleanup'
     let remotePagesToClose: { worktreeId: string; handle: RemoteBrowserPageHandle }[] = []
+    // Why collected rather than released inside the reducer: revoking is main-process work, and a
+    // grant is the only authority the preview scheme honors — a closed document must stop being
+    // readable, and it must stop being readable even if the reducer bails out below.
+    let docPageIdsToRelease: string[] = []
     let activeBrowserWorktreeIdToNotify: string | null = null
     set((s) => {
       let owningWorktreeId: string | null = null
@@ -952,6 +957,7 @@ export const createBrowserSlice: StateCreator<AppState, [], [], BrowserSlice> = 
         delete nextBrowserAnnotationsByPageId[page.id]
         delete nextBrowserCertificateFailuresByPageId[page.id]
       }
+      docPageIdsToRelease = closedPages.filter((page) => page.docLocation).map((page) => page.id)
       remotePagesToClose = isCleanup
         ? []
         : closedPages.flatMap((page) => {
@@ -1058,6 +1064,10 @@ export const createBrowserSlice: StateCreator<AppState, [], [], BrowserSlice> = 
 
     for (const remotePage of remotePagesToClose) {
       closeRemoteBrowserPageInOwningEnvironment(remotePage.worktreeId, remotePage.handle)
+    }
+
+    for (const docPageId of docPageIdsToRelease) {
+      releaseDocPreviewGrant(docPageId)
     }
 
     for (const tabs of Object.values(get().unifiedTabsByWorktree)) {

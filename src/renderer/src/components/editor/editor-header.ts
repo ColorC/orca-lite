@@ -14,13 +14,9 @@ export type EditorHeaderOpenFileState = {
   canOpen: boolean
 }
 
-/**
- * Whether the panel shows its own path header. Two surfaces name the document themselves and would
- * otherwise repeat it: check-details, and the HTML preview, whose browser chrome carries an
- * identity chip that would sit directly under the header showing the same path.
- */
+/** Whether the panel shows its own path header; check-details names the document itself. */
 export function shouldShowEditorPanelHeader(file: OpenFile, isCombinedDiff: boolean): boolean {
-  return !isCombinedDiff && file.mode !== 'check-details' && file.mode !== 'html-preview'
+  return !isCombinedDiff && file.mode !== 'check-details'
 }
 
 export function getEditorHeaderCopyState(file: OpenFile): EditorHeaderCopyState {

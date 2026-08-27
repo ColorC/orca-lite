@@ -103,16 +103,8 @@ function renderShell(file: OpenFile, isCombinedDiff = false): string {
 }
 
 describe('EditorPanelShell path header', () => {
-  // Why the preview is the interesting one: its browser chrome carries an identity chip naming the
-  // same document, so the header would repeat that path immediately above it.
-  it('hides the header for an html-preview tab', () => {
-    expect(renderShell(openFile('html-preview'))).not.toContain('data-editor-panel-header')
-  })
-
-  // Why assert the other modes too: a gate that hides the header everywhere would satisfy the
-  // preview claim while silently removing the path from every ordinary file tab.
-  // markdown-preview especially: it is the other rendered-document mode, so a gate that reasons
-  // about "previews" rather than this one surface would take its header away too.
+  // Why assert every remaining mode: a gate that hides the header everywhere would satisfy the
+  // check-details claim below while silently removing the path from every ordinary file tab.
   it.each(['edit', 'diff', 'conflict-review', 'markdown-preview'] as const)(
     'keeps the header for a %s tab',
     (mode) => {
@@ -126,7 +118,7 @@ describe('EditorPanelShell path header', () => {
   })
 
   it('renders the editor surface either way', () => {
-    expect(renderShell(openFile('html-preview'))).toContain('data-editor-content')
+    expect(renderShell(openFile('check-details'))).toContain('data-editor-content')
     expect(renderShell(openFile('edit'))).toContain('data-editor-content')
   })
 })

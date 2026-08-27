@@ -8,6 +8,12 @@ import {
 } from '../../../../shared/workspace-session-browser-schema'
 import { createTestStore, makeWorktree } from './store-test-helpers'
 
+const mocks = vi.hoisted(() => ({ releaseDocPreviewGrant: vi.fn() }))
+vi.mock('@/lib/doc-preview-grants', () => ({
+  releaseDocPreviewGrant: mocks.releaseDocPreviewGrant,
+  ensureDocPreviewGrant: vi.fn(),
+  buildDocPreviewGrantRequest: vi.fn()
+}))
 vi.mock('sonner', () => ({ toast: { info: vi.fn(), success: vi.fn(), error: vi.fn() } }))
 vi.mock('@/lib/agent-status', async (importOriginal) => {
   const actual = await importOriginal<typeof AgentStatusModule>()
@@ -146,6 +152,27 @@ describe('a browser page that shows a workspace document', () => {
     expect(store.getState().browserTabsByWorktree[WORKTREE_ID]?.[0]?.docLocation).toEqual(
       otherDocument
     )
+  })
+
+  // Why closing has to say so: a grant is the only authority the preview scheme honors, and it
+  // outlives the guest. A closed document that stays readable is a read authority nothing revokes
+  // until the process ends.
+  it('revokes the grant of the document tab that was closed, and only that one', () => {
+    const store = createStoreWithWorktree()
+    const docTab = store.getState().createBrowserTab(WORKTREE_ID, LIVE_GRANT_URL, {
+      docLocation: DOC_LOCATION,
+      browserRuntimeEnvironmentId: null
+    })
+    const docPageId = store.getState().browserPagesByWorkspace[docTab.id]?.[0]?.id
+    const urlTab = store.getState().createBrowserTab(WORKTREE_ID, 'https://example.com/')
+
+    store.getState().closeBrowserTab(urlTab.id)
+    expect(mocks.releaseDocPreviewGrant).not.toHaveBeenCalled()
+
+    store.getState().closeBrowserTab(docTab.id)
+
+    expect(mocks.releaseDocPreviewGrant).toHaveBeenCalledWith(docPageId)
+    expect(mocks.releaseDocPreviewGrant).toHaveBeenCalledTimes(1)
   })
 
   it('writes the document and not the grant to the session', () => {
