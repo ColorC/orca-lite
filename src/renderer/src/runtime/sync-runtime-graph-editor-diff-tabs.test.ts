@@ -3,6 +3,20 @@ import { buildMobileSessionTabSnapshots } from './sync-runtime-graph'
 import { makeState } from './sync-runtime-graph-test-harness'
 import type { AppState } from '../store/types'
 
+function collectLayoutGroupIds(node: unknown, into: string[] = []): string[] {
+  if (!node || typeof node !== 'object') {
+    return into
+  }
+  const candidate = node as { type?: string; groupId?: string; first?: unknown; second?: unknown }
+  if (candidate.type === 'leaf' && candidate.groupId) {
+    into.push(candidate.groupId)
+    return into
+  }
+  collectLayoutGroupIds(candidate.first, into)
+  collectLayoutGroupIds(candidate.second, into)
+  return into
+}
+
 describe('buildMobileSessionTabSnapshots', () => {
   it('preserves source-control diff metadata for mobile file tabs', () => {
     const diffId = 'wt-1::diff::unstaged::src/app.ts'
@@ -257,6 +271,9 @@ describe('buildMobileSessionTabSnapshots', () => {
       expect(group.activeTabId === null || publishedTabIds.has(group.activeTabId)).toBe(true)
     }
     expect(snapshot?.activeTabId === null || publishedTabIds.has(snapshot.activeTabId)).toBe(true)
+    // What the reader would actually see go wrong: a group held back has to leave the layout tree
+    // with it, or the phone renders a split whose pane can never have anything in it.
+    expect(collectLayoutGroupIds(snapshot?.tabGroupLayout)).toEqual(['group-right'])
   })
 
   it('does not recover unsupported combined diff tabs through split-group fallback', () => {

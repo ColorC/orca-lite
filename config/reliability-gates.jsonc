@@ -3146,7 +3146,7 @@
           "file": "src/renderer/src/runtime/sync-runtime-graph-editor-diff-tabs.test.ts",
           "assertions": [
             "a browser tab located by a workspace document is not published to mobile clients, while an ordinary browser tab beside it is",
-            "with tab groups in play the document is kept out of the published groups too: no group's order, recency or active tab names a tab the snapshot does not carry, and the grouped URL tab beside it still publishes"
+            "with tab groups in play the document is kept out of the published groups too: no group's order, recency or active tab names a tab the snapshot does not carry, the held-back group leaves the published layout tree with it, and the grouped URL tab beside it still publishes"
           ]
         },
         {
@@ -3181,6 +3181,15 @@
         }
       ],
       "evidenceRuns": [
+        {
+          "date": "2026-08-27",
+          "runner": "local",
+          "platform": "macos",
+          "command": "pnpm exec vitest run --config config/vitest.config.ts src/renderer/src/store/slices/browser-workspace-doc-location.test.ts src/renderer/src/runtime/sync-runtime-graph-editor-diff-tabs.test.ts src/renderer/src/components/browser-pane/workspace-doc/workspace-doc-page-pane.test.tsx src/renderer/src/components/browser-pane/workspace-doc/HtmlDocPreview.toolbar.test.tsx",
+          "result": "failed",
+          "durationSeconds": 7,
+          "summary": "The adversarial pass answered the request for its own group-projection probe after this round landed, and it had measured a third observable this test was missing: the held-back group also has to leave the published layout tree, or the phone renders a split whose second pane can never hold anything. Adopted as a fourth assertion and re-run against the same sole delta, which now fails on the dangling-reference check and, with that check blinded, on the layout alone — group-left and group-right against the group-right the clean tree publishes. The two probes agreed on everything else, including that the tab list is unchanged under this mutant, which is why an assertion reading only the tab list cannot reach the site at all."
+        },
         {
           "date": "2026-08-27",
           "runner": "local",
