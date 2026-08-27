@@ -11,6 +11,7 @@ import {
   clearBrowserWebAuthnAccessHandlers,
   installBrowserWebAuthnAccessHandlers
 } from './browser-webauthn-access'
+import { noticeDocPreviewDownloadBlocked } from './doc-preview-download-block-notice'
 
 // Why: one shared installer keeps every partition's deny-by-default permission/download policies from drifting apart.
 const configuredPartitions = new Set<string>()
@@ -29,8 +30,14 @@ const handleWillDownload = (
  * attribute a download to, so routing one lands it in this desktop's Downloads folder under a
  * remote-authored name that nothing in the UI accounts for.
  */
-const handleDeniedWillDownload = (event: Electron.Event): void => {
+const handleDeniedWillDownload = (
+  event: Electron.Event,
+  _item: Electron.DownloadItem,
+  webContents: Electron.WebContents
+): void => {
   event.preventDefault()
+  // The page gets nothing back; the reader gets a sentence, or a pressed button just does nothing.
+  noticeDocPreviewDownloadBlocked(webContents)
 }
 
 function resolvePermissionNoticeUrl(

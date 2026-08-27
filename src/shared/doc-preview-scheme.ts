@@ -17,17 +17,31 @@ export const DOC_PREVIEW_EXTERNAL_LINK_CHANNEL = 'docPreview:externalLink'
  * client ever sees it, and main gates every report on the sender being a focused preview guest.
  */
 export const DOC_PREVIEW_LINK_CLICK_CHANNEL = 'docPreview:linkClick'
+/** The one out-of-band route from the preview's main-side fences to the shell hosting it. */
 export const DOC_PREVIEW_LOAD_FAILURE_CHANNEL = 'docPreview:loadFailure'
 
 /** Why: an unreadable document still answers with a real HTTP status, so the guest paints the
  *  handler's plain-text body instead of failing to load. The shell needs the reason out-of-band. */
-export type DocPreviewFailureReason = 'too-large' | 'unsupported-asset' | 'unreadable'
+export type DocPreviewFileFailureReason = 'too-large' | 'unsupported-asset' | 'unreadable'
 
-export type DocPreviewFailure = {
+export type DocPreviewFileFailure = {
   grantId: string
   relativePath: string
-  reason: DocPreviewFailureReason
+  reason: DocPreviewFileFailureReason
 }
+
+/**
+ * A download the preview partition refused. Why it carries no path: the document names the file it
+ * offers, and the notice this becomes is Orca's chrome — a payload with a path invites rendering
+ * page-authored text in the app's own UI, and a path equal to the entry document's would route a
+ * refused download into the panel that hides the page.
+ */
+export type DocPreviewDownloadBlocked = {
+  grantId: string
+  reason: 'download-blocked'
+}
+
+export type DocPreviewFailure = DocPreviewFileFailure | DocPreviewDownloadBlocked
 
 export const DOC_PREVIEW_GRANT_ID_PATTERN = /^[0-9a-f]{32}$/
 

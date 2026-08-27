@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { BrowserSessionProfile } from '../../shared/browser-workspace-types'
 
 const mocks = vi.hoisted(() => ({
-  handleGuestWillDownload: vi.fn()
+  handleGuestWillDownload: vi.fn(),
+  noticeDocPreviewDownloadBlocked: vi.fn()
 }))
 
 type WillDownloadListener = (
@@ -70,6 +71,9 @@ vi.mock('./browser-manager', () => ({
     removeCertificateRequestGuard: vi.fn(),
     notifyPermissionDenied: vi.fn()
   }
+}))
+vi.mock('./doc-preview-download-block-notice', () => ({
+  noticeDocPreviewDownloadBlocked: mocks.noticeDocPreviewDownloadBlocked
 }))
 vi.mock('./browser-media-access', () => ({
   hasSystemMediaAccess: () => false,
@@ -148,6 +152,23 @@ describe('partition download policy', () => {
 
     expect(fireWillDownload('orca-doc-preview').cancelled).toBe(true)
     expect(mocks.handleGuestWillDownload).not.toHaveBeenCalled()
+  })
+
+  // Why in the same run as the routing test above: a refusal the reader cannot see is a pressed
+  // button that does nothing, and a notice on the routing partition would announce a download that
+  // is about to arrive normally.
+  it('tells the reader about the refusal, and only on the partition that refused', async () => {
+    const install = await loadInstaller()
+    install(profileFor('orca-doc-preview'), { downloads: 'deny' })
+    install(profileFor('persist:browsing-1'))
+
+    fireWillDownload('persist:browsing-1')
+    expect(mocks.noticeDocPreviewDownloadBlocked).not.toHaveBeenCalled()
+
+    fireWillDownload('orca-doc-preview')
+    expect(mocks.noticeDocPreviewDownloadBlocked).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 42 })
+    )
   })
 
   // Why both partitions in one run: the listener is module state shared across sessions, so a deny

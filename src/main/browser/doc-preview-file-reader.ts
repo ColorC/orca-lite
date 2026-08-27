@@ -3,7 +3,7 @@ import type {
   RuntimeFilePreviewResult,
   RuntimeFileReadResult
 } from '../../shared/runtime-file-contracts'
-import type { DocPreviewFailureReason } from '../../shared/doc-preview-scheme'
+import type { DocPreviewFileFailureReason } from '../../shared/doc-preview-scheme'
 import { callRuntimeEnvironment } from '../ipc/runtime-environment-transport-routing'
 import { FileReadCapExceededError } from '../ssh/ssh-filesystem-stream-reader'
 import { getCanonicalUserDataPath } from '../persistence'
@@ -38,7 +38,7 @@ function isTooLargeReadError(error: unknown): boolean {
 
 export type DocPreviewReadOutcome =
   | { ok: true; bytes: Buffer; contentType: string }
-  | { ok: false; status: number; reason: DocPreviewFailureReason; message: string }
+  | { ok: false; status: number; reason: DocPreviewFileFailureReason; message: string }
 
 const DOC_PREVIEW_CONTENT_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',

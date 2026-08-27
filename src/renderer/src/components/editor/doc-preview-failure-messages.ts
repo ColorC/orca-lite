@@ -1,10 +1,10 @@
 import type {
-  DocPreviewFailure,
-  DocPreviewFailureReason
+  DocPreviewFileFailure,
+  DocPreviewFileFailureReason
 } from '../../../../shared/doc-preview-scheme'
 import { translate } from '@/i18n/i18n'
 
-export function docPreviewFailureDetail(reason: DocPreviewFailureReason | null): string {
+export function docPreviewFailureDetail(reason: DocPreviewFileFailureReason | null): string {
   if (reason === 'too-large') {
     return translate(
       'auto.components.editor.HtmlDocPreview.documentTooLargePanel',
@@ -24,7 +24,7 @@ export function docPreviewFailureDetail(reason: DocPreviewFailureReason | null):
  * nothing to look at. A stylesheet, image or font the workspace would not send is a document that
  * rendered — degraded, and the reader deserves to know which piece is missing, but rendered.
  */
-export function docPreviewAssetNotice(failures: DocPreviewFailure[]): string | null {
+export function docPreviewAssetNotice(failures: DocPreviewFileFailure[]): string | null {
   const [first] = failures
   if (!first) {
     return null
@@ -54,5 +54,17 @@ export function docPreviewAssetNotice(failures: DocPreviewFailure[]): string | n
     'auto.components.editor.HtmlDocPreview.assetUnreadableNotice',
     'Orca could not read {{path}} from the workspace.',
     { path: first.relativePath }
+  )
+}
+
+/**
+ * Why the sentence names no file and does not count attempts: the document chooses both, and this
+ * row is Orca's chrome. Constant text is also what makes repeated attempts unspammable — the
+ * hundredth refusal renders exactly what the first one did.
+ */
+export function docPreviewDownloadBlockedNotice(): string {
+  return translate(
+    'auto.components.editor.HtmlDocPreview.downloadBlockedNotice',
+    'Downloads are disabled in document previews.'
   )
 }

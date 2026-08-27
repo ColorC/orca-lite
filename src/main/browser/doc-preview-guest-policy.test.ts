@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   getAuthorizedDocPreviewGuest,
   installDocPreviewGuestPolicy,
+  readDocPreviewGuestBoundGrantId,
   reportDocPreviewLinkClick
 } from './doc-preview-guest-policy'
 import { buildDocPreviewUrl } from '../../shared/doc-preview-scheme'
@@ -461,6 +462,36 @@ describe('doc preview guest policy', () => {
       expect(getAuthorizedDocPreviewGuest(second.grant.id, HOST_RENDERER_ID)).toBe(
         second.guest.contents
       )
+    })
+  })
+
+  // Session events name the contents and nothing else, so this is how a fence firing on the whole
+  // partition works out which preview — if any — the reader should be told about.
+  describe('naming the grant a contents is showing', () => {
+    it('answers the bound grant for a live preview guest', () => {
+      const { grant, guest } = boundGuest()
+
+      expect(readDocPreviewGuestBoundGrantId(guest.contents as never)).toBe(grant.id)
+    })
+
+    it('answers nothing for a contents that is not a preview guest', () => {
+      boundGuest()
+
+      expect(readDocPreviewGuestBoundGrantId({} as never)).toBeNull()
+    })
+
+    it('answers nothing for a preview guest that has committed no document', () => {
+      const guest = installOnFakeGuest()
+
+      expect(readDocPreviewGuestBoundGrantId(guest.contents as never)).toBeNull()
+    })
+
+    it('answers nothing once the guest is gone', () => {
+      const { guest } = boundGuest()
+
+      guest.handlers['destroyed']?.()
+
+      expect(readDocPreviewGuestBoundGrantId(guest.contents as never)).toBeNull()
     })
   })
 })

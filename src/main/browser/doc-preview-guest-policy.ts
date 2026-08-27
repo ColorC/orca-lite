@@ -59,6 +59,14 @@ export function getAuthorizedDocPreviewGuest(
 }
 
 /**
+ * The grant a live preview guest is bound to, or null for any other WebContents — the same identity
+ * question `reportDocPreviewLinkClick` asks, for a session event that hands over only the contents.
+ */
+export function readDocPreviewGuestBoundGrantId(guest: Electron.WebContents): string | null {
+  return previewGuests.get(guest)?.readBoundGrantId() ?? null
+}
+
+/**
  * The preview guest renders a workspace document, not the web: it may only move within its own
  * grant, and nothing it does by itself leaves the preview. The one route out is
  * `reportDocPreviewLinkClick`, which answers for a click the reader really made.

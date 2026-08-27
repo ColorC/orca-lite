@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertCircle, Loader2 } from 'lucide-react'
 import {
   DOC_PREVIEW_PARTITION,
-  type DocPreviewFailure,
-  type DocPreviewFailureReason
+  type DocPreviewFileFailure,
+  type DocPreviewFileFailureReason
 } from '../../../../shared/doc-preview-scheme'
 import { ORCA_BROWSER_GUEST_WEB_PREFERENCES_ATTRIBUTE } from '../../../../shared/browser-guest-web-preferences'
 import { BrowserGuestAnnotateOverlays } from '@/components/browser-pane/annotate/browser-guest-annotate-overlays'
@@ -20,7 +20,11 @@ import { translate } from '@/i18n/i18n'
 import { useAppStore } from '@/store'
 import { openDocPreviewExternally, openDocPreviewSource } from './doc-preview-document-actions'
 import { buildDocPreviewDocumentIdentity } from './doc-preview-document-identity'
-import { docPreviewAssetNotice, docPreviewFailureDetail } from './doc-preview-failure-messages'
+import {
+  docPreviewAssetNotice,
+  docPreviewDownloadBlockedNotice,
+  docPreviewFailureDetail
+} from './doc-preview-failure-messages'
 import { DocPreviewToolbar } from './doc-preview-toolbar'
 import { useDocPreviewWebviewHistory } from './doc-preview-webview-history'
 import { useDocPreviewGuestTools } from './use-doc-preview-guest-tools'
@@ -115,8 +119,9 @@ export function HtmlDocPreview({
   const webviewRef = useRef<Electron.WebviewTag | null>(null)
   const reloadRef = useRef<(() => void) | null>(null)
   const [state, setState] = useState<PreviewState>('loading')
-  const [failureReason, setFailureReason] = useState<DocPreviewFailureReason | null>(null)
-  const [assetFailures, setAssetFailures] = useState<DocPreviewFailure[]>([])
+  const [failureReason, setFailureReason] = useState<DocPreviewFileFailureReason | null>(null)
+  const [assetFailures, setAssetFailures] = useState<DocPreviewFileFailure[]>([])
+  const [downloadBlocked, setDownloadBlocked] = useState(false)
   const [remintCount, setRemintCount] = useState(0)
   const [grantId, setGrantId] = useState<string | null>(null)
 
@@ -155,6 +160,7 @@ export function HtmlDocPreview({
       loadFailed = false
       setFailureReason(null)
       setAssetFailures([])
+      setDownloadBlocked(false)
       setState('loading')
     }
     const onLoadStopped = (): void => {
@@ -175,6 +181,7 @@ export function HtmlDocPreview({
     setState('loading')
     setFailureReason(null)
     setAssetFailures([])
+    setDownloadBlocked(false)
     setGrantId(null)
     resetHistory()
     const request = buildDocPreviewGrantRequest(useAppStore.getState(), worktreeId, filePath)
@@ -189,6 +196,12 @@ export function HtmlDocPreview({
     let boundGrantId: string | null = null
     const unsubscribeFailure = window.api.docPreview?.onLoadFailure?.((payload) => {
       if (disposed || payload.grantId !== boundGrantId) {
+        return
+      }
+      // Why first: a refused download is the fences answering for the reader, not the document
+      // failing to load, so it can never take the page away — and it names no file to compare.
+      if (payload.reason === 'download-blocked') {
+        setDownloadBlocked(true)
         return
       }
       if (payload.relativePath === request.entryRelativePath) {
@@ -257,7 +270,13 @@ export function HtmlDocPreview({
     reloadRef.current?.()
   }, [failureReason, handleHardReload, state])
 
-  const assetNotice = isUnavailable ? null : docPreviewAssetNotice(assetFailures)
+  // Nothing rendered on an unavailable preview, so a notice strip would be a footnote on a blank page.
+  const notices = isUnavailable
+    ? []
+    : [
+        downloadBlocked ? docPreviewDownloadBlockedNotice() : null,
+        docPreviewAssetNotice(assetFailures)
+      ].filter((notice): notice is string => notice !== null)
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-editor-surface">
@@ -277,16 +296,17 @@ export function HtmlDocPreview({
         // Nothing has painted yet on a loading or failed preview, so there is nothing to draw on.
         markupDisabled={isUnavailable || state !== 'ready' || grab.state !== 'idle'}
       />
-      {assetNotice ? (
+      {notices.map((notice) => (
         <div
+          key={notice}
           className="flex shrink-0 items-center gap-1.5 border-b px-2 py-1 text-xs text-muted-foreground"
           role="status"
-          title={assetNotice}
+          title={notice}
         >
           <AlertCircle className="size-3.5 shrink-0" />
-          <span className="min-w-0 flex-1 truncate">{assetNotice}</span>
+          <span className="min-w-0 flex-1 truncate">{notice}</span>
         </div>
-      ) : null}
+      ))}
       <div className="relative flex min-h-0 flex-1 overflow-hidden" ref={containerRef}>
         <BrowserGuestAnnotateOverlays
           markup={markup}

@@ -209,11 +209,69 @@ describe('HtmlDocPreview failure messages', () => {
 
     await act(async () => {
       emitFailure({ grantId: GRANT_ID, relativePath: 'assets/logo.png', reason: 'unreadable' })
+      emitFailure({ grantId: GRANT_ID, reason: 'download-blocked' })
       emitFailure({ grantId: GRANT_ID, relativePath: ENTRY_RELATIVE_PATH, reason: 'too-large' })
     })
 
     expect(container.textContent).toContain('Preview unavailable')
     expect(container.textContent).not.toContain('assets/logo.png')
+    expect(container.textContent).not.toContain('Downloads are disabled in document previews.')
+  })
+
+  // Why the notice exists at all: the preview partition cancels the download before it starts, so
+  // without this a pressed download button produces nothing the reader can tell from a bug.
+  it('tells the reader a refused download was refused, without taking the document away', async () => {
+    await renderPreview(container, root)
+
+    await act(async () => {
+      emitFailure({ grantId: GRANT_ID, reason: 'download-blocked' })
+    })
+
+    expect(container.textContent).toContain('Downloads are disabled in document previews.')
+    expect(container.textContent).not.toContain('Preview unavailable')
+    expect(container.querySelector('webview')).not.toBeNull()
+  })
+
+  // Why: the document chooses when and how often to ask, so a per-attempt row would let a page
+  // scroll Orca's own chrome off the screen.
+  it('shows one refusal notice however often the document asks', async () => {
+    await renderPreview(container, root)
+
+    await act(async () => {
+      emitFailure({ grantId: GRANT_ID, reason: 'download-blocked' })
+      emitFailure({ grantId: GRANT_ID, reason: 'download-blocked' })
+      emitFailure({ grantId: GRANT_ID, reason: 'download-blocked' })
+    })
+
+    const notices = container.querySelectorAll('[role="status"]')
+    expect(notices).toHaveLength(1)
+    expect(notices[0]?.textContent).toContain('Downloads are disabled in document previews.')
+  })
+
+  it('keeps a refused download and a failed asset as separate sentences', async () => {
+    await renderPreview(container, root)
+
+    await act(async () => {
+      emitFailure({ grantId: GRANT_ID, reason: 'download-blocked' })
+      emitFailure({ grantId: GRANT_ID, relativePath: 'assets/logo.png', reason: 'unreadable' })
+    })
+
+    expect(container.textContent).toContain('Downloads are disabled in document previews.')
+    expect(container.textContent).toContain(
+      'Orca could not read assets/logo.png from the workspace.'
+    )
+    // The asset count describes files the document could not load; a refusal is not one of them.
+    expect(container.textContent).not.toContain('2 files in this document')
+  })
+
+  it('ignores a refusal reported for another preview tab', async () => {
+    await renderPreview(container, root)
+
+    await act(async () => {
+      emitFailure({ grantId: 'b'.repeat(32), reason: 'download-blocked' })
+    })
+
+    expect(container.textContent).not.toContain('Downloads are disabled in document previews.')
   })
 
   it('falls back to the read failure for any other unreadable document', async () => {

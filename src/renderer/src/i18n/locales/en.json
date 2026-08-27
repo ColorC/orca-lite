@@ -14795,7 +14795,8 @@
           "openSourceControl": "Open source file",
           "openExternallyControl": "Open with default app",
           "copyDocumentRelativePathControl": "Copy relative path",
-          "openExternallyUnknownHostError": "Can't open '{{value0}}': the host that owns it is no longer known."
+          "openExternallyUnknownHostError": "Can't open '{{value0}}': the host that owns it is no longer known.",
+          "downloadBlockedNotice": "Downloads are disabled in document previews."
         }
       },
       "diff": {
