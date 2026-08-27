@@ -141,7 +141,9 @@ describe('browserManager.setAnnotationViewportBridge', () => {
     expect(firstGuest.executeJavaScriptInIsolatedWorld).toHaveBeenCalledTimes(1)
   })
 
-  it('refuses and drops the page registration when its guest died while the op was queued', async () => {
+  // Why this is the resolver's cleanup and not the bridge's: the authority that reads the registry
+  // is the one that can see the guest is gone. The bridge only reports the refusal.
+  it('refuses when its guest died while the op was queued, and the resolver drops the registration', async () => {
     const { guest } = makeGuest(5103)
     registerPage('tab-dies', guest)
     expect(browserManager.getGuestWebContentsId('tab-dies')).toBe(5103)
@@ -158,6 +160,25 @@ describe('browserManager.setAnnotationViewportBridge', () => {
     // Why assert the registry and not just the answer: a stale guest has to clear every per-tab
     // entry, or the page keeps a dead WebContents id that later ops resolve against.
     expect(browserManager.getGuestWebContentsId('tab-dies')).toBeNull()
+  })
+
+  // Why this one exists: an unresolved guest is not the same as a dead one. A request addressed by
+  // the wrong renderer names a page that is alive and on screen, and answering it with teardown
+  // would cancel that page's in-flight downloads and grabs over a misaddressed message.
+  it('refuses a request from the wrong renderer without tearing down the healthy page it named', async () => {
+    const { guest } = makeGuest(5105)
+    registerPage('tab-mismatch', guest)
+    const unregisterGuest = vi.spyOn(browserManager, 'unregisterGuest')
+
+    await expect(
+      browserManager.setAnnotationViewportBridge('tab-mismatch', BRIDGE_OPTIONS, () =>
+        browserManager.getAuthorizedGuest('tab-mismatch', rendererWebContentsId + 1)
+      )
+    ).resolves.toBe(false)
+
+    expect(unregisterGuest).not.toHaveBeenCalled()
+    expect(browserManager.getGuestWebContentsId('tab-mismatch')).toBe(5105)
+    expect(guest.executeJavaScriptInIsolatedWorld).not.toHaveBeenCalled()
   })
 
   it('refuses a destroyed guest without injecting into it', async () => {

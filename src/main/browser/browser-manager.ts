@@ -1332,6 +1332,12 @@ export class BrowserManager {
   }
 
   unregisterGuest(browserTabId: string): void {
+    // Why the namespace check on the exit door too: a preview withdraws by revoking its grant, never
+    // through here, so a preview id arriving is misaddressed — and the cancel below would evict that
+    // grant's live grab on the strength of it.
+    if (parseDocPreviewToolTargetId(browserTabId) !== null) {
+      return
+    }
     // Why: teardown mid-grab must cancel it so the renderer gets a signal, not a dangling Promise.
     this.cancelGrabOp(browserTabId, 'evicted')
 
@@ -1399,16 +1405,16 @@ export class BrowserManager {
     sessionProfileId?: string | null
     userAgentMode?: BrowserSessionUserAgentMode
     webContentsId: number
-  }): void {
+  }): boolean {
     // Why the namespace check on both registration doors: a page id that borrowed the preview
     // namespace would make one id resolve in both authorities, which is the exact confusion the
     // split registries exist to prevent.
     if (parseDocPreviewToolTargetId(browserPageId) !== null) {
-      return
+      return false
     }
     const guest = webContents.fromId(webContentsId)
     if (!guest || guest.isDestroyed()) {
-      return
+      return false
     }
     // Why: offscreen pages have no renderer webview listeners, so main owns their load-failure lifecycle.
     this.offscreenGuestIds.add(webContentsId)
@@ -1429,6 +1435,7 @@ export class BrowserManager {
       this.worktreeIdByTabId.set(browserPageId, worktreeId)
     }
     this.certificateTrustController?.onGuestRegistered(webContentsId, browserPageId)
+    return true
   }
 
   unregisterAll(): void {
@@ -1809,7 +1816,7 @@ export class BrowserManager {
     const prev = this.annotationViewportBridgeOpsByTabId.get(browserTabId) ?? Promise.resolve()
     const next = prev
       .catch(() => {})
-      .then(() => this.doSetAnnotationViewportBridgeImpl(browserTabId, options, resolveGuest))
+      .then(() => this.doSetAnnotationViewportBridgeImpl(options, resolveGuest))
     this.annotationViewportBridgeOpsByTabId.set(browserTabId, next)
     try {
       return await next
@@ -1825,18 +1832,17 @@ export class BrowserManager {
   // Why a resolver and not the guest itself: this op may have waited behind another one, and a
   // cross-process navigation meanwhile swaps the tab's contents without destroying the old one —
   // injecting into the guest the request named would bridge a page nobody is looking at.
+  // Why no tab id: with teardown gone this reaches only the guest the resolver hands back, and
+  // taking an id it cannot act on would invite the next reader to act on it.
   private async doSetAnnotationViewportBridgeImpl(
-    browserTabId: string,
     options: BrowserAnnotationViewportBridgeOptions,
     resolveGuest: () => Electron.WebContents | null
   ): Promise<boolean> {
+    // Why no teardown here: the resolver already unregisters a page whose guest died, and the only
+    // case it uniquely leaves is an ownership mismatch on a healthy page — where tearing down would
+    // cancel that page's in-flight downloads and grabs over a request that was merely misaddressed.
     const guest = resolveGuest()
     if (!guest || guest.isDestroyed()) {
-      // Why: a stale guest must clear every per-tab registry entry, not just the WebContents maps.
-      // A preview target owns none of them, and unregistering one would be a no-op on a live page.
-      if (parseDocPreviewToolTargetId(browserTabId) === null) {
-        this.unregisterGuest(browserTabId)
-      }
       return false
     }
 

@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
-  windows: [] as { webContents: MockWebContents }[],
+  windows: [] as MockBrowserWindow[],
   BrowserWindow: vi.fn(),
   finishLoads: true
 }))
@@ -50,6 +50,16 @@ vi.mock('./browser-session-registry', () => ({
 }))
 
 import { OffscreenBrowserBackend } from './offscreen-browser-backend'
+import { parseDocPreviewToolTargetId } from '../../shared/doc-preview-scheme'
+
+/** The real door's answer, so the backend is tested against the refusal it will actually get. */
+function registerOffscreenGuestLikeBrowserManager({
+  browserPageId
+}: {
+  browserPageId: string
+}): boolean {
+  return parseDocPreviewToolTargetId(browserPageId) === null
+}
 
 describe('OffscreenBrowserBackend lifecycle', () => {
   beforeEach(() => {
@@ -73,7 +83,7 @@ describe('OffscreenBrowserBackend lifecycle', () => {
     vi.useFakeTimers()
     mocks.finishLoads = false
     const browserManager = {
-      registerOffscreenGuest: vi.fn(),
+      registerOffscreenGuest: vi.fn(registerOffscreenGuestLikeBrowserManager),
       unregisterGuest: vi.fn()
     }
     const backend = new OffscreenBrowserBackend(browserManager as never)
@@ -92,5 +102,26 @@ describe('OffscreenBrowserBackend lifecycle', () => {
     expect(webContents.listenerCount('did-fail-load')).toBe(0)
     expect(vi.getTimerCount()).toBe(0)
     vi.useRealTimers()
+  })
+
+  // Why the unregister assertion and not just the destroy: a refused id is one the preview
+  // authority may own, and the teardown hook would cancel that grant's work on the way out.
+  it('destroys a window whose registration was refused without unregistering the id', async () => {
+    const browserManager = {
+      registerOffscreenGuest: vi.fn(registerOffscreenGuestLikeBrowserManager),
+      unregisterGuest: vi.fn()
+    }
+    const backend = new OffscreenBrowserBackend(browserManager as never)
+
+    await expect(
+      backend.createTab({
+        browserPageId: `doc-preview-grant:${'b'.repeat(32)}`,
+        url: 'https://example.com',
+        worktreeId: 'wt'
+      })
+    ).rejects.toThrow('was refused')
+
+    expect(mocks.windows[0].isDestroyed()).toBe(true)
+    expect(browserManager.unregisterGuest).not.toHaveBeenCalled()
   })
 })

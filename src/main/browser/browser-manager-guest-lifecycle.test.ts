@@ -120,12 +120,25 @@ describe('browserManager', () => {
           })
         ).toBe(false)
       } else {
-        browserManager.registerOffscreenGuest({ browserPageId, webContentsId: guest.id })
+        expect(
+          browserManager.registerOffscreenGuest({ browserPageId, webContentsId: guest.id })
+        ).toBe(false)
       }
 
       expect(browserManager.getGuestWebContentsId(browserPageId)).toBeNull()
     }
   )
+
+  // Why the exit door needs the same check: a preview withdraws by revoking its grant, so a preview
+  // id here is misaddressed — and unregistering opens by evicting whatever grab that id names.
+  it('refuses unregisterGuest for a page id in the preview namespace', () => {
+    const cancelGrabOp = vi.spyOn(browserManager, 'cancelGrabOp')
+
+    browserManager.unregisterGuest(`doc-preview-grant:${'c'.repeat(32)}`)
+
+    expect(cancelGrabOp).not.toHaveBeenCalled()
+    cancelGrabOp.mockRestore()
+  })
 
   it('blocks non-web guest navigations after attach', () => {
     const guest = {
