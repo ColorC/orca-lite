@@ -51,7 +51,8 @@ vi.mock('@/lib/execution-host-display-label', () => ({
 
 const store = vi.hoisted(() => ({
   openedFiles: [] as unknown[],
-  downloads: [] as string[]
+  downloads: [] as string[],
+  pageStateUpdates: [] as { pageId: string; updates: { title?: string } }[]
 }))
 
 // The document lives on the SSH host that owns the workspace, which is what makes the preview a
@@ -90,6 +91,9 @@ const storeState = {
   openFile: (file: unknown) => {
     store.openedFiles.push(file)
     return 'file-1'
+  },
+  updateBrowserPageState: (pageId: string, updates: { title?: string }) => {
+    store.pageStateUpdates.push({ pageId, updates })
   }
 }
 
@@ -279,6 +283,25 @@ describe('HtmlDocPreview browser chrome', () => {
     expect(slot).not.toBeNull()
     expect(chip.parentElement).toBe(slot)
     expect(chip.className).not.toMatch(/(^|\s)h-/)
+  })
+
+  // Browser parity: a browser tab is named by the document it shows. What the document names is
+  // the tab; what it must never rename is the chip, which is the reader's only proof of which
+  // file on which host they are looking at.
+  it('lets the document name its tab while the chip keeps naming the file', async () => {
+    const webview = await renderPreview(container, root)
+    store.pageStateUpdates.length = 0
+
+    await act(async () => {
+      const event = new Event('page-title-updated')
+      Object.assign(event, { title: 'Quarterly Report' })
+      webview.dispatchEvent(event)
+    })
+
+    expect(store.pageStateUpdates).toEqual([
+      { pageId: 'preview-1', updates: { title: 'Quarterly Report' } }
+    ])
+    expect(button(container, 'Copy file path').textContent).toContain(ENTRY_RELATIVE_PATH)
   })
 
   // Why: the browsing tour walks anchors by name, and a preview answering to the browser pane's

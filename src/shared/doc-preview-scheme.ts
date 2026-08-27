@@ -65,6 +65,15 @@ export type DocPreviewUrlTarget = {
   relativePath: string
 }
 
+/**
+ * Whether a string is, or is trying to look like, a preview URL. Deliberately a prefix test rather
+ * than a parse: this answers for text a document chose — a title Chromium fell back to, most of
+ * all — where anything carrying a grant must be refused even when it would not parse.
+ */
+export function isDocPreviewUrl(candidate: string): boolean {
+  return candidate.trimStart().toLowerCase().startsWith(`${DOC_PREVIEW_SCHEME}://`)
+}
+
 export function parseDocPreviewUrl(rawUrl: string): DocPreviewUrlTarget | null {
   let parsed: URL
   try {

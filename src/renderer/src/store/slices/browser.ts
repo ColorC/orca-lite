@@ -33,6 +33,8 @@ import {
 } from '../../../../shared/workspace-session-browser-history'
 import { destroyWorkspaceWebviews } from './browser-webview-cleanup'
 import { releaseDocPreviewGrant } from '@/lib/doc-preview-grants'
+import { basename } from '@/lib/path'
+import { isDocPreviewUrl } from '../../../../shared/doc-preview-scheme'
 import {
   getRecentlyClosedTabPosition,
   restoreRecentlyClosedTabPosition,
@@ -346,7 +348,22 @@ function normalizeUrl(url: string): string {
   return redactKagiSessionToken(trimmed)
 }
 
-function normalizeBrowserTitle(title: string | null | undefined, url: string): string {
+function normalizeBrowserTitle(
+  title: string | null | undefined,
+  url: string,
+  docLocation?: BrowserPageDocLocation | null
+): string {
+  if (docLocation) {
+    // Why a document page cannot go through the checks below: its url is the blank URL by design,
+    // which would name every previewed document "New Tab". Its fallback is the file it shows.
+    // Why the grant URL is refused rather than trusted: Chromium reports the URL as the title when
+    // a document declares none, and this title is stored, persisted and mirrored onto the tab —
+    // a grant reaching any of them would outlive the grant and name a document nothing can read.
+    if (!title || isDocPreviewUrl(title)) {
+      return basename(docLocation.filePath) || docLocation.filePath
+    }
+    return title
+  }
   if (
     url === 'about:blank' ||
     url === ORCA_BROWSER_BLANK_URL ||
@@ -479,7 +496,7 @@ function buildBrowserPage(
     workspaceId,
     worktreeId,
     url: normalizedUrl,
-    title: normalizeBrowserTitle(title, normalizedUrl),
+    title: normalizeBrowserTitle(title, normalizedUrl, docLocation),
     // Why: blank pages mount an inert guest (no real navigation); marking them loading would flash the loading affordance.
     loading: normalizedUrl !== 'about:blank' && normalizedUrl !== ORCA_BROWSER_BLANK_URL,
     faviconUrl: null,
@@ -1609,7 +1626,9 @@ export const createBrowserSlice: StateCreator<AppState, [], [], BrowserSlice> = 
       const nextPage = {
         ...page,
         title:
-          updates.title === undefined ? page.title : normalizeBrowserTitle(updates.title, page.url),
+          updates.title === undefined
+            ? page.title
+            : normalizeBrowserTitle(updates.title, page.url, page.docLocation),
         loading: updates.loading ?? page.loading,
         faviconUrl: updates.faviconUrl === undefined ? page.faviconUrl : updates.faviconUrl,
         canGoBack: updates.canGoBack ?? page.canGoBack,

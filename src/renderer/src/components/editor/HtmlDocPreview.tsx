@@ -38,7 +38,8 @@ function attachDocPreviewWebview({
   onLoadStarted,
   onLoadStopped,
   onLoadFailed,
-  onNavigated
+  onNavigated,
+  onTitleUpdated
 }: {
   container: HTMLDivElement
   url: string
@@ -47,6 +48,7 @@ function attachDocPreviewWebview({
   onLoadStopped: () => void
   onLoadFailed: (event: Electron.DidFailLoadEvent) => void
   onNavigated: () => void
+  onTitleUpdated: (event: Electron.PageTitleUpdatedEvent) => void
 }): { webview: Electron.WebviewTag; detach: () => void; reload: () => void } {
   const webview = document.createElement('webview') as Electron.WebviewTag
   // Why no allowpopups: the guest's preload intercepts a trusted click on a link before Chromium
@@ -68,6 +70,9 @@ function attachDocPreviewWebview({
   // and only the pair together tracks what Back can actually return to.
   webview.addEventListener('did-navigate', onNavigated)
   webview.addEventListener('did-navigate-in-page', onNavigated)
+  // Why the document names its own tab: a preview is a browser tab, and this is how every other
+  // one is named. What the document cannot do is name it the grant it is served over.
+  webview.addEventListener('page-title-updated', onTitleUpdated)
   // Why here and not in the enrolling hook: appending is what makes this guest hittable, and the
   // registry's contract is that the path doing so settles it. Dragging the preview's own tab
   // remounts this component mid-drag, and a hook effect lands a turn too late — for the rest of
@@ -86,6 +91,7 @@ function attachDocPreviewWebview({
       webview.removeEventListener('did-fail-load', onLoadFailed)
       webview.removeEventListener('did-navigate', onNavigated)
       webview.removeEventListener('did-navigate-in-page', onNavigated)
+      webview.removeEventListener('page-title-updated', onTitleUpdated)
       moveFocusToRendererBeforeWebviewDetach(webview)
       webview.remove()
     },
@@ -230,7 +236,10 @@ export function HtmlDocPreview({
           onLoadStarted,
           onLoadStopped,
           onLoadFailed,
-          onNavigated: syncHistory
+          onNavigated: syncHistory,
+          onTitleUpdated: (event) => {
+            useAppStore.getState().updateBrowserPageState(previewId, { title: event.title })
+          }
         })
         detach = attached.detach
         reloadRef.current = attached.reload

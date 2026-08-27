@@ -87,6 +87,55 @@ describe('a browser page that shows a workspace document', () => {
     expect(store.getState().browserTabsByWorktree[WORKTREE_ID]?.[0]?.docLocation ?? null).toBeNull()
   })
 
+  // Browser parity: a browser tab is named by the document it shows, and so is this one. Without
+  // this the blank url that is correct for a document page named every preview "New Tab".
+  it('takes its name from the document, and falls back to the file', () => {
+    const store = createStoreWithWorktree()
+    const tab = store.getState().createBrowserTab(WORKTREE_ID, LIVE_GRANT_URL, {
+      docLocation: DOC_LOCATION,
+      title: 'index.html',
+      browserRuntimeEnvironmentId: null
+    })
+    const pageId = store.getState().browserPagesByWorkspace[tab.id]?.[0]?.id ?? ''
+    expect(store.getState().browserPagesByWorkspace[tab.id]?.[0]?.title).toBe('index.html')
+
+    store.getState().updateBrowserPageState(pageId, { title: 'Quarterly Report' })
+    expect(store.getState().browserPagesByWorkspace[tab.id]?.[0]?.title).toBe('Quarterly Report')
+
+    store.getState().updateBrowserPageState(pageId, { title: '' })
+    expect(store.getState().browserPagesByWorkspace[tab.id]?.[0]?.title).toBe('index.html')
+  })
+
+  // Why a title needs the same refusal the url has: Chromium reports the URL as the title when a
+  // document declares none, and titles are stored, mirrored onto the tab and written to disk.
+  it('refuses a grant url arriving as the document title', () => {
+    const store = createStoreWithWorktree()
+    const tab = store.getState().createBrowserTab(WORKTREE_ID, LIVE_GRANT_URL, {
+      docLocation: DOC_LOCATION,
+      title: 'index.html',
+      browserRuntimeEnvironmentId: null
+    })
+    const pageId = store.getState().browserPagesByWorkspace[tab.id]?.[0]?.id ?? ''
+
+    store.getState().updateBrowserPageState(pageId, { title: LIVE_GRANT_URL })
+
+    expect(store.getState().browserPagesByWorkspace[tab.id]?.[0]?.title).toBe('index.html')
+    expect(store.getState().browserTabsByWorktree[WORKTREE_ID]?.[0]?.title).toBe('index.html')
+    expect(JSON.stringify(persistedSession(store))).not.toContain('orca-preview://')
+  })
+
+  // The presence half for both: an ordinary page still gets the blank-url name, so a fallback that
+  // had swallowed every title would fail here rather than pass by naming everything after a file.
+  it('still names an ordinary blank browser tab New Tab', () => {
+    const store = createStoreWithWorktree()
+    const tab = store.getState().createBrowserTab(WORKTREE_ID, ORCA_BROWSER_BLANK_URL)
+    const pageId = store.getState().browserPagesByWorkspace[tab.id]?.[0]?.id ?? ''
+
+    store.getState().updateBrowserPageState(pageId, { title: '' })
+
+    expect(store.getState().browserPagesByWorkspace[tab.id]?.[0]?.title).toBe('New Tab')
+  })
+
   it('never asks for the address bar it does not have', () => {
     const store = createStoreWithWorktree()
 
