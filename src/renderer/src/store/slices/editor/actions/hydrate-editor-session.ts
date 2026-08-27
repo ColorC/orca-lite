@@ -8,6 +8,7 @@ import type { WorkspaceVisibleTabType } from '../../../../../../shared/tab-types
 import type { OpenFile } from '../types/open-file'
 import { buildValidWorktreeIdsForSessionHydration } from '../../degraded-repo-worktree-validity'
 import { buildOwnedEditorFileId } from '../file-ids/editor-file-ids'
+import { htmlDocPreviewFileId } from './html-doc-preview-action'
 import {
   addEditorFileIdMigration,
   migrateEditorFileId,
@@ -49,6 +50,30 @@ export function createHydrateEditorSession(
             continue
           }
           for (const pf of files) {
+            // Why before the id machinery below and not inside it: a preview's id is minted from
+            // its path so reopening the same document reuses the tab, and the tab chrome persisted
+            // beside it already names that id. Letting it through the collision-derived path would
+            // rename it, orphan its chrome, and make an edit tab on the same file drift too.
+            if (pf.mode === 'html-preview') {
+              const previewId = htmlDocPreviewFileId(worktreeId, pf.filePath)
+              if (usedOpenFileIds.has(previewId)) {
+                continue
+              }
+              usedOpenFileIds.add(previewId)
+              openFiles.push({
+                id: previewId,
+                filePath: pf.filePath,
+                relativePath: pf.relativePath,
+                worktreeId,
+                language: detectLanguage(pf.relativePath || pf.filePath),
+                isDirty: false,
+                runtimeEnvironmentId: pf.runtimeEnvironmentId,
+                externalSshTargetId: pf.externalSshTargetId,
+                readOnly: true,
+                mode: 'html-preview'
+              })
+              continue
+            }
             const legacyId = resolveLegacyHydratedEditorFileId(
               legacyHydratedOpenFiles,
               pf,

@@ -5,6 +5,9 @@ import { getDefaultWorkspaceSession } from '../../../../shared/constants'
 import { folderWorkspaceKey } from '../../../../shared/workspace-scope'
 import { createTestStore, makeWorktree, makeTab, makeLayout } from './store-test-helpers'
 import { createStoreSessionMockApi, makeBrowserTab } from './store-session-test-harness'
+import { buildEditorSessionData } from '@/lib/workspace-session'
+import { buildPersistedUnifiedTabSessionData } from '@/lib/workspace-session-unified-tabs'
+import { htmlDocPreviewFileId } from './editor/actions/html-doc-preview-action'
 
 // Mock sonner (imported by repos.ts)
 vi.mock('sonner', () => ({ toast: { info: vi.fn(), success: vi.fn(), error: vi.fn() } }))
@@ -308,6 +311,88 @@ describe('hydrateWorkspaceSession', () => {
 
     // Marked ever-activated so a later click doesn't retag and suppress a real codex-restart/new-pane bump.
     expect(s.everActivatedWorktreeIds.has(validWt)).toBe(true)
+  })
+})
+
+// Why a whole-trip test and not two halves: the tab strip and the document are persisted by
+// different builders, and the bug the reader saw was the two disagreeing — chrome that survived
+// the restart naming a file that did not.
+describe('restored HTML preview tab', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('survives a restart as a preview tab still naming its document', () => {
+    const wt = 'repo1::/path/wt1'
+    const filePath = '/path/wt1/report/index.html'
+    const previewId = htmlDocPreviewFileId(wt, filePath)
+    const seed = (store: ReturnType<typeof createTestStore>): void => {
+      store.setState({
+        repos: [
+          { id: 'repo1', path: '/repo1', displayName: 'Repo 1', badgeColor: '#000', addedAt: 0 }
+        ],
+        worktreesByRepo: {
+          repo1: [makeWorktree({ id: wt, repoId: 'repo1', path: '/path/wt1' })]
+        },
+        activeWorktreeId: wt
+      })
+    }
+
+    const before = createTestStore()
+    seed(before)
+    before.getState().openHtmlDocPreview({
+      filePath,
+      relativePath: 'report/index.html',
+      worktreeId: wt,
+      language: 'html',
+      externalSshTargetId: 'ssh-1'
+    })
+
+    const shutdown = before.getState()
+    expect(shutdown.openFiles.map((file) => file.id)).toEqual([previewId])
+    expect(shutdown.unifiedTabsByWorktree[wt]?.map((tab) => tab.entityId)).toContain(previewId)
+
+    const session = {
+      ...getDefaultWorkspaceSession(),
+      activeRepoId: 'repo1',
+      activeWorktreeId: wt,
+      ...buildEditorSessionData(
+        shutdown.openFiles,
+        shutdown.editorDrafts,
+        shutdown.markdownFrontmatterVisible,
+        shutdown.activeFileIdByWorktree,
+        shutdown.activeTabTypeByWorktree
+      ),
+      ...buildPersistedUnifiedTabSessionData(shutdown)
+    }
+
+    // The relaunch: a store that knows nothing but what was written to disk.
+    const after = createTestStore()
+    seed(after)
+    after.getState().hydrateWorkspaceSession(session)
+    after.getState().hydrateTabsSession(session)
+    after.getState().hydrateEditorSession(session)
+
+    const restored = after.getState()
+    // Chrome first, then the document behind it: chrome alone is the empty pane, and a document
+    // with no chrome is a tab the reader cannot reach.
+    const previewTab = restored.unifiedTabsByWorktree[wt]?.find((tab) => tab.entityId === previewId)
+    expect(previewTab).toMatchObject({ contentType: 'editor' })
+    expect(
+      restored.groupsByWorktree[wt]?.some((group) => group.tabOrder.includes(previewTab!.id))
+    ).toBe(true)
+    expect(restored.openFiles).toEqual([
+      expect.objectContaining({
+        id: previewId,
+        filePath,
+        relativePath: 'report/index.html',
+        worktreeId: wt,
+        mode: 'html-preview',
+        readOnly: true,
+        externalSshTargetId: 'ssh-1'
+      })
+    ])
+    expect(restored.activeFileIdByWorktree[wt]).toBe(previewId)
   })
 })
 

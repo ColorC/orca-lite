@@ -8,8 +8,8 @@ import type { ClientHostedBrowserCloseIntent } from './client-hosted-browser-clo
 import type { PersistedClientHostedBrowserPage } from './client-hosted-browser-page-record'
 
 /** Minimal subset of OpenFile persisted across restarts.
- *  Only edit-mode files are saved — diffs, conflict reviews, and other
- *  transient views are reconstructed on demand from git state. */
+ *  Edit-mode files and HTML previews are saved — diffs, conflict reviews, and
+ *  other transient views are reconstructed on demand from git state. */
 export type PersistedOpenFile = {
   filePath: string
   relativePath: string
@@ -29,6 +29,11 @@ export type PersistedOpenFile = {
   readOnly?: boolean
   /** Opt-in streaming append for a read-only local log tab. */
   liveTail?: boolean
+  /** Why only this one mode and not the whole union: an absent mode is the edit
+   *  default, and a preview is the one non-edit surface that is the document
+   *  itself rather than a view derived from something reopenable. An older
+   *  build reading this restores the tab as an ordinary editor tab. */
+  mode?: 'html-preview'
 }
 
 export type WorkspaceSessionState = {

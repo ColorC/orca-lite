@@ -177,6 +177,47 @@ describe('buildWorkspaceSessionPayload', () => {
     expect(payload.browserTabsByWorktree?.['wt-1'][0].loading).toBe(false)
   })
 
+  // Why an HTML preview and not the diff beside it: a diff is derived from something the user can
+  // reopen, while a preview tab is the document itself — losing it across a restart loses the
+  // surface, and the reader has nothing left naming what they were reading.
+  it('persists an HTML preview tab as the preview it is', () => {
+    const payload = buildWorkspaceSessionPayload(
+      createSnapshot({
+        openFiles: [
+          ...createSnapshot().openFiles,
+          {
+            id: 'html-preview::wt-1::/tmp/report/index.html',
+            filePath: '/tmp/report/index.html',
+            relativePath: 'report/index.html',
+            worktreeId: 'wt-1',
+            language: 'html',
+            mode: 'html-preview',
+            isDirty: false,
+            readOnly: true,
+            externalSshTargetId: 'ssh-1'
+          } as never
+        ],
+        activeFileIdByWorktree: { 'wt-1': 'html-preview::wt-1::/tmp/report/index.html' }
+      })
+    )
+
+    expect(payload.openFilesByWorktree?.['wt-1']).toContainEqual(
+      expect.objectContaining({
+        filePath: '/tmp/report/index.html',
+        relativePath: 'report/index.html',
+        mode: 'html-preview',
+        readOnly: true,
+        externalSshTargetId: 'ssh-1'
+      })
+    )
+    // The diff beside it is still transient, so the filter did not simply open.
+    expect(payload.openFilesByWorktree?.['wt-1']).toHaveLength(2)
+    // Why the active marker too: the preview was the surface in front of the reader.
+    expect(payload.activeFileIdByWorktree?.['wt-1']).toBe(
+      'html-preview::wt-1::/tmp/report/index.html'
+    )
+  })
+
   it('persists front-matter hide overrides only for restored editor files', () => {
     const payload = buildWorkspaceSessionPayload(
       createSnapshot({
