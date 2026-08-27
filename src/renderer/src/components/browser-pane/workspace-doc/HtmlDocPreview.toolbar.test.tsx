@@ -554,4 +554,29 @@ describe('HtmlDocPreview guest focus', () => {
 
     expect(focused).toContain(webview)
   })
+
+  // Why that re-offer has to yield: the window also gets focus back when the reader presses a tab,
+  // because the guest holding the keyboard is what blurred the embedder. Taking it back from there
+  // fights the reader for their own click.
+  it('leaves focus with whatever claimed it when the window comes back', async () => {
+    const webview = await renderPreview(container, root, { holdsGuestFocus: true })
+    await settleFrames()
+    focused.length = 0
+
+    const claimant = document.createElement('button')
+    document.body.append(claimant)
+    Object.defineProperty(document, 'activeElement', {
+      configurable: true,
+      get: () => claimant
+    })
+
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'))
+    })
+    await settleFrames()
+
+    expect(focused).not.toContain(webview)
+    Reflect.deleteProperty(document, 'activeElement')
+    claimant.remove()
+  })
 })

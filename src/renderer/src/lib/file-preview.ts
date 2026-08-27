@@ -6,6 +6,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { basename, getRelativePathInsideRoot } from '@/lib/path'
 import { getConnectionIdForFile } from '@/lib/connection-context'
 import { getConnectionIdForFileFromState } from '@/lib/connection-owner-resolution'
+import { activateBrowserWorkspaceTab } from '@/lib/browser-workspace-tab-activation'
 import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
 import { translate } from '@/i18n/i18n'
 import { useAppStore } from '@/store'
@@ -162,7 +163,7 @@ export function getWorkspaceFileBrowserOpenTarget(params: {
 
 function openDocPreviewTab(
   state: AppState,
-  params: { filePath: string; worktreeId: string; targetGroupId?: string }
+  params: { filePath: string; worktreeId: string; targetGroupId?: string; activate: boolean }
 ): void {
   const docLocation = {
     kind: 'workspace-doc' as const,
@@ -175,7 +176,12 @@ function openDocPreviewTab(
     browserPageDocLocationsEqual(tab.docLocation ?? null, docLocation)
   )
   if (existing) {
-    state.setActiveBrowserTab(existing.id)
+    if (
+      !params.activate ||
+      !activateBrowserWorkspaceTab({ worktreeId: params.worktreeId, workspaceId: existing.id })
+    ) {
+      state.setActiveBrowserTab(existing.id)
+    }
     return
   }
   state.createBrowserTab(params.worktreeId, ORCA_BROWSER_BLANK_URL, {
@@ -185,9 +191,9 @@ function openDocPreviewTab(
     // Why explicitly client-local: the document is read through a grant this desktop mints, so the
     // page never belongs to a remote runtime even when the worktree does.
     browserRuntimeEnvironmentId: null,
-    // Why not activated: a preview opens beside the source the reader is still working in, and an
-    // explicit click is what moves them to it.
-    activate: false
+    // Why the caller decides: opening a file is a request to look at it, while a preview opened to
+    // the side belongs beside the source the reader is still working in.
+    activate: params.activate
   })
 }
 
@@ -201,7 +207,7 @@ export function openFileInBrowserTab(params: {
     return plan
   }
   if (plan.status === 'doc-preview') {
-    openDocPreviewTab(state, params)
+    openDocPreviewTab(state, { ...params, activate: true })
     return plan
   }
 
@@ -265,7 +271,12 @@ export function openFilePreviewToSide(params: {
   }
 
   if (plan.status === 'doc-preview') {
-    openDocPreviewTab(state, { filePath: params.filePath, worktreeId, targetGroupId })
+    openDocPreviewTab(state, {
+      filePath: params.filePath,
+      worktreeId,
+      targetGroupId,
+      activate: false
+    })
     return
   }
 

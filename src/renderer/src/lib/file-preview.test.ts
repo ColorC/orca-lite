@@ -26,6 +26,10 @@ const mocks = vi.hoisted(() => ({
   createBrowserTab: vi.fn(),
   createEmptySplitGroup: vi.fn(() => 'group-2'),
   setActiveBrowserTab: vi.fn(),
+  setActiveBrowserPage: vi.fn(),
+  focusGroup: vi.fn(),
+  activateTab: vi.fn(),
+  unifiedTabsByWorktree: {} as Record<string, unknown[]>,
   browserTabsByWorktree: {} as Record<string, unknown[]>,
   environmentId: null as string | null,
   connectionId: null as string | null,
@@ -49,6 +53,10 @@ vi.mock('@/store', () => ({
       createBrowserTab: mocks.createBrowserTab,
       createEmptySplitGroup: mocks.createEmptySplitGroup,
       setActiveBrowserTab: mocks.setActiveBrowserTab,
+      setActiveBrowserPage: mocks.setActiveBrowserPage,
+      focusGroup: mocks.focusGroup,
+      activateTab: mocks.activateTab,
+      unifiedTabsByWorktree: mocks.unifiedTabsByWorktree,
       browserTabsByWorktree: mocks.browserTabsByWorktree,
       getKnownWorktreeById: () => ({ id: 'wt-1', path: '/srv/repo' }),
       groupsByWorktree: {},
@@ -68,9 +76,13 @@ beforeEach(() => {
   mocks.connectionId = null
   mocks.layoutByWorktree = {}
   mocks.browserTabsByWorktree = {}
+  mocks.unifiedTabsByWorktree = {}
 })
 
-/** What a preview open looks like now: a browser tab located by the document, never a URL. */
+/**
+ * What a preview open looks like now: a browser tab located by the document, never a URL.
+ * `activate` is the caller's call — opening a file moves the reader to it, a side preview does not.
+ */
 function docPreviewCall(filePath: string, extra: Record<string, unknown> = {}): unknown[] {
   return [
     'wt-1',
@@ -110,7 +122,7 @@ describe('openFileInBrowserTab', () => {
 
     expect(plan).toEqual({ status: 'doc-preview' })
     expect(mocks.createBrowserTab).toHaveBeenCalledWith(
-      ...docPreviewCall('/srv/repo/docs/example.html')
+      ...docPreviewCall('/srv/repo/docs/example.html', { activate: true })
     )
   })
 
@@ -137,6 +149,69 @@ describe('openFileInBrowserTab', () => {
     expect(mocks.createBrowserTab).not.toHaveBeenCalled()
   })
 
+  // Why the unified tab and not just the browser state: the pane renders whatever its group's
+  // active tab is, so reopening a document from a terminal left the reader looking at the terminal
+  // with the preview "active" behind it.
+  it('brings an already-open document to the front of its group', () => {
+    mocks.connectionId = 'ssh-1'
+    mocks.browserTabsByWorktree = {
+      'wt-1': [
+        {
+          id: 'browser-9',
+          docLocation: {
+            kind: 'workspace-doc',
+            worktreeId: 'wt-1',
+            filePath: '/home/alice/report.html'
+          }
+        }
+      ]
+    }
+    mocks.unifiedTabsByWorktree = {
+      'wt-1': [
+        { id: 'tab-terminal', contentType: 'terminal', entityId: 'term-1', groupId: 'group-1' },
+        { id: 'tab-doc', contentType: 'browser', entityId: 'browser-9', groupId: 'group-1' }
+      ]
+    }
+
+    openFileInBrowserTab({ filePath: '/home/alice/report.html', worktreeId: 'wt-1' })
+
+    expect(mocks.focusGroup).toHaveBeenCalledWith('wt-1', 'group-1')
+    expect(mocks.activateTab).toHaveBeenCalledWith('tab-doc')
+    expect(mocks.setActiveBrowserTab).toHaveBeenCalledWith('browser-9')
+    expect(mocks.createBrowserTab).not.toHaveBeenCalled()
+  })
+
+  // The other half of the same switch: a preview opened to the side belongs beside the source, so
+  // reusing one must not move the reader off what they are working in.
+  it('leaves the reader in place when a side preview reuses an open document', () => {
+    mocks.connectionId = 'ssh-1'
+    mocks.browserTabsByWorktree = {
+      'wt-1': [
+        {
+          id: 'browser-9',
+          docLocation: {
+            kind: 'workspace-doc',
+            worktreeId: 'wt-1',
+            filePath: '/home/alice/report.html'
+          }
+        }
+      ]
+    }
+    mocks.unifiedTabsByWorktree = {
+      'wt-1': [{ id: 'tab-doc', contentType: 'browser', entityId: 'browser-9', groupId: 'group-1' }]
+    }
+
+    openFilePreviewToSide({
+      language: 'html',
+      filePath: '/home/alice/report.html',
+      worktreeId: 'wt-1',
+      sourceGroupId: 'group-1'
+    })
+
+    expect(mocks.activateTab).not.toHaveBeenCalled()
+    expect(mocks.focusGroup).not.toHaveBeenCalled()
+  })
+
   it('opens a second document in its own tab', () => {
     mocks.connectionId = 'ssh-1'
     mocks.browserTabsByWorktree = {
@@ -151,7 +226,9 @@ describe('openFileInBrowserTab', () => {
     openFileInBrowserTab({ filePath: '/home/alice/b.html', worktreeId: 'wt-1' })
 
     expect(mocks.setActiveBrowserTab).not.toHaveBeenCalled()
-    expect(mocks.createBrowserTab).toHaveBeenCalledWith(...docPreviewCall('/home/alice/b.html'))
+    expect(mocks.createBrowserTab).toHaveBeenCalledWith(
+      ...docPreviewCall('/home/alice/b.html', { activate: true })
+    )
   })
 
   it('renders an SSH file as a local doc preview', () => {
@@ -164,7 +241,7 @@ describe('openFileInBrowserTab', () => {
 
     expect(plan).toEqual({ status: 'doc-preview' })
     expect(mocks.createBrowserTab).toHaveBeenCalledWith(
-      ...docPreviewCall('/home/alice/report.html')
+      ...docPreviewCall('/home/alice/report.html', { activate: true })
     )
   })
 

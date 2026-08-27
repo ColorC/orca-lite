@@ -279,9 +279,20 @@ export function HtmlDocPreview({
     }
     let frameId = 0
     let attempts = 0
+    let claimedOnly = false
     const focusGuest = (): void => {
       const webview = webviewRef.current
       attempts += 1
+      // Why a re-offer yields: it is a handoff for focus nothing else wanted, and the reader
+      // pressing a tab lands here first. Taking it back would fight them for the keyboard, which
+      // is what shut the tab strip while a preview was open.
+      if (
+        claimedOnly &&
+        document.activeElement !== document.body &&
+        document.activeElement !== webview
+      ) {
+        return
+      }
       try {
         webview?.focus()
       } catch {
@@ -294,18 +305,21 @@ export function HtmlDocPreview({
         frameId = window.requestAnimationFrame(focusGuest)
       }
     }
-    const offerFocus = (): void => {
+    const offerFocus = (yieldToOtherClaims: boolean): void => {
       window.cancelAnimationFrame(frameId)
       attempts = 0
+      claimedOnly = yieldToOtherClaims
       frameId = window.requestAnimationFrame(focusGuest)
     }
-    offerFocus()
+    // Why assertive: the reader just made this preview their surface, so the handoff is the point.
+    offerFocus(false)
     // Why re-offered on the window's own focus: another app taking the front takes focus out of the
     // guest, and coming back puts it on the embedder. Nothing hands it on, so the route out of the
     // preview would stay shut until something remounted it.
-    window.addEventListener('focus', offerFocus)
+    const reofferFocus = (): void => offerFocus(true)
+    window.addEventListener('focus', reofferFocus)
     return () => {
-      window.removeEventListener('focus', offerFocus)
+      window.removeEventListener('focus', reofferFocus)
       window.cancelAnimationFrame(frameId)
     }
   }, [holdsGuestFocus, previewId, remintCount, state])
