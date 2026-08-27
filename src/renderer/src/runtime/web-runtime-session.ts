@@ -1546,7 +1546,7 @@ export function splitWebRuntimeTerminal(
     pendingMirrorSuppressionId
   )
   const intentOwner = captureWebSessionIntentOwner(environmentId)
-  const focusTarget = captureWebRuntimeSplitFocusTarget()
+  const focusTarget = captureWebRuntimeSplitFocusTarget(ptyId)
   const callEnvironment = captureRuntimeEnvironmentCall(environmentId, intentOwner.pairingRevision)
   void callEnvironment({
     method: 'terminal.split',
@@ -1576,26 +1576,54 @@ export function splitWebRuntimeTerminal(
 
 type WebRuntimeSplitFocusTarget = {
   worktreeId: string
-  tabId: string
-  leafId: string | null
-  executionHostId: string | null
+  sourceTabId: string
+  sourceLeafId: string
+  sourcePtyId: string
+  expectedActiveWorktreeId: string | null
+  expectedExecutionHostId: string | null
+  expectedCurrentLocalTabId: string | null
+  expectedCurrentLocalLeafId: string | null
 }
 
-function captureWebRuntimeSplitFocusTarget(): WebRuntimeSplitFocusTarget | null {
+function captureWebRuntimeSplitFocusTarget(ptyId: string): WebRuntimeSplitFocusTarget | null {
   const state = useAppStore.getState()
-  const worktreeId = state?.activeWorktreeId
-  if (!worktreeId) {
+  if (!state) {
     return null
   }
-  const tabId = resolveWebSessionVisibleTabId(state, worktreeId)
-  if (!tabId) {
+  let source: Pick<
+    WebRuntimeSplitFocusTarget,
+    'worktreeId' | 'sourceTabId' | 'sourceLeafId' | 'sourcePtyId'
+  > | null = null
+  for (const [worktreeId, tabs] of Object.entries(state.tabsByWorktree ?? {})) {
+    for (const tab of tabs) {
+      const layout = state.terminalLayoutsByTabId?.[tab.id]
+      const sourceLeafId = Object.entries(layout?.ptyIdsByLeafId ?? {}).find(
+        ([, candidatePtyId]) => candidatePtyId === ptyId
+      )?.[0]
+      if (sourceLeafId) {
+        source = { worktreeId, sourceTabId: tab.id, sourceLeafId, sourcePtyId: ptyId }
+        break
+      }
+    }
+    if (source) {
+      break
+    }
+  }
+  if (!source) {
     return null
   }
+  const expectedActiveWorktreeId = state.activeWorktreeId ?? null
+  const expectedCurrentLocalTabId = expectedActiveWorktreeId
+    ? resolveWebSessionVisibleTabId(state, expectedActiveWorktreeId)
+    : null
   return {
-    worktreeId,
-    tabId,
-    leafId: state.terminalLayoutsByTabId?.[tabId]?.activeLeafId ?? null,
-    executionHostId: state.activeWorkspaceExecutionHostId ?? null
+    ...source,
+    expectedActiveWorktreeId,
+    expectedExecutionHostId: state.activeWorkspaceExecutionHostId ?? null,
+    expectedCurrentLocalTabId,
+    expectedCurrentLocalLeafId: expectedCurrentLocalTabId
+      ? (state.terminalLayoutsByTabId?.[expectedCurrentLocalTabId]?.activeLeafId ?? null)
+      : null
   }
 }
 
@@ -1606,17 +1634,30 @@ function matchesWebRuntimeSplitFocusTarget(
 ): boolean {
   const state = useAppStore.getState()
   if (
-    state.activeWorktreeId !== target.worktreeId ||
-    (state.activeWorkspaceExecutionHostId ?? null) !== target.executionHostId
+    !state ||
+    toHostSessionTabId(target.sourceTabId) !== hostTabId ||
+    state.terminalLayoutsByTabId?.[target.sourceTabId]?.ptyIdsByLeafId?.[target.sourceLeafId] !==
+      target.sourcePtyId ||
+    (state.activeWorktreeId ?? null) !== target.expectedActiveWorktreeId ||
+    (state.activeWorkspaceExecutionHostId ?? null) !== target.expectedExecutionHostId
   ) {
     return false
   }
-  const currentTabId = resolveWebSessionVisibleTabId(state, target.worktreeId)
-  if (!currentTabId || toHostSessionTabId(currentTabId) !== hostTabId) {
-    return false
+  const currentTabId = target.expectedActiveWorktreeId
+    ? resolveWebSessionVisibleTabId(state, target.expectedActiveWorktreeId)
+    : null
+  if (currentTabId === target.expectedCurrentLocalTabId) {
+    const currentLeafId = currentTabId
+      ? (state.terminalLayoutsByTabId?.[currentTabId]?.activeLeafId ?? null)
+      : null
+    return currentLeafId === target.expectedCurrentLocalLeafId
   }
-  const currentLeafId = state.terminalLayoutsByTabId?.[currentTabId]?.activeLeafId ?? null
-  return target.leafId === null || currentLeafId === target.leafId || currentLeafId === newLeafId
+  return Boolean(
+    currentTabId &&
+    newLeafId &&
+    toHostSessionTabId(currentTabId) === hostTabId &&
+    state.terminalLayoutsByTabId?.[currentTabId]?.activeLeafId === newLeafId
+  )
 }
 
 async function focusSplitWebRuntimeTerminalPane(
@@ -1640,7 +1681,7 @@ async function focusSplitWebRuntimeTerminalPane(
     focusTarget.worktreeId,
     hostTabId,
     leafId,
-    focusTarget.tabId
+    focusTarget.expectedCurrentLocalTabId
   )
   await refreshWebRuntimeSessionTabsSnapshot(intentOwner.environmentId, focusTarget.worktreeId, {
     expectedEnvironmentPairingRevision: intentOwner.pairingRevision,
