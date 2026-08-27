@@ -12,7 +12,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import type { DocPreviewFailure } from '../../../../shared/doc-preview-scheme'
+import type { DocPreviewFailure } from '../../../../../shared/doc-preview-scheme'
 
 const GRANT_ID = 'a'.repeat(32)
 const REMINTED_GRANT_ID = 'c'.repeat(32)

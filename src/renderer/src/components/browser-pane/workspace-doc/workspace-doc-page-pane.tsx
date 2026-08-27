@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { getRelativePathInsideRoot } from '@/lib/path'
 import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
 import { useAppStore } from '@/store'
-import { HtmlDocPreview } from '@/components/editor/HtmlDocPreview'
+import { HtmlDocPreview } from './HtmlDocPreview'
 import type { BrowserPage } from '../../../../../shared/browser-workspace-types'
 
 /**
@@ -30,7 +30,6 @@ export function WorkspaceDocPagePane({
     () => getRelativePathInsideRoot(filePath, worktreeRoot) ?? filePath,
     [filePath, worktreeRoot]
   )
-
   if (!docLocation) {
     return null
   }

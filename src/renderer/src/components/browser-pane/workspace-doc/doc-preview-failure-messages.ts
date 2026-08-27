@@ -1,7 +1,7 @@
 import type {
   DocPreviewFileFailure,
   DocPreviewFileFailureReason
-} from '../../../../shared/doc-preview-scheme'
+} from '../../../../../shared/doc-preview-scheme'
 import { translate } from '@/i18n/i18n'
 
 export function docPreviewFailureDetail(reason: DocPreviewFileFailureReason | null): string {
