@@ -15,6 +15,7 @@ import {
 } from './browser-grab-ipc'
 import { registerBrowserSessionProfileHandlers } from './browser-session-profile-ipc'
 import type { BrowserCertificateProceedResult } from '../../shared/browser-workspace-types'
+import { parseDocPreviewToolTargetId } from '../../shared/doc-preview-scheme'
 import {
   cancelBrowserWebAuthnAccountRequests,
   respondToBrowserWebAuthnAccountRequest
@@ -158,6 +159,16 @@ export function registerBrowserHandlers(): void {
 
   ipcMain.handle('browser:unregisterGuest', (event, args: { browserPageId: string }) => {
     if (!isTrustedBrowserRenderer(event.sender)) {
+      return false
+    }
+    // Why the whole door and not just the manager call: the preview shares this renderer, and the
+    // grab disposal below drops the intent an in-flight preview grab compares by identity — that
+    // grab would then answer ok without ever arming. A preview withdraws by revoking its grant, so
+    // a preview id arriving here is misaddressed however it got here.
+    if (
+      typeof args?.browserPageId !== 'string' ||
+      parseDocPreviewToolTargetId(args.browserPageId) !== null
+    ) {
       return false
     }
     // Why: notify bridge before unregistering so it can destroy the session

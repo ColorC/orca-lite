@@ -123,5 +123,10 @@ describe('OffscreenBrowserBackend lifecycle', () => {
 
     expect(mocks.windows[0].isDestroyed()).toBe(true)
     expect(browserManager.unregisterGuest).not.toHaveBeenCalled()
+
+    // Why shutdown and not the map: a refused id left behind is invisible until teardown walks it
+    // and hands that id to the other authority after all.
+    backend.destroyAll()
+    expect(browserManager.unregisterGuest).not.toHaveBeenCalled()
   })
 })

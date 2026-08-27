@@ -87,6 +87,7 @@ vi.mock('./browser-tab-registration-wait', async (importOriginal) => {
 })
 
 import { registerBrowserHandlers } from './browser'
+import { browserManager } from '../browser/browser-manager'
 import { installDocPreviewGuestPolicy } from '../browser/doc-preview-guest-policy'
 import {
   mintDocPreviewGrant,
@@ -375,6 +376,52 @@ describe('doc preview tool authorization', () => {
     revokeDocPreviewGrant(preview.grantId)
 
     expect(cancelGrabOpMock).toHaveBeenCalledWith(preview.toolTargetId, 'evicted')
+  })
+
+  // Why both halves of this door: the manager refuses a preview id on its own, but the grab
+  // disposal beside it takes a renderer-supplied id, and the intent it drops is compared by
+  // identity — dropping it makes the grab settle ok without ever arming the guest.
+  it('leaves an in-flight preview grab armed when unregisterGuest names its target', async () => {
+    const preview = liveRenderedPreview()
+    const handlers = registeredHandlers()
+    const pending = handlers.get('browser:setGrabMode')?.(trustedSender(HOST_RENDERER_ID), {
+      browserPageId: preview.toolTargetId,
+      enabled: true
+    })
+
+    // Why synchronously here: the intent is recorded before the queued operation runs, so this is
+    // the exact window in which a disposal at this door would be invisible to the caller.
+    const unregistered = handlers.get('browser:unregisterGuest')?.(
+      trustedSender(HOST_RENDERER_ID),
+      { browserPageId: preview.toolTargetId }
+    )
+
+    // Why the guest and not the result: a dropped intent settles as ok either way, so only the
+    // guest actually being driven separates an armed grab from a silent no-op.
+    await expect(pending).resolves.toEqual({ ok: true })
+    expect(setGrabModeMock).toHaveBeenCalledWith(preview.toolTargetId, true, preview.contents)
+    expect(unregistered).toBe(false)
+    expect(vi.mocked(browserManager.unregisterGuest)).not.toHaveBeenCalled()
+  })
+
+  // The converse, so the guard above cannot be widened into a door that stops closing tabs.
+  it('still disposes a browser page grab through the same door', async () => {
+    getAuthorizedGuestMock.mockReturnValue({ isDestroyed: () => false })
+    const handlers = registeredHandlers()
+    const pending = handlers.get('browser:setGrabMode')?.(trustedSender(HOST_RENDERER_ID), {
+      browserPageId: 'browser-page-1',
+      enabled: true
+    })
+
+    const unregistered = handlers.get('browser:unregisterGuest')?.(
+      trustedSender(HOST_RENDERER_ID),
+      { browserPageId: 'browser-page-1' }
+    )
+
+    expect(unregistered).toBe(true)
+    await expect(pending).resolves.toEqual({ ok: true })
+    expect(setGrabModeMock).not.toHaveBeenCalled()
+    expect(vi.mocked(browserManager.unregisterGuest)).toHaveBeenCalledWith('browser-page-1')
   })
 
   // Why: the two authorities must not be a fallback chain — a browser page id that the page

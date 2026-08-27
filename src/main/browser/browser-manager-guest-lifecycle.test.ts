@@ -129,6 +129,23 @@ describe('browserManager', () => {
     }
   )
 
+  // Why this answer is load-bearing: the headless backend destroys its window on false, so a true
+  // for a guest that is already gone would leave a page id registered onto nothing.
+  it.each(['missing', 'destroyed'] as const)(
+    'refuses registerOffscreenGuest when the named guest is %s',
+    (guestState) => {
+      webContentsFromIdMock.mockReturnValue(
+        guestState === 'missing' ? null : { id: 137, isDestroyed: vi.fn(() => true) }
+      )
+
+      expect(
+        browserManager.registerOffscreenGuest({ browserPageId: 'offscreen-1', webContentsId: 137 })
+      ).toBe(false)
+
+      expect(browserManager.getGuestWebContentsId('offscreen-1')).toBeNull()
+    }
+  )
+
   // Why the exit door needs the same check: a preview withdraws by revoking its grant, so a preview
   // id here is misaddressed — and unregistering opens by evicting whatever grab that id names.
   it('refuses unregisterGuest for a page id in the preview namespace', () => {
