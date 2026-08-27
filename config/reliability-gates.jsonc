@@ -3112,12 +3112,6 @@
           ]
         },
         {
-          "file": "src/renderer/src/components/terminal-pane/TerminalLinkActionPopover.test.tsx",
-          "assertions": [
-            "every extra action renders and runs, carrying no click-modifier keycap it does not have"
-          ]
-        },
-        {
           "file": "src/renderer/src/runtime/sync-runtime-graph-editor-diff-tabs.test.ts",
           "assertions": [
             "a client-local html-preview tab is not published to mobile clients as a plain file tab"

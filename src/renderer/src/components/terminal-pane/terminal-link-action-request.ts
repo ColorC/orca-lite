@@ -17,8 +17,6 @@ export type TerminalLinkActionRequest = {
   kind: TerminalLinkActionKind
   primary: TerminalLinkAction
   alternate?: TerminalLinkAction
-  /** Rows without a click-modifier shortcut, listed after the alternate. */
-  extra?: TerminalLinkAction[]
   focusTerminal: () => void
 }
 
@@ -41,7 +39,7 @@ export function closeTerminalLinkActionRequest(
 
 type LinkActionDetails = Pick<
   TerminalLinkActionRequest,
-  'destination' | 'kind' | 'primary' | 'alternate' | 'extra'
+  'destination' | 'kind' | 'primary' | 'alternate'
 >
 
 export function requestTerminalLinkAction(

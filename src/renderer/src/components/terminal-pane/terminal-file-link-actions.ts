@@ -12,8 +12,6 @@ import {
 } from './terminal-link-action-request'
 import { resolveKnownWorktreeRootPathLink } from './terminal-worktree-path-link'
 import { downloadAndOpenRemoteTerminalFile } from './terminal-remote-file-download-open'
-import { canPreviewLanguage, openFilePreviewToSide } from '@/lib/file-preview'
-import { detectLanguage } from '@/lib/language-detect'
 import { translate } from '@/i18n/i18n'
 
 export type TerminalFileLinkActionDeps = {
@@ -94,27 +92,9 @@ export function handleTerminalFileLink(
             ),
             run: () => downloadAndOpenRemoteTerminalFile(fileContext, mappedPath)
           }
-  const previewRow =
-    !worktreeRoot && canPreviewLanguage(detectLanguage(mappedPath))
-      ? {
-          label: translate(
-            'auto.components.terminal.pane.TerminalLinkActionPopover.openPreview',
-            'Open preview'
-          ),
-          run: () =>
-            openFilePreviewToSide({
-              language: 'html',
-              filePath: mappedPath,
-              worktreeId: deps.worktreeId,
-              sourceGroupId: null
-            })
-        }
-      : null
-
   return requestTerminalLinkAction(event, actionContext, {
     destination: actionDestination ?? mappedPath,
     kind: worktreeRoot ? 'workspace' : 'file',
-    ...(previewRow ? { extra: [previewRow] } : {}),
     primary: {
       label: worktreeRoot
         ? translate(

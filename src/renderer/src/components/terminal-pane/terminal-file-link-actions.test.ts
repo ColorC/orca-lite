@@ -5,7 +5,6 @@ const mocks = vi.hoisted(() => ({
   canOpenWithSystemDefault: true,
   downloadAndOpen: vi.fn(),
   openDetectedFilePath: vi.fn(),
-  openFilePreviewToSide: vi.fn(),
   worktreeRoot: false
 }))
 
@@ -23,11 +22,6 @@ vi.mock('./terminal-worktree-path-link', () => ({
 
 vi.mock('./terminal-remote-file-download-open', () => ({
   downloadAndOpenRemoteTerminalFile: mocks.downloadAndOpen
-}))
-
-vi.mock('@/lib/file-preview', () => ({
-  canPreviewLanguage: (language: string) => language === 'html',
-  openFilePreviewToSide: mocks.openFilePreviewToSide
 }))
 
 import { handleTerminalFileLink } from './terminal-file-link-actions'
@@ -107,28 +101,6 @@ describe('terminal file link actions', () => {
     expect(actionRequest).not.toHaveProperty('alternate')
   })
 
-  it('adds a preview row for previewable files in a local workspace', () => {
-    const request = vi.fn()
-    handleTerminalFileLink(
-      '/repo/docs/report.html',
-      null,
-      null,
-      plainEvent(),
-      deps,
-      context(request)
-    )
-
-    const actionRequest = request.mock.calls[0][0]
-    expect(actionRequest.extra).toEqual([expect.objectContaining({ label: 'Open preview' })])
-    actionRequest.extra[0].run()
-    expect(mocks.openFilePreviewToSide).toHaveBeenCalledWith({
-      language: 'html',
-      filePath: '/repo/docs/report.html',
-      worktreeId: 'wt-1',
-      sourceGroupId: null
-    })
-  })
-
   it('offers the same rows for a remote previewable file, downloading before the OS opens it', () => {
     mocks.canOpenWithSystemDefault = false
     const request = vi.fn()
@@ -144,7 +116,6 @@ describe('terminal file link actions', () => {
     const actionRequest = request.mock.calls[0][0]
     expect(actionRequest.primary.label).toBe('Open file')
     expect(actionRequest.alternate.label).toBe('Download & open with default app')
-    expect(actionRequest.extra).toEqual([expect.objectContaining({ label: 'Open preview' })])
 
     actionRequest.alternate.run()
     expect(mocks.downloadAndOpen).toHaveBeenCalledWith({}, '/repo/docs/report.html')
@@ -172,16 +143,8 @@ describe('terminal file link actions', () => {
       context(remoteRequest)
     )
 
-    const rowCount = (call: { alternate?: unknown; extra?: unknown[] }): number =>
-      1 + (call.alternate ? 1 : 0) + (call.extra?.length ?? 0)
+    const rowCount = (call: { alternate?: unknown }): number => 1 + (call.alternate ? 1 : 0)
     expect(rowCount(remoteRequest.mock.calls[0][0])).toBe(rowCount(localRequest.mock.calls[0][0]))
-  })
-
-  it('omits the preview row for a file with no preview surface', () => {
-    const request = vi.fn()
-    handleTerminalFileLink('/repo/src/main.ts', null, null, plainEvent(), deps, context(request))
-
-    expect(request.mock.calls[0][0]).not.toHaveProperty('extra')
   })
 
   // Why: a directory has nothing to hand the OS, and the download row would offer a transfer that

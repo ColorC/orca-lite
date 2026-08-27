@@ -22,17 +22,13 @@ function ActionRow({
   onRun
 }: {
   action: TerminalLinkAction
-  /** null for rows with no click-modifier shortcut. */
-  alternate: boolean | null
+  alternate: boolean
   onRun: () => void
 }): React.JSX.Element {
   const isMac = navigator.userAgent.includes('Mac')
-  const keys =
-    alternate === null
-      ? null
-      : alternate
-        ? [isMac ? '⇧' : 'Shift', isMac ? '⌘' : 'Ctrl', 'Click']
-        : [isMac ? '⌘' : 'Ctrl', 'Click']
+  const keys = alternate
+    ? [isMac ? '⇧' : 'Shift', isMac ? '⌘' : 'Ctrl', 'Click']
+    : [isMac ? '⌘' : 'Ctrl', 'Click']
 
   return (
     <Button
@@ -45,9 +41,7 @@ function ActionRow({
       <span className="min-w-0 flex-1 truncate text-left" title={action.label}>
         {action.label}
       </span>
-      {keys ? (
-        <ShortcutKeyCombo keys={keys} keyCapClassName="min-w-5 px-1 py-0 text-[11px]" />
-      ) : null}
+      <ShortcutKeyCombo keys={keys} keyCapClassName="min-w-5 px-1 py-0 text-[11px]" />
     </Button>
   )
 }
@@ -194,14 +188,6 @@ export function TerminalLinkActionPopover({
               onRun={() => runAction(request.alternate!)}
             />
           ) : null}
-          {(request.extra ?? []).map((action) => (
-            <ActionRow
-              key={action.label}
-              action={action}
-              alternate={null}
-              onRun={() => runAction(action)}
-            />
-          ))}
         </PopoverContent>
       ) : null}
     </Popover>

@@ -3086,7 +3086,6 @@
             "copiedLink": "Copied link",
             "copyLinkFailed": "Failed to copy link",
             "downloadOpenWithDefaultApp": "Download & open with default app",
-            "openPreview": "Open preview",
             "downloadOpenFailed": "Failed to download '{{value0}}'."
           },
           "TerminalSessionStateSaveFailureDialog": {
