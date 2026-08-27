@@ -91,7 +91,20 @@ export function registerBrowserStateIpcBridge(
       if (!sourcePage || getRuntimeEnvironmentIdForWorktree(store, sourcePage.worktreeId)) {
         return
       }
-      store.createBrowserTab(sourcePage.worktreeId, url, { title: url })
+      // Why: the link inherits the opener's cookie jar. Falling back to the default profile would let
+      // a page in an isolated session hand its links to the default one, silently crossing profiles.
+      const sourceTab = (store.browserTabsByWorktree[sourcePage.worktreeId] ?? []).find(
+        (tab) => tab.id === sourcePage.workspaceId
+      )
+      store.createBrowserTab(sourcePage.worktreeId, url, {
+        title: url,
+        ...(sourceTab
+          ? {
+              sessionProfileId: sourceTab.sessionProfileId,
+              sessionPartition: sourceTab.sessionPartition
+            }
+          : {})
+      })
     })
   )
   // Why: the doc-preview scheme is desktop-only, so hosts without it (web client) simply have no channel.
