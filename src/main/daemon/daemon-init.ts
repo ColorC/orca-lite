@@ -1460,8 +1460,6 @@ function legacyDaemonProcessLiveness(
       return { status: 'exited' }
     case 'unavailable':
       return { status: 'unverifiable', reason: 'the daemon process could not be queried' }
-    default:
-      return evidence satisfies never
   }
 }
 
@@ -1483,8 +1481,6 @@ export async function createLegacyDaemonAdapters(
           continue
         case 'exited':
           break
-        default:
-          verdict satisfies never
       }
       for (const stalePath of [
         getDaemonPidPath(runtimeDir, protocolVersion),
