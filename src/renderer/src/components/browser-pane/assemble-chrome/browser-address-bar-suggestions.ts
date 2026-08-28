@@ -7,6 +7,7 @@ import {
   type SearchEngine
 } from '../../../../../shared/browser-url'
 import type { BrowserHistoryEntry } from '../../../../../shared/browser-workspace-types'
+import { matchBrowserHistory, prepareBrowserHistoryEntries } from '@/lib/browser-history-match'
 import { isClipboardTextByteLengthOverLimit } from '../../../../../shared/clipboard-text'
 import { translate } from '@/i18n/i18n'
 
@@ -27,28 +28,6 @@ export function isBrowserAddressBarQueryTooLarge(
   maxBytes = BROWSER_ADDRESS_BAR_QUERY_MAX_BYTES
 ): boolean {
   return isClipboardTextByteLengthOverLimit(query, maxBytes)
-}
-
-function scoreBrowserAddressBarSuggestion(
-  entry: { url: string; title: string; lastVisitedAt: number; visitCount: number },
-  query: string
-): number {
-  const lowerQuery = query.toLowerCase()
-  const lowerUrl = entry.url.toLowerCase()
-  const lowerTitle = entry.title.toLowerCase()
-
-  if (!lowerUrl.includes(lowerQuery) && !lowerTitle.includes(lowerQuery)) {
-    return -1
-  }
-
-  let score = 0
-  if (lowerUrl.startsWith(lowerQuery) || lowerUrl.startsWith(`https://${lowerQuery}`)) {
-    score += 100
-  }
-  score += Math.min(entry.visitCount, 50)
-  const ageHours = (Date.now() - entry.lastVisitedAt) / (1000 * 60 * 60)
-  score += Math.max(0, 24 - ageHours)
-  return score
 }
 
 export function buildBrowserAddressBarSuggestions({
@@ -75,18 +54,13 @@ export function buildBrowserAddressBarSuggestions({
       .slice(0, MAX_BROWSER_ADDRESS_BAR_SUGGESTIONS)
       .map((entry) => ({ ...entry, subtitle: entry.url, isSearch: false }))
   }
-  const historySuggestions: BrowserAddressBarSuggestion[] =
-    browserUrlHistory.length > 0
-      ? browserUrlHistory
-          .map((entry) => ({
-            entry,
-            score: scoreBrowserAddressBarSuggestion(entry, trimmed)
-          }))
-          .filter((item) => item.score >= 0)
-          .sort((a, b) => b.score - a.score)
-          .slice(0, MAX_BROWSER_ADDRESS_BAR_SUGGESTIONS - 1)
-          .map((item) => ({ ...item.entry, subtitle: item.entry.url, isSearch: false }))
-      : []
+  // Why url-tail is kept here: the address bar is a navigation surface, so a
+  // path-only recall is still a destination — it just never outranks a real one.
+  const historySuggestions: BrowserAddressBarSuggestion[] = matchBrowserHistory({
+    prepared: prepareBrowserHistoryEntries(browserUrlHistory),
+    query: trimmed,
+    limit: MAX_BROWSER_ADDRESS_BAR_SUGGESTIONS - 1
+  }).map((match) => ({ ...match.entry, subtitle: match.entry.url, isSearch: false }))
 
   const isQuery = looksLikeSearchQuery(trimmed)
   let topAction: BrowserAddressBarSuggestion | null
