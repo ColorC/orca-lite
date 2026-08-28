@@ -56,7 +56,7 @@ import {
   clearWebSessionReorderIntent,
   recordWebSessionReorderIntent
 } from './web-session-reorder-intent'
-import type { WebSessionIntentOwner } from './web-session-intent-owner'
+import { webSessionIntentOwnerKey, type WebSessionIntentOwner } from './web-session-intent-owner'
 import {
   isWebTerminalSurfaceTabId,
   toHostSessionTabId,
@@ -1527,7 +1527,8 @@ async function callWebRuntimeSessionTabMethod(
 export function splitWebRuntimeTerminal(
   ptyId: string | null | undefined,
   direction: 'horizontal' | 'vertical',
-  telemetrySource: TerminalPaneSplitSource
+  telemetrySource: TerminalPaneSplitSource,
+  source: WebRuntimeSplitSource
 ): boolean {
   if (!ptyId) {
     return false
@@ -1546,7 +1547,10 @@ export function splitWebRuntimeTerminal(
     pendingMirrorSuppressionId
   )
   const intentOwner = captureWebSessionIntentOwner(environmentId)
-  const focusTarget = captureWebRuntimeSplitFocusTarget(ptyId)
+  const focusTarget = captureWebRuntimeSplitFocusTarget(ptyId, source)
+  const focusRequest = focusTarget
+    ? beginWebRuntimeSplitFocusRequest(intentOwner, focusTarget.worktreeId)
+    : null
   const callEnvironment = captureRuntimeEnvironmentCall(environmentId, intentOwner.pairingRevision)
   void callEnvironment({
     method: 'terminal.split',
@@ -1561,7 +1565,7 @@ export function splitWebRuntimeTerminal(
       const result = unwrapRuntimeRpcResult(
         response as RuntimeRpcResponse<{ split: RuntimeTerminalSplit }>
       )
-      await focusSplitWebRuntimeTerminalPane(intentOwner, focusTarget, result?.split)
+      await focusSplitWebRuntimeTerminalPane(intentOwner, focusTarget, focusRequest, result?.split)
     })
     .catch((error) => {
       releasePendingMirrorSuppression()
@@ -1571,7 +1575,14 @@ export function splitWebRuntimeTerminal(
       toast.error(message)
       console.warn('[web-runtime-session] failed to split terminal:', message)
     })
+    .finally(() => finishWebRuntimeSplitFocusRequest(focusRequest))
   return true
+}
+
+export type WebRuntimeSplitSource = {
+  worktreeId: string
+  tabId: string
+  leafId: string
 }
 
 type WebRuntimeSplitFocusTarget = {
@@ -1585,31 +1596,51 @@ type WebRuntimeSplitFocusTarget = {
   expectedCurrentLocalLeafId: string | null
 }
 
-function captureWebRuntimeSplitFocusTarget(ptyId: string): WebRuntimeSplitFocusTarget | null {
+type WebRuntimeSplitFocusRequest = {
+  key: string
+  id: number
+}
+
+const latestWebRuntimeSplitFocusRequestByKey = new Map<string, number>()
+let nextWebRuntimeSplitFocusRequestId = 0
+
+function beginWebRuntimeSplitFocusRequest(
+  owner: WebSessionIntentOwner,
+  worktreeId: string
+): WebRuntimeSplitFocusRequest {
+  const request = {
+    key: `${webSessionIntentOwnerKey(owner)}\0${worktreeId}`,
+    id: ++nextWebRuntimeSplitFocusRequestId
+  }
+  latestWebRuntimeSplitFocusRequestByKey.set(request.key, request.id)
+  return request
+}
+
+function isLatestWebRuntimeSplitFocusRequest(request: WebRuntimeSplitFocusRequest | null): boolean {
+  return Boolean(request && latestWebRuntimeSplitFocusRequestByKey.get(request.key) === request.id)
+}
+
+function finishWebRuntimeSplitFocusRequest(request: WebRuntimeSplitFocusRequest | null): void {
+  if (request && isLatestWebRuntimeSplitFocusRequest(request)) {
+    latestWebRuntimeSplitFocusRequestByKey.delete(request.key)
+  }
+}
+
+function captureWebRuntimeSplitFocusTarget(
+  ptyId: string,
+  source: WebRuntimeSplitSource
+): WebRuntimeSplitFocusTarget | null {
   const state = useAppStore.getState()
   if (!state) {
     return null
   }
-  let source: Pick<
-    WebRuntimeSplitFocusTarget,
-    'worktreeId' | 'sourceTabId' | 'sourceLeafId' | 'sourcePtyId'
-  > | null = null
-  for (const [worktreeId, tabs] of Object.entries(state.tabsByWorktree ?? {})) {
-    for (const tab of tabs) {
-      const layout = state.terminalLayoutsByTabId?.[tab.id]
-      const sourceLeafId = Object.entries(layout?.ptyIdsByLeafId ?? {}).find(
-        ([, candidatePtyId]) => candidatePtyId === ptyId
-      )?.[0]
-      if (sourceLeafId) {
-        source = { worktreeId, sourceTabId: tab.id, sourceLeafId, sourcePtyId: ptyId }
-        break
-      }
-    }
-    if (source) {
-      break
-    }
-  }
-  if (!source) {
+  const sourceTab = state.tabsByWorktree?.[source.worktreeId]?.find(
+    (tab) => tab.id === source.tabId
+  )
+  if (
+    !sourceTab ||
+    state.terminalLayoutsByTabId?.[source.tabId]?.ptyIdsByLeafId?.[source.leafId] !== ptyId
+  ) {
     return null
   }
   const expectedActiveWorktreeId = state.activeWorktreeId ?? null
@@ -1617,7 +1648,10 @@ function captureWebRuntimeSplitFocusTarget(ptyId: string): WebRuntimeSplitFocusT
     ? resolveWebSessionVisibleTabId(state, expectedActiveWorktreeId)
     : null
   return {
-    ...source,
+    worktreeId: source.worktreeId,
+    sourceTabId: source.tabId,
+    sourceLeafId: source.leafId,
+    sourcePtyId: ptyId,
     expectedActiveWorktreeId,
     expectedExecutionHostId: state.activeWorkspaceExecutionHostId ?? null,
     expectedCurrentLocalTabId,
@@ -1663,6 +1697,7 @@ function matchesWebRuntimeSplitFocusTarget(
 async function focusSplitWebRuntimeTerminalPane(
   intentOwner: WebSessionIntentOwner,
   focusTarget: WebRuntimeSplitFocusTarget | null,
+  focusRequest: WebRuntimeSplitFocusRequest | null,
   split: RuntimeTerminalSplit | undefined
 ): Promise<void> {
   const hostTabId = split?.tabId?.trim()
@@ -1671,6 +1706,7 @@ async function focusSplitWebRuntimeTerminalPane(
     !hostTabId ||
     !leafId ||
     !focusTarget ||
+    !isLatestWebRuntimeSplitFocusRequest(focusRequest) ||
     !matchesWebSessionIntentOwner(intentOwner) ||
     !matchesWebRuntimeSplitFocusTarget(focusTarget, hostTabId)
   ) {
@@ -1689,10 +1725,13 @@ async function focusSplitWebRuntimeTerminalPane(
     acceptCurrentSnapshot: true
   })
   if (
+    !isLatestWebRuntimeSplitFocusRequest(focusRequest) ||
     !matchesWebSessionIntentOwner(intentOwner) ||
     !matchesWebRuntimeSplitFocusTarget(focusTarget, hostTabId, leafId)
   ) {
-    clearWebSessionFocusIntentIfMatches(intentOwner, focusTarget.worktreeId, hostTabId)
+    if (isLatestWebRuntimeSplitFocusRequest(focusRequest)) {
+      clearWebSessionFocusIntentIfMatches(intentOwner, focusTarget.worktreeId, hostTabId, leafId)
+    }
     return
   }
   activateTabAndFocusPane(toWebTerminalSurfaceTabId(hostTabId), leafId)
