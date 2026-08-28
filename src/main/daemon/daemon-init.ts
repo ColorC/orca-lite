@@ -1345,7 +1345,10 @@ async function waitForDaemonEndpointExit(socketPath: string): Promise<boolean> {
   return !(await probeSocket(socketPath))
 }
 
-function legacyDaemonProcessLiveness(
+// Why: exported so the signal->verdict mapping is pinned directly; the reclaim gates below each
+// independently preserve, so an "unlinked nothing" assertion cannot distinguish a correct
+// 'unverifiable' from the pre-fix coercion of "cannot tell" into "dead".
+export function legacyDaemonProcessLiveness(
   runtimeDir: string,
   protocolVersion: number
 ): { verdict: ProcessLivenessVerdict; provenRecordText: string | null } {

@@ -446,6 +446,27 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
     expect(unlinkSyncMock).not.toHaveBeenCalled()
   })
 
+  it('leaves the token in place when the proven-dead record cannot be unlinked', async () => {
+    // Why: a token outliving its record is unattributable — a later reader cannot tell whose it is.
+    const mod = await importFresh()
+    readFileSyncMock.mockReturnValue('{"pid":123}')
+    // Why: mockImplementationOnce, not mockImplementation — afterEach runs clearAllMocks, which
+    // clears calls but keeps implementations, so a persistent throw would leak into later tests.
+    unlinkSyncMock.mockImplementationOnce(() => {
+      throw Object.assign(new Error('resource busy'), { code: 'EBUSY' })
+    })
+
+    mod.reclaimLegacyDaemonOwnershipFiles(
+      { status: 'exited' },
+      '{"pid":123}',
+      '/fake/daemon-v9.pid',
+      '/fake/daemon-v9.token'
+    )
+
+    expect(unlinkSyncMock).toHaveBeenCalledWith('/fake/daemon-v9.pid')
+    expect(unlinkSyncMock).not.toHaveBeenCalledWith('/fake/daemon-v9.token')
+  })
+
   it('cleans up legacy daemon pid/token files when the probe fails and the process is gone', async () => {
     const mod = await importFresh()
     readFileSyncMock.mockReturnValue('{"pid":123}')
@@ -465,5 +486,90 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
       ([p]) => typeof p === 'string' && p.includes('.token')
     )
     expect(tokenUnlinks.length).toBeGreaterThan(0)
+  })
+})
+
+describe('daemon-init: legacyDaemonProcessLiveness verdict mapping', () => {
+  // Why: the reclaim gates (null-record guard and the probe->unlink record compare) each preserve
+  // on their own, so a scenario test asserting only "nothing was unlinked" stays green even if the
+  // mapping is reverted to the pre-fix coercion of "cannot tell" into "dead". Pin the mapping here.
+  beforeEach(() => {
+    installDefaultNetConnectStub()
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('reports unverifiable and no proven record when the pid record cannot be read', async () => {
+    const mod = await importFresh()
+    readFileSyncMock.mockImplementation(() => {
+      throw Object.assign(new Error('permission denied'), { code: 'EACCES' })
+    })
+
+    const liveness = mod.legacyDaemonProcessLiveness('/fake/runtime', 9)
+
+    expect(liveness.verdict.status).toBe('unverifiable')
+    expect(liveness.provenRecordText).toBeNull()
+  })
+
+  it('reports unverifiable and no proven record when the pid record does not parse', async () => {
+    const mod = await importFresh()
+    readFileSyncMock.mockReturnValue('not a daemon pid record')
+    parseDaemonPidFileMock.mockReturnValue(null)
+
+    const liveness = mod.legacyDaemonProcessLiveness('/fake/runtime', 9)
+
+    expect(liveness.verdict.status).toBe('unverifiable')
+    expect(liveness.provenRecordText).toBeNull()
+  })
+
+  it('reports live when the pid probe is denied with EPERM', async () => {
+    const mod = await importFresh()
+    readFileSyncMock.mockReturnValue('{"pid":123}')
+    parseDaemonPidFileMock.mockReturnValue({ pid: 999_999, startedAtMs: null })
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => {
+      throw Object.assign(new Error('operation not permitted'), { code: 'EPERM' })
+    })
+
+    try {
+      const liveness = mod.legacyDaemonProcessLiveness('/fake/runtime', 9)
+      expect(liveness.verdict.status).toBe('live')
+    } finally {
+      killSpy.mockRestore()
+    }
+  })
+
+  it('reports unverifiable when the pid probe fails with neither ESRCH nor EPERM', async () => {
+    const mod = await importFresh()
+    readFileSyncMock.mockReturnValue('{"pid":123}')
+    parseDaemonPidFileMock.mockReturnValue({ pid: 999_999, startedAtMs: null })
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => {
+      throw new Error('kill probe rejected by the platform')
+    })
+
+    try {
+      const liveness = mod.legacyDaemonProcessLiveness('/fake/runtime', 9)
+      expect(liveness.verdict.status).toBe('unverifiable')
+    } finally {
+      killSpy.mockRestore()
+    }
+  })
+
+  it('reports exited carrying the exact record bytes proved dead', async () => {
+    const mod = await importFresh()
+    readFileSyncMock.mockReturnValue('{"pid":123}')
+    parseDaemonPidFileMock.mockReturnValue({ pid: 999_999, startedAtMs: null })
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => {
+      throw Object.assign(new Error('no such process'), { code: 'ESRCH' })
+    })
+
+    try {
+      const liveness = mod.legacyDaemonProcessLiveness('/fake/runtime', 9)
+      expect(liveness.verdict.status).toBe('exited')
+      expect(liveness.provenRecordText).toBe('{"pid":123}')
+    } finally {
+      killSpy.mockRestore()
+    }
   })
 })
