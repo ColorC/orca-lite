@@ -11,7 +11,11 @@ import { SshEgressIndicator } from './browser-egress-indicator'
 import { destroyPersistentWebview } from '../host-guest/webview-registry'
 import { readBrowserHtmlArtifactRequest } from '../describe-page/browser-artifact-upload'
 import type { GrabModeHook } from '../annotate/useGrabMode'
-import type { BrowserViewportPresetId } from '../../../../../shared/browser-workspace-types'
+import type {
+  BrowserPageConversionOrigin,
+  BrowserViewportPresetId
+} from '../../../../../shared/browser-workspace-types'
+import { returnAcrossBrowserPageConversion } from '@/lib/browser-page-conversion-return'
 import type { GrabIntent } from '../describe-page/browser-page-types'
 
 /** Binds the shared browser chrome to a browsing page: an editable address bar and session tools. */
@@ -24,6 +28,7 @@ export function BrowserPageToolbar({
   isActive,
   canGoBack,
   canGoForward,
+  convertedFrom,
   loading,
   webviewRef,
   reloadMenuOpen,
@@ -60,6 +65,8 @@ export function BrowserPageToolbar({
   isActive: boolean
   canGoBack: boolean
   canGoForward: boolean
+  /** Set on a page the address bar converted; Back returns across it once guest history runs out. */
+  convertedFrom?: BrowserPageConversionOrigin | null
   loading: boolean
   webviewRef: RefObject<Electron.WebviewTag | null>
   reloadMenuOpen: boolean
@@ -92,10 +99,20 @@ export function BrowserPageToolbar({
     <BrowserChromeToolbar
       showTourAnchors
       controls={{
-        canGoBack,
+        canGoBack: canGoBack || Boolean(convertedFrom),
         canGoForward,
         loading,
-        goBack: () => webviewRef.current?.goBack(),
+        // Why the fallback: guest history cannot survive a conversion (the guest was replaced), so
+        // once it runs out Back returns across the conversion instead of going dead.
+        goBack: () => {
+          if (canGoBack) {
+            webviewRef.current?.goBack()
+            return
+          }
+          if (convertedFrom) {
+            returnAcrossBrowserPageConversion(browserPageId, convertedFrom)
+          }
+        },
         goForward: () => webviewRef.current?.goForward(),
         reload: () => runReloadTrigger('button'),
         navigate: navigateToUrl

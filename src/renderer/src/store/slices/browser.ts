@@ -271,7 +271,11 @@ export type BrowserSlice = {
   // Why replacement and not mutation: a page's kind (doc vs web) is immutable for its life, so the
   // address bar converts by replacing the page — fresh id, same workspace row — keeping the two
   // main-process registry halves disjoint by construction.
-  convertBrowserPage: (pageId: string, target: BrowserPageConversionTarget) => BrowserPage | null
+  convertBrowserPage: (
+    pageId: string,
+    target: BrowserPageConversionTarget,
+    options?: { recordProvenance?: boolean }
+  ) => BrowserPage | null
   reopenClosedBrowserPage: (workspaceId: string) => BrowserPage | null
   setActiveBrowserPage: (workspaceId: string, pageId: string) => void
   // Focus that never yanks the user across worktrees: per-worktree slots always update, globals only when targeting the active worktree.
@@ -1266,7 +1270,7 @@ export const createBrowserSlice: StateCreator<AppState, [], [], BrowserSlice> = 
     }
   },
 
-  convertBrowserPage: (pageId, target) => {
+  convertBrowserPage: (pageId, target, options) => {
     // Why the same assert as createBrowserTab: a conversion materializes a browser surface the
     // same way a creation does, and a paired web client that cannot host one must refuse here too.
     assertManagedBrowserMaterializationAllowed(
@@ -1277,7 +1281,7 @@ export const createBrowserSlice: StateCreator<AppState, [], [], BrowserSlice> = 
     let docPageIdToRelease: string | null = null
     let remotePageToClose: { worktreeId: string; handle: RemoteBrowserPageHandle } | null = null
     set((s) => {
-      const plan = planBrowserPageConversion(s, pageId, target)
+      const plan = planBrowserPageConversion(s, pageId, target, options)
       if (!plan) {
         return s
       }

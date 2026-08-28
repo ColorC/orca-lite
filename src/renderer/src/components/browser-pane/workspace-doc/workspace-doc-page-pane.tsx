@@ -54,6 +54,7 @@ export function WorkspaceDocPagePane({
         relativePath={relativePath}
         worktreeId={worktreeId}
         runtimeEnvironmentId={runtimeEnvironmentId}
+        convertedFrom={page.convertedFrom ?? null}
       />
     </div>
   )

@@ -6,6 +6,8 @@ import {
   type DocPreviewFileFailureReason
 } from '../../../../../shared/doc-preview-scheme'
 import { ORCA_BROWSER_GUEST_WEB_PREFERENCES_ATTRIBUTE } from '../../../../../shared/browser-guest-web-preferences'
+import type { BrowserPageConversionOrigin } from '../../../../../shared/browser-workspace-types'
+import { returnAcrossBrowserPageConversion } from '@/lib/browser-page-conversion-return'
 import { BrowserGuestAnnotateOverlays } from '@/components/browser-pane/annotate/browser-guest-annotate-overlays'
 import { useGuestDragPassthrough } from '@/components/browser-pane/host-guest/use-guest-drag-passthrough'
 import { isWebviewDragPassthroughActive } from '@/components/browser-pane/host-guest/webview-drag-passthrough'
@@ -116,7 +118,8 @@ export function HtmlDocPreview({
   worktreeId,
   holdsGuestFocus = false,
   runtimeEnvironmentId = null,
-  externalSshTargetId = null
+  externalSshTargetId = null,
+  convertedFrom = null
 }: {
   previewId: string
   filePath: string
@@ -126,6 +129,8 @@ export function HtmlDocPreview({
   holdsGuestFocus?: boolean
   runtimeEnvironmentId?: string | null
   externalSshTargetId?: string | null
+  /** Set when the address bar converted this page; Back returns across it once guest history runs out. */
+  convertedFrom?: BrowserPageConversionOrigin | null
 }): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const webviewRef = useRef<Electron.WebviewTag | null>(null)
@@ -139,6 +144,25 @@ export function HtmlDocPreview({
 
   const history = useDocPreviewWebviewHistory(webviewRef)
   const { sync: syncHistory, reset: resetHistory } = history
+  // Why wrapped rather than a second control: guest history cannot survive a conversion (the
+  // guest was replaced), so once it runs out Back returns across the conversion instead of dying.
+  const historyWithConversionReturn = useMemo(
+    () =>
+      convertedFrom
+        ? {
+            ...history,
+            canGoBack: true,
+            goBack: (): void => {
+              if (history.canGoBack) {
+                history.goBack()
+                return
+              }
+              returnAcrossBrowserPageConversion(previewId, convertedFrom)
+            }
+          }
+        : history,
+    [convertedFrom, history, previewId]
+  )
 
   const worktreeRoot = useAppStore((store) => store.getKnownWorktreeById(worktreeId)?.path ?? null)
   const hostLabel = useAppStore((store) => selectWorktreeHostDisplayLabel(store, worktreeId))
@@ -354,7 +378,7 @@ export function HtmlDocPreview({
         identity={identity}
         previewId={previewId}
         worktreeId={worktreeId}
-        history={history}
+        history={historyWithConversionReturn}
         loading={state === 'loading' && failureReason === null}
         onReload={handleReload}
         onHardReload={handleHardReload}

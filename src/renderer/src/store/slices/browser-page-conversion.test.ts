@@ -194,6 +194,29 @@ describe('convertBrowserPage doc→doc retarget', () => {
   })
 })
 
+describe('convertBrowserPage Back return leg', () => {
+  it('consumes provenance on the return conversion so Back cannot ping-pong', () => {
+    const store = createStoreWithWorktree()
+    const { tabId, pageId } = createDocTab(store)
+
+    const webPage = store.getState().convertBrowserPage(pageId, {
+      kind: 'web',
+      url: 'https://example.com/'
+    })
+    expect(webPage?.convertedFrom).toEqual({ kind: 'workspace-doc', docLocation: DOC_LOCATION })
+
+    const returned = store.getState().convertBrowserPage(
+      webPage?.id ?? '',
+      { kind: 'workspace-doc', docLocation: DOC_LOCATION },
+      { recordProvenance: false }
+    )
+
+    expect(returned?.docLocation).toEqual(DOC_LOCATION)
+    expect(returned?.convertedFrom ?? null).toBeNull()
+    expect(store.getState().browserPagesByWorkspace[tabId]?.[0]?.convertedFrom ?? null).toBeNull()
+  })
+})
+
 describe('convertBrowserPage placement and activation', () => {
   it('converts a background page without stealing the active page', () => {
     const store = createStoreWithWorktree()

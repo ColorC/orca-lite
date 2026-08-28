@@ -37,7 +37,12 @@ export function planBrowserPageConversion(
     browserPagesByWorkspace: Record<string, BrowserPage[]>
   },
   pageId: string,
-  target: BrowserPageConversionTarget
+  target: BrowserPageConversionTarget,
+  options?: {
+    /** false for Back's return leg: arriving back consumes the provenance rather than growing a
+     *  ping-pong chain — after returning, Back means the guest's own history again. */
+    recordProvenance?: boolean
+  }
 ): BrowserPageConversionPlan | null {
   const oldPage = findPage(state.browserPagesByWorkspace, pageId)
   if (!oldPage) {
@@ -59,11 +64,14 @@ export function planBrowserPageConversion(
     return null
   }
 
-  const convertedFrom: BrowserPageConversionOrigin = oldPage.docLocation
-    ? { kind: 'workspace-doc', docLocation: oldPage.docLocation }
-    : // Why the stored url and not the guest's: the store url passed every fence on its way in,
-      // so provenance can be persisted without opening a new door.
-      { kind: 'url', url: oldPage.url }
+  const convertedFrom: BrowserPageConversionOrigin | null =
+    options?.recordProvenance === false
+      ? null
+      : oldPage.docLocation
+        ? { kind: 'workspace-doc', docLocation: oldPage.docLocation }
+        : // Why the stored url and not the guest's: the store url passed every fence on its way in,
+          // so provenance can be persisted without opening a new door.
+          { kind: 'url', url: oldPage.url }
 
   const newPage: BrowserPage = {
     ...(target.kind === 'workspace-doc'
@@ -90,7 +98,7 @@ export function planBrowserPageConversion(
             ? target.browserRuntimeEnvironmentId
             : (oldPage.browserRuntimeEnvironmentId ?? null)
         )),
-    convertedFrom
+    ...(convertedFrom ? { convertedFrom } : {})
   }
 
   const currentPages = state.browserPagesByWorkspace[workspace.id] ?? []

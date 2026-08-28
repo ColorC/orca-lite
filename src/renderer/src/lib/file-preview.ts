@@ -227,7 +227,8 @@ export function openFileInBrowserTab(params: {
  */
 export function convertBrowserPageToWorkspaceDoc(
   pageId: string,
-  docLocation: BrowserPageDocLocation
+  docLocation: BrowserPageDocLocation,
+  options?: { recordProvenance?: boolean }
 ): 'activated-existing' | 'converted' | 'failed' {
   const state = useAppStore.getState()
   const existing = (state.browserTabsByWorktree[docLocation.worktreeId] ?? []).find((tab) =>
@@ -244,7 +245,7 @@ export function convertBrowserPageToWorkspaceDoc(
     }
     return 'activated-existing'
   }
-  return state.convertBrowserPage(pageId, { kind: 'workspace-doc', docLocation })
+  return state.convertBrowserPage(pageId, { kind: 'workspace-doc', docLocation }, options)
     ? 'converted'
     : 'failed'
 }

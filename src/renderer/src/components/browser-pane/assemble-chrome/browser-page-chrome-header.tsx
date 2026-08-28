@@ -72,6 +72,7 @@ export function BrowserPageChromeHeader({
         isActive={isActive}
         canGoBack={browserTab.canGoBack}
         canGoForward={browserTab.canGoForward}
+        convertedFrom={browserTab.convertedFrom ?? null}
         loading={browserTab.loading}
         webviewRef={webviewRef}
         reloadMenuOpen={reload.reloadMenuOpen}
