@@ -121,10 +121,19 @@ describe('mobile publish across an address-bar conversion', () => {
   it('holds the doc tab out of published groups and the layout, and admits it on conversion', () => {
     const store = createStoreWithWorktree()
     const urlTab = store.getState().createBrowserTab(WORKTREE_ID, 'https://example.com/')
+    // The doc tab gets a split group of its own, so holding it back must also take its group out
+    // of the projection AND its leaf out of the layout — the observable no earlier test drove.
+    const sourceGroupId = store.getState().activeGroupIdByWorktree[WORKTREE_ID] ?? ''
+    expect(sourceGroupId).not.toBe('')
+    const splitGroupId = store
+      .getState()
+      .createEmptySplitGroup(WORKTREE_ID, sourceGroupId, 'right')
+    expect(splitGroupId).not.toBeNull()
     const docTab = store.getState().createBrowserTab(WORKTREE_ID, '', {
       docLocation: DOC_LOCATION,
       title: 'index.html',
-      browserRuntimeEnvironmentId: null
+      browserRuntimeEnvironmentId: null,
+      targetGroupId: splitGroupId ?? undefined
     })
     const docPageId = store.getState().browserPagesByWorkspace[docTab.id]?.[0]?.id ?? ''
     const docUnifiedTabId =
@@ -137,10 +146,18 @@ describe('mobile publish across an address-bar conversion', () => {
       )?.id ?? ''
     expect(docUnifiedTabId).not.toBe('')
 
-    // Presence half: the URL tab's unified id is published; the doc tab's is not, and no group
-    // or layout leaf names it.
+    const publishedGroupIds = (): Set<string> =>
+      new Set((worktreeSnapshot(store)?.tabGroups ?? []).map((group) => group.id))
+    const layoutGroupIds = (): string[] =>
+      collectLayoutGroupIds(worktreeSnapshot(store)?.tabGroupLayout)
+
+    // Presence half: the URL tab's unified id is published; the doc tab's is not, and neither the
+    // group projection nor the layout tree names the split the doc tab sits alone in.
     expect(publishedUnifiedTabIds(store).has(urlUnifiedTabId)).toBe(true)
     expect(publishedUnifiedTabIds(store).has(docUnifiedTabId)).toBe(false)
+    expect(publishedGroupIds().has(sourceGroupId)).toBe(true)
+    expect(publishedGroupIds().has(splitGroupId ?? '')).toBe(false)
+    expect(layoutGroupIds()).toEqual([sourceGroupId])
     expectGroupsAndLayoutConsistent(store)
 
     const webPage = store.getState().convertBrowserPage(docPageId, {
@@ -149,6 +166,8 @@ describe('mobile publish across an address-bar conversion', () => {
     })
     expect(webPage).not.toBeNull()
     expect(publishedUnifiedTabIds(store).has(docUnifiedTabId)).toBe(true)
+    expect(publishedGroupIds().has(splitGroupId ?? '')).toBe(true)
+    expect(layoutGroupIds().sort()).toEqual([sourceGroupId, splitGroupId ?? ''].sort())
     expectGroupsAndLayoutConsistent(store)
 
     const docPage = store.getState().convertBrowserPage(webPage?.id ?? '', {
@@ -157,6 +176,8 @@ describe('mobile publish across an address-bar conversion', () => {
     })
     expect(docPage).not.toBeNull()
     expect(publishedUnifiedTabIds(store).has(docUnifiedTabId)).toBe(false)
+    expect(publishedGroupIds().has(splitGroupId ?? '')).toBe(false)
+    expect(layoutGroupIds()).toEqual([sourceGroupId])
     expectGroupsAndLayoutConsistent(store)
   })
 })

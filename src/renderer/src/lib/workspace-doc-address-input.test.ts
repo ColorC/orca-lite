@@ -75,10 +75,7 @@ describe('resolveWorkspaceDocAddressTarget', () => {
     const state = makeState()
     const stateWithNested = {
       ...state,
-      allWorktrees: () => [
-        ...state.allWorktrees(),
-        { id: 'repo2::/srv', path: '/srv' }
-      ]
+      allWorktrees: () => [...state.allWorktrees(), { id: 'repo2::/srv', path: '/srv' }]
     } as typeof state
 
     const target = resolveWorkspaceDocAddressTarget(

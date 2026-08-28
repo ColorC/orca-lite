@@ -5,7 +5,12 @@ import type {
   BrowserWorkspace
 } from '../../../../shared/browser-workspace-types'
 import { browserPageDocLocationsEqual } from '../../../../shared/browser-page-doc-location'
-import { buildBrowserPage, findPage, findWorkspace, mirrorWorkspaceFromActivePage } from './browser-page-records'
+import {
+  buildBrowserPage,
+  findPage,
+  findWorkspace,
+  mirrorWorkspaceFromActivePage
+} from './browser-page-records'
 
 /**
  * What the address bar asked a page to become. A `web` target's runtime owner is the caller's

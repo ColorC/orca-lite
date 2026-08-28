@@ -410,3 +410,43 @@ describe('a browser page that shows a workspace document', () => {
     )
   })
 })
+
+// The provenance field holds a url the way page.url does, so the disk door applies the same
+// prefix fence: a session file carrying the preview scheme sheds the provenance, never Back.
+describe('convertedFrom at the session schema door', () => {
+  const PAGE_ROW = {
+    id: 'page-1',
+    workspaceId: 'ws-1',
+    worktreeId: WORKTREE_ID,
+    url: 'https://example.com/',
+    title: 'Example',
+    loading: false,
+    faviconUrl: null,
+    canGoBack: false,
+    canGoForward: false,
+    loadError: null,
+    createdAt: 1
+  }
+
+  it('sheds url provenance carrying the preview scheme and keeps ordinary provenance', () => {
+    const tainted = browserPageSchema.parse({
+      ...PAGE_ROW,
+      convertedFrom: { kind: 'url', url: LIVE_GRANT_URL }
+    })
+    expect(tainted.convertedFrom ?? null).toBeNull()
+
+    const kept = browserPageSchema.parse({
+      ...PAGE_ROW,
+      convertedFrom: {
+        kind: 'url',
+        url: 'https://example.com/',
+        browserRuntimeEnvironmentId: 'env-1'
+      }
+    })
+    expect(kept.convertedFrom).toEqual({
+      kind: 'url',
+      url: 'https://example.com/',
+      browserRuntimeEnvironmentId: 'env-1'
+    })
+  })
+})

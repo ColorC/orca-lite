@@ -28,6 +28,8 @@ const mocks = vi.hoisted(() => ({
   createEmptySplitGroup: vi.fn(() => 'group-2'),
   setActiveBrowserTab: vi.fn(),
   setActiveBrowserPage: vi.fn(),
+  setActiveWorktree: vi.fn(),
+  activeWorktreeId: 'wt-1',
   focusGroup: vi.fn(),
   activateTab: vi.fn(),
   unifiedTabsByWorktree: {} as Record<string, unknown[]>,
@@ -57,6 +59,8 @@ vi.mock('@/store', () => ({
       createEmptySplitGroup: mocks.createEmptySplitGroup,
       setActiveBrowserTab: mocks.setActiveBrowserTab,
       setActiveBrowserPage: mocks.setActiveBrowserPage,
+      setActiveWorktree: mocks.setActiveWorktree,
+      activeWorktreeId: mocks.activeWorktreeId,
       focusGroup: mocks.focusGroup,
       activateTab: mocks.activateTab,
       unifiedTabsByWorktree: mocks.unifiedTabsByWorktree,
@@ -83,6 +87,7 @@ beforeEach(() => {
   mocks.browserTabsByWorktree = {}
   mocks.browserPagesByWorkspace = {}
   mocks.unifiedTabsByWorktree = {}
+  mocks.activeWorktreeId = 'wt-1'
 })
 
 /**
@@ -517,6 +522,7 @@ describe('convertBrowserPageToWorkspaceDoc', () => {
   // reader's surface — its guest would never take focus and every link would be dead.
   it('opens a document from another worktree in that worktree instead of converting', () => {
     mocks.connectionId = 'ssh-1'
+    mocks.activeWorktreeId = 'wt-other'
     mocks.browserPagesByWorkspace = {
       'browser-1': [{ id: 'page-1', worktreeId: 'wt-other' }]
     }
@@ -525,9 +531,37 @@ describe('convertBrowserPageToWorkspaceDoc', () => {
 
     expect(outcome).toBe('opened-in-owning-worktree')
     expect(mocks.convertBrowserPage).not.toHaveBeenCalled()
+    // The reader follows the document to its worktree — a tab opened out of sight is
+    // indistinguishable from nothing having happened.
+    expect(mocks.setActiveWorktree).toHaveBeenCalledWith('wt-1')
     // The document opened through the preview action's own door, in its owning worktree.
     expect(mocks.createBrowserTab).toHaveBeenCalledWith(
       ...docPreviewCall(DOC_LOCATION.filePath, { activate: true })
+    )
+  })
+
+  // Back means "this tab, as it was": the return leg converts in place even when the document is
+  // also open elsewhere, or Back would jump to the other tab forever while provenance stays live.
+  it('skips reuse on the return leg and converts in place', () => {
+    mocks.browserTabsByWorktree = {
+      'wt-1': [{ id: 'browser-9', docLocation: null }]
+    }
+    mocks.browserPagesByWorkspace = {
+      'browser-9': [{ id: 'page-doc', worktreeId: 'wt-1', docLocation: DOC_LOCATION }],
+      'browser-1': [{ id: 'page-1', worktreeId: 'wt-1' }]
+    }
+    mocks.convertBrowserPage.mockReturnValue({ id: 'new-page' })
+
+    const outcome = convertBrowserPageToWorkspaceDoc('page-1', DOC_LOCATION, {
+      recordProvenance: false
+    })
+
+    expect(outcome).toBe('converted')
+    expect(mocks.setActiveBrowserTab).not.toHaveBeenCalled()
+    expect(mocks.convertBrowserPage).toHaveBeenCalledWith(
+      'page-1',
+      { kind: 'workspace-doc', docLocation: DOC_LOCATION },
+      { recordProvenance: false }
     )
   })
 })

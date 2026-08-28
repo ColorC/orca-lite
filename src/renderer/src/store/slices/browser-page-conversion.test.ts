@@ -45,7 +45,10 @@ function createStoreWithWorktree(): ReturnType<typeof createTestStore> {
   return store
 }
 
-function createDocTab(store: ReturnType<typeof createTestStore>): { tabId: string; pageId: string } {
+function createDocTab(store: ReturnType<typeof createTestStore>): {
+  tabId: string
+  pageId: string
+} {
   const tab = store.getState().createBrowserTab(WORKTREE_ID, LIVE_GRANT_URL, {
     docLocation: DOC_LOCATION,
     title: 'index.html',
@@ -209,11 +212,13 @@ describe('convertBrowserPage Back return leg', () => {
     })
     expect(webPage?.convertedFrom).toEqual({ kind: 'workspace-doc', docLocation: DOC_LOCATION })
 
-    const returned = store.getState().convertBrowserPage(
-      webPage?.id ?? '',
-      { kind: 'workspace-doc', docLocation: DOC_LOCATION },
-      { recordProvenance: false }
-    )
+    const returned = store
+      .getState()
+      .convertBrowserPage(
+        webPage?.id ?? '',
+        { kind: 'workspace-doc', docLocation: DOC_LOCATION },
+        { recordProvenance: false }
+      )
 
     expect(returned?.docLocation).toEqual(DOC_LOCATION)
     expect(returned?.convertedFrom ?? null).toBeNull()
@@ -336,11 +341,13 @@ describe('convertBrowserPage placement and activation', () => {
     const store = createStoreWithWorktree()
     const { pageId } = createDocTab(store)
     // The return leg says "inferred" by passing the property explicitly undefined.
-    const returned = store.getState().convertBrowserPage(
-      pageId,
-      { kind: 'web', url: 'https://remote.example/', browserRuntimeEnvironmentId: undefined },
-      { recordProvenance: false }
-    )
+    const returned = store
+      .getState()
+      .convertBrowserPage(
+        pageId,
+        { kind: 'web', url: 'https://remote.example/', browserRuntimeEnvironmentId: undefined },
+        { recordProvenance: false }
+      )
     expect(returned).not.toBeNull()
     expect('browserRuntimeEnvironmentId' in (returned ?? {})).toBe(false)
   })

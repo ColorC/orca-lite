@@ -249,8 +249,17 @@ export function convertBrowserPageToWorkspaceDoc(
   options?: { recordProvenance?: boolean }
 ): 'activated-existing' | 'opened-in-owning-worktree' | 'converted' | 'failed' {
   const state = useAppStore.getState()
-  const existing = findWorkspaceShowingDoc(state, docLocation)
+  // Why Back's return leg skips reuse: Back means "this tab, as it was" — activating another tab
+  // showing the document would leave this one a web page with live provenance, so Back could jump
+  // there forever. The return leg's document was this tab's own, so converting in place is right.
+  const isReturnLeg = options?.recordProvenance === false
+  const existing = isReturnLeg ? null : findWorkspaceShowingDoc(state, docLocation)
   if (existing) {
+    // Why the worktree switches first: activation is deliberately scoped to the active worktree,
+    // so without the switch a cross-worktree reuse would happen entirely out of sight.
+    if (state.activeWorktreeId !== docLocation.worktreeId) {
+      state.setActiveWorktree(docLocation.worktreeId)
+    }
     if (
       !activateBrowserWorkspaceTab({
         worktreeId: docLocation.worktreeId,
@@ -267,12 +276,21 @@ export function convertBrowserPageToWorkspaceDoc(
   // be the reader's surface under the per-worktree activity slots — its guest would never take
   // focus, and every link in the document would be a dead end.
   const owningPage = findPage(state.browserPagesByWorkspace, pageId)
-  if (owningPage && owningPage.worktreeId !== docLocation.worktreeId) {
+  if (!isReturnLeg && owningPage && owningPage.worktreeId !== docLocation.worktreeId) {
+    // The reader follows the document to its worktree; opening it out of sight is indistinguishable
+    // from nothing having happened.
+    if (state.activeWorktreeId !== docLocation.worktreeId) {
+      state.setActiveWorktree(docLocation.worktreeId)
+    }
     const plan = openFileInBrowserTab({
       filePath: docLocation.filePath,
       worktreeId: docLocation.worktreeId
     })
-    return plan.status === 'unsupported' ? 'failed' : 'opened-in-owning-worktree'
+    if (plan.status === 'unsupported') {
+      toast.error(plan.message)
+      return 'failed'
+    }
+    return 'opened-in-owning-worktree'
   }
   return state.convertBrowserPage(pageId, { kind: 'workspace-doc', docLocation }, options)
     ? 'converted'

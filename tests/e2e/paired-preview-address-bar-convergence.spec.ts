@@ -235,14 +235,31 @@ test('converts a preview to a web tab and back from the address bar', async ({
       },
       { targetWorktreeId: worktreeId, url: marker.movedUrl }
     )
+    // Why the count settles first: the converted tab's old pane unmounts a beat after the store
+    // flips, and a strict locator that races it resolves to two inputs.
+    await expect
+      .poll(
+        () => page.locator('[data-browser-chrome-address-slot] input').count(),
+        { timeout: 30_000, message: 'the web tab address input never settled to one' }
+      )
+      .toBe(1)
     const secondInput = page.locator('[data-browser-chrome-address-slot] input')
-    await expect(secondInput).toBeVisible({ timeout: 30_000 })
-    await secondInput.click()
-    await secondInput.fill('Convergence')
-    // Scoped to the suggestion listbox: the doc tab's own strip label carries the same title, and
+    // Why click-until-expanded: the freshly loaded guest steals focus once, and the dropdown
+    // dismisses on webview focus — a single click can land just before that steal.
+    await expect
+      .poll(
+        async () => {
+          await secondInput.click()
+          return secondInput.getAttribute('aria-expanded')
+        },
+        { timeout: 30_000, message: 'the suggestion dropdown never opened' }
+      )
+      .toBe('true')
+    await secondInput.pressSequentially('Convergence', { delay: 40 })
+    // Scoped to the suggestion popover: the doc tab's own strip label carries the same title, and
     // a strip click would satisfy a bare text locator without the dropdown existing at all.
     const docSuggestion = page
-      .locator('#browser-history-listbox')
+      .locator('[data-slot="popover-content"]')
       .getByText(FIXTURE_TITLE, { exact: false })
       .first()
     await expect(docSuggestion).toBeVisible({ timeout: 10_000 })

@@ -1288,9 +1288,22 @@ export const createBrowserSlice: StateCreator<AppState, [], [], BrowserSlice> = 
   convertBrowserPage: (pageId, target, options) => {
     // Why the same assert as createBrowserTab: a conversion materializes a browser surface the
     // same way a creation does, and a paired web client that cannot host one must refuse here too.
+    // Ownership is resolved ONCE, on the plan's own terms — property-present-undefined means
+    // worktree-inferred — so the assert and the plan cannot disagree about what is being built.
+    const oldPageForOwnership = findPage(get().browserPagesByWorkspace, pageId)
+    const declaredOwnership =
+      target.kind === 'workspace-doc'
+        ? null
+        : 'browserRuntimeEnvironmentId' in target
+          ? target.browserRuntimeEnvironmentId
+          : (oldPageForOwnership?.browserRuntimeEnvironmentId ?? null)
     assertManagedBrowserMaterializationAllowed(
       get(),
-      target.kind === 'workspace-doc' ? null : (target.browserRuntimeEnvironmentId ?? null)
+      declaredOwnership !== undefined
+        ? declaredOwnership
+        : oldPageForOwnership
+          ? (getRuntimeEnvironmentIdForWorktree(get(), oldPageForOwnership.worktreeId) ?? null)
+          : null
     )
     let converted: BrowserPage | null = null
     let docPageIdToRelease: string | null = null

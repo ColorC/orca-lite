@@ -34,9 +34,7 @@ function ownedWorktreeRoots(
   // Most-specific root first (after the current worktree), so a file inside a nested workspace is
   // attributed to that workspace and not to the outer one that lexically contains it too.
   roots.sort((a, b) => b.root.length - a.root.length)
-  return currentPath
-    ? [{ worktreeId: currentWorktreeId, root: currentPath }, ...roots]
-    : roots
+  return currentPath ? [{ worktreeId: currentWorktreeId, root: currentPath }, ...roots] : roots
 }
 
 function planToTarget(
