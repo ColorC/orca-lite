@@ -94,7 +94,9 @@ export type RuntimeApi = {
     getStatus: (args: {
       selector: string
       timeoutMs?: number
+      observeOnly?: true
     }) => Promise<RuntimeRpcResponse<RuntimeStatus>>
+    retryControlConnection?: (args: { selector: string }) => Promise<void>
     prepareBrowserClientHostPlacement: (
       args: BrowserClientHostPlacementPreparationRequest
     ) => Promise<BrowserPageCreationPlacement>
