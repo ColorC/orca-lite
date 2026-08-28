@@ -1547,10 +1547,8 @@ export function splitWebRuntimeTerminal(
     pendingMirrorSuppressionId
   )
   const intentOwner = captureWebSessionIntentOwner(environmentId)
+  const focusRequest = beginWebRuntimeSplitFocusRequest(intentOwner, source.worktreeId)
   const focusTarget = captureWebRuntimeSplitFocusTarget(ptyId, source)
-  const focusRequest = focusTarget
-    ? beginWebRuntimeSplitFocusRequest(intentOwner, focusTarget.worktreeId)
-    : null
   const callEnvironment = captureRuntimeEnvironmentCall(environmentId, intentOwner.pairingRevision)
   void callEnvironment({
     method: 'terminal.split',
