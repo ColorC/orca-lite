@@ -1,0 +1,256 @@
+import { writeFileSync } from 'node:fs'
+import path from 'node:path'
+import type { Page, TestInfo } from '@stablyai/playwright-test'
+import { expect, test } from './helpers/orca-app'
+import { openFileExplorer } from './helpers/file-explorer'
+import {
+  createRuntimeDesktopPairingOffer,
+  launchPairedElectronClient,
+  type PairedElectronClient,
+  type RuntimeDesktopPairingOffer
+} from './helpers/paired-electron-client'
+import { startClientHostedMarkerFixture } from './helpers/client-hosted-browser-fixture'
+import {
+  readDocPreviewGuestUrl,
+  readDocPreviewRenderedText,
+  readPairedHtmlPreviewInventory,
+  requireSingleDocWorkspace
+} from './helpers/paired-html-preview-inventory'
+import { waitForActiveWorktree, waitForSessionReady } from './helpers/store'
+
+const FIXTURE_NAME = 'convergence-doc.html'
+const FIXTURE_HEADING = 'address bar convergence'
+const FIXTURE_TITLE = 'Convergence Document'
+
+type PreparedPairedClient = {
+  client: PairedElectronClient
+  worktreeId: string
+  worktreePath: string
+}
+
+async function preparePairedClient(
+  offer: RuntimeDesktopPairingOffer,
+  testInfo: TestInfo,
+  testRepoPath: string
+): Promise<PreparedPairedClient> {
+  const client = await launchPairedElectronClient(offer, testInfo, 'Address-bar convergence')
+  try {
+    await expect
+      .poll(
+        () =>
+          client.page.evaluate(
+            (repoPath) =>
+              window.__store
+                ?.getState()
+                .allWorktrees()
+                .find((worktree) => worktree.path === repoPath)?.id ?? null,
+            testRepoPath
+          ),
+        { timeout: 120_000, message: 'paired client never received the host worktree' }
+      )
+      .not.toBeNull()
+    const worktree = await client.page.evaluate((repoPath) => {
+      const match = window.__store
+        ?.getState()
+        .allWorktrees()
+        .find((candidate) => candidate.path === repoPath)
+      return match ? { id: match.id, path: match.path } : null
+    }, testRepoPath)
+    if (!worktree) {
+      throw new Error('paired client worktree disappeared after discovery')
+    }
+    await client.page.evaluate(
+      ({ environmentId, worktreeId }) => {
+        window.__store?.getState().setActiveWorktree(worktreeId, `runtime:${environmentId}`)
+      },
+      { environmentId: client.environmentId, worktreeId: worktree.id }
+    )
+    return { client, worktreeId: worktree.id, worktreePath: worktree.path }
+  } catch (error) {
+    await client.dispose()
+    throw error
+  }
+}
+
+async function openPreviewFromExplorer(page: Page, fixtureName: string): Promise<void> {
+  await openFileExplorer(page)
+  const fixtureRow = page.locator('[data-file-explorer-row]').filter({ hasText: fixtureName })
+  await expect(fixtureRow).toBeVisible({ timeout: 30_000 })
+  await fixtureRow.click()
+  const openPreviewToSide = page.getByRole('button', { name: 'Open Preview to the Side' })
+  await expect(openPreviewToSide).toBeVisible({ timeout: 30_000 })
+  await openPreviewToSide.click()
+}
+
+/**
+ * The STA-5681 naive journey, driven with real clicks and real typing: the preview's chip becomes
+ * an address bar; a committed URL makes the tab an ordinary browser tab in place; Back returns to
+ * the document; typing the document's path into the web tab's address bar converts it back to the
+ * preview on a fresh grant; and the URL dropdown offers the previewed document by name. The host's
+ * session snapshot stays empty throughout: a converted page is client-local like the preview was.
+ */
+test('converts a preview to a web tab and back from the address bar', async ({
+  orcaPage,
+  testRepoPath
+}, testInfo) => {
+  test.setTimeout(300_000)
+  writeFileSync(
+    path.join(testRepoPath, FIXTURE_NAME),
+    `<!doctype html><html><head><title>${FIXTURE_TITLE}</title></head>` +
+      `<body><h1>${FIXTURE_HEADING}</h1></body></html>\n`
+  )
+  await waitForSessionReady(orcaPage)
+  await waitForActiveWorktree(orcaPage)
+
+  const offer = await createRuntimeDesktopPairingOffer(orcaPage)
+  const marker = await startClientHostedMarkerFixture()
+  let prepared: PreparedPairedClient | null = null
+  try {
+    prepared = await preparePairedClient(offer, testInfo, testRepoPath)
+    const { client, worktreeId, worktreePath } = prepared
+    const page = client.page
+    const docFilePath = path.join(worktreePath, FIXTURE_NAME)
+    const inventoryArgs = { environmentId: client.environmentId, docFilePath, worktreeId }
+
+    await openPreviewFromExplorer(page, FIXTURE_NAME)
+    await expect
+      .poll(
+        async () =>
+          (await readPairedHtmlPreviewInventory(page, inventoryArgs)).docWorkspaces.length,
+        { timeout: 60_000, message: 'the document browser tab never materialized' }
+      )
+      .toBe(1)
+    await expect
+      .poll(() => readDocPreviewRenderedText(page, 'h1'), { timeout: 60_000 })
+      .toContain(FIXTURE_HEADING)
+    const preview = requireSingleDocWorkspace(
+      await readPairedHtmlPreviewInventory(page, inventoryArgs)
+    )
+    // The activation click a reader would make: the preview opened to the side, unfocused.
+    // Browser rows in the strip are keyed by workspace id.
+    await page.locator(`[data-tab-id="${preview.workspaceId}"]`).click()
+
+    // The mobile-publish baseline: the document tab is held back from the tab snapshot.
+    const baseline = await readPairedHtmlPreviewInventory(page, inventoryArgs)
+    expect(baseline.hostSessionBrowserTabs).toHaveLength(0)
+
+    // Chip → address bar, prefilled with the file the reader can retype.
+    await page.getByRole('button', { name: 'Edit address', exact: true }).click()
+    const addressInput = page.locator('[data-browser-chrome-address-slot] input')
+    await expect(addressInput).toBeVisible({ timeout: 10_000 })
+    await expect(addressInput).toHaveValue(FIXTURE_NAME)
+
+    // A committed URL converts the tab in place: same workspace row, now an ordinary browser tab.
+    // The converted page stays client-local (it inherits the preview's ownership), so like every
+    // client-local page in a paired worktree it never enters the host's session tab snapshot —
+    // the phone-facing publish flip is a desktop-host observable, pinned at the snapshot-builder
+    // unit level (sync-runtime-graph-conversion-publish.test.ts).
+    await addressInput.fill(marker.markerUrl)
+    await addressInput.press('Enter')
+    await expect
+      .poll(
+        async () => {
+          const inventory = await readPairedHtmlPreviewInventory(page, inventoryArgs)
+          return {
+            docWorkspaces: inventory.docWorkspaces.length,
+            publishedTabs: inventory.hostSessionBrowserTabs.length
+          }
+        },
+        { timeout: 60_000, message: 'the conversion never reached the store' }
+      )
+      .toEqual({ docWorkspaces: 0, publishedTabs: 0 })
+    const converted = await page.evaluate(
+      ({ targetWorktreeId, workspaceId }) => {
+        const state = window.__store?.getState()
+        const workspace = (state?.browserTabsByWorktree[targetWorktreeId] ?? []).find(
+          (tab) => tab.id === workspaceId
+        )
+        const pages = state?.browserPagesByWorkspace[workspaceId] ?? []
+        return workspace
+          ? {
+              url: workspace.url,
+              docLocation: workspace.docLocation ?? null,
+              convertedFrom: pages[0]?.convertedFrom ?? null
+            }
+          : null
+      },
+      { targetWorktreeId: worktreeId, workspaceId: preview.workspaceId }
+    )
+    expect(converted?.url).toBe(marker.markerUrl)
+    expect(converted?.docLocation).toBeNull()
+    expect(converted?.convertedFrom).toMatchObject({ kind: 'workspace-doc' })
+    // The marker page really rendered in a browsing guest.
+    await expect
+      .poll(() => page.locator('webview').last().getAttribute('src'), { timeout: 30_000 })
+      .toContain(marker.origin)
+
+    // Back's one-level return: the guest has no history, so Back crosses the conversion.
+    await page.getByRole('button', { name: 'Back', exact: true }).click()
+    await expect
+      .poll(
+        async () =>
+          (await readPairedHtmlPreviewInventory(page, inventoryArgs)).docWorkspaces.length,
+        { timeout: 60_000, message: 'Back never returned across the conversion' }
+      )
+      .toBe(1)
+    await expect
+      .poll(() => readDocPreviewRenderedText(page, 'h1'), { timeout: 60_000 })
+      .toContain(FIXTURE_HEADING)
+    await expect.poll(() => readDocPreviewGuestUrl(page)).toMatch(/^orca-preview:\/\//)
+
+    // Reverse conversion by typing: close the preview, open a web tab, type the document's path.
+    const returned = requireSingleDocWorkspace(
+      await readPairedHtmlPreviewInventory(page, inventoryArgs)
+    )
+    await page.evaluate((workspaceId) => {
+      window.__store?.getState().closeBrowserTab(workspaceId)
+    }, returned.workspaceId)
+    await page.evaluate(
+      ({ targetWorktreeId, url }) => {
+        window.__store?.getState().createBrowserTab(targetWorktreeId, url, { activate: true })
+      },
+      { targetWorktreeId: worktreeId, url: marker.markerUrl }
+    )
+    const webAddressInput = page.locator('[data-browser-chrome-address-slot] input')
+    await expect(webAddressInput).toBeVisible({ timeout: 30_000 })
+    await webAddressInput.fill(docFilePath)
+    await webAddressInput.press('Enter')
+    await expect
+      .poll(
+        async () =>
+          (await readPairedHtmlPreviewInventory(page, inventoryArgs)).docWorkspaces.length,
+        { timeout: 60_000, message: 'the typed path never converted the web tab' }
+      )
+      .toBe(1)
+    await expect
+      .poll(() => readDocPreviewRenderedText(page, 'h1'), { timeout: 60_000 })
+      .toContain(FIXTURE_HEADING)
+
+    // The dropdown offers the previewed document as a file identity; selecting it activates the
+    // tab it is already open in rather than minting a second grant.
+    const docTabsBefore = (await readPairedHtmlPreviewInventory(page, inventoryArgs)).docWorkspaces
+    await page.evaluate(
+      ({ targetWorktreeId, url }) => {
+        window.__store?.getState().createBrowserTab(targetWorktreeId, url, { activate: true })
+      },
+      { targetWorktreeId: worktreeId, url: marker.movedUrl }
+    )
+    const secondInput = page.locator('[data-browser-chrome-address-slot] input')
+    await expect(secondInput).toBeVisible({ timeout: 30_000 })
+    await secondInput.click()
+    await secondInput.fill('Convergence')
+    const docSuggestion = page.getByText(FIXTURE_TITLE, { exact: false }).first()
+    await expect(docSuggestion).toBeVisible({ timeout: 10_000 })
+    await docSuggestion.click()
+    await expect
+      .poll(
+        async () =>
+          (await readPairedHtmlPreviewInventory(page, inventoryArgs)).docWorkspaces.length,
+        { timeout: 30_000, message: 'selecting the doc suggestion changed the document tab count' }
+      )
+      .toBe(docTabsBefore.length)
+  } finally {
+    await marker.close()
+    await prepared?.client.dispose()
+  }
+})
