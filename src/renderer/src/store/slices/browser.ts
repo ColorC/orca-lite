@@ -18,10 +18,12 @@ import type { WorkspaceSessionState } from '../../../../shared/workspace-session
 import { GRAB_BUDGET, type BrowserPageAnnotation } from '../../../../shared/browser-grab-types'
 import {
   clearClientHostedBrowserCloseIntents,
+  isDurableClientHostedBrowserHandle,
   recordClientHostedBrowserCloseIntents,
   type ClientHostedBrowserCloseIntentsByEnvironment,
   type PendingClientHostedBrowserClose
 } from '@/runtime/client-hosted-browser-close-intents'
+import { isBrowserPageDefinitivelyGone } from '@/runtime/client-hosted-browser-close-intent-replay'
 import { FLOATING_TERMINAL_WORKTREE_ID, ORCA_BROWSER_BLANK_URL } from '../../../../shared/constants'
 import { folderWorkspaceKey } from '../../../../shared/workspace-scope'
 import { redactKagiSessionToken } from '../../../../shared/browser-url'
@@ -464,7 +466,10 @@ function browserImportStateForHostUpdate(
 
 function closeRemoteBrowserPageInOwningEnvironment(
   worktreeId: string,
-  handle: RemoteBrowserPageHandle
+  handle: RemoteBrowserPageHandle,
+  // Why a callback and not the store: this is module scope, and the recording action lives on the
+  // slice this file is still defining.
+  recordCloseIntents: (closes: readonly PendingClientHostedBrowserClose[]) => void
 ): void {
   const target: RuntimeClientTarget = { kind: 'environment', environmentId: handle.environmentId }
   void callRuntimeRpc(
@@ -472,7 +477,17 @@ function closeRemoteBrowserPageInOwningEnvironment(
     'browser.tabClose',
     { worktree: toRuntimeWorktreeSelector(worktreeId), page: handle.remotePageId },
     { timeoutMs: 15_000 }
-  ).catch(() => {})
+  ).catch((error) => {
+    // A close the runtime never heard is a resurrection waiting to happen: the runtime persists
+    // client-hosted pages, so a durable intent replays this same RPC on the next reconnect.
+    // A definitive page-unknown answer means there is nothing left to resurrect.
+    if (!isDurableClientHostedBrowserHandle(handle) || isBrowserPageDefinitivelyGone(error)) {
+      return
+    }
+    recordCloseIntents([
+      { environmentId: handle.environmentId, browserPageId: handle.remotePageId, worktreeId }
+    ])
+  })
 }
 
 function getFallbackTabTypeForWorktree(
@@ -922,7 +937,11 @@ export const createBrowserSlice: StateCreator<AppState, [], [], BrowserSlice> = 
     })
 
     for (const remotePage of remotePagesToClose) {
-      closeRemoteBrowserPageInOwningEnvironment(remotePage.worktreeId, remotePage.handle)
+      closeRemoteBrowserPageInOwningEnvironment(
+        remotePage.worktreeId,
+        remotePage.handle,
+        get().recordClientHostedBrowserCloseIntents
+      )
     }
 
     for (const docPageId of docPageIdsToRelease) {
@@ -1279,7 +1298,11 @@ export const createBrowserSlice: StateCreator<AppState, [], [], BrowserSlice> = 
     })
 
     for (const remotePage of remotePagesToClose) {
-      closeRemoteBrowserPageInOwningEnvironment(remotePage.worktreeId, remotePage.handle)
+      closeRemoteBrowserPageInOwningEnvironment(
+        remotePage.worktreeId,
+        remotePage.handle,
+        get().recordClientHostedBrowserCloseIntents
+      )
     }
 
     if (docPageIdToRelease) {
@@ -1380,7 +1403,11 @@ export const createBrowserSlice: StateCreator<AppState, [], [], BrowserSlice> = 
       return null
     }
     if (remoteClose) {
-      closeRemoteBrowserPageInOwningEnvironment(remoteClose.worktreeId, remoteClose.handle)
+      closeRemoteBrowserPageInOwningEnvironment(
+        remoteClose.worktreeId,
+        remoteClose.handle,
+        get().recordClientHostedBrowserCloseIntents
+      )
     }
     // Why after the reducer: a closed document must stop being readable, and the grant is the only
     // authority the preview scheme honors — but the store row has to stop naming it first.
