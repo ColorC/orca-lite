@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ProcessLivenessVerdict } from './daemon-incarnation-evidence-types'
 
 const {
   isPackagedMock,
@@ -329,6 +330,79 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
       ([p]) => typeof p === 'string' && (p.includes('.token') || p.includes('.pid'))
     )
     expect(legacyUnlinks).toEqual([])
+  })
+
+  it('keeps legacy daemon ownership files when the pid record is unparseable', async () => {
+    const mod = await importFresh()
+    readFileSyncMock.mockReturnValue('not a daemon pid record')
+    parseDaemonPidFileMock.mockReturnValue(null)
+
+    await mod.initDaemonPtyProvider()
+
+    const legacyUnlinks = unlinkSyncMock.mock.calls.filter(
+      ([p]) => typeof p === 'string' && (p.includes('.token') || p.includes('.pid'))
+    )
+    expect(legacyUnlinks).toEqual([])
+  })
+
+  it('keeps legacy daemon ownership files when the pid probe is unavailable', async () => {
+    // Why: a kill(0) failure that is neither ESRCH nor EPERM proves nothing about the process.
+    const mod = await importFresh()
+    readFileSyncMock.mockReturnValue('{"pid":123}')
+    parseDaemonPidFileMock.mockReturnValue({ pid: 999_999, startedAtMs: null })
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => {
+      throw new Error('kill probe rejected by the platform')
+    })
+
+    try {
+      await mod.initDaemonPtyProvider()
+    } finally {
+      killSpy.mockRestore()
+    }
+
+    const legacyUnlinks = unlinkSyncMock.mock.calls.filter(
+      ([p]) => typeof p === 'string' && (p.includes('.token') || p.includes('.pid'))
+    )
+    expect(legacyUnlinks).toEqual([])
+  })
+
+  it('keeps legacy daemon ownership files when the pid probe is denied with EPERM', async () => {
+    // Why: EPERM proves a process exists at the recorded pid — the daemon may be live.
+    const mod = await importFresh()
+    readFileSyncMock.mockReturnValue('{"pid":123}')
+    parseDaemonPidFileMock.mockReturnValue({ pid: 999_999, startedAtMs: null })
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => {
+      throw Object.assign(new Error('operation not permitted'), { code: 'EPERM' })
+    })
+
+    try {
+      await mod.initDaemonPtyProvider()
+    } finally {
+      killSpy.mockRestore()
+    }
+
+    const legacyUnlinks = unlinkSyncMock.mock.calls.filter(
+      ([p]) => typeof p === 'string' && (p.includes('.token') || p.includes('.pid'))
+    )
+    expect(legacyUnlinks).toEqual([])
+  })
+
+  it('preserves ownership files for any verdict that is not positively exited', async () => {
+    const mod = await importFresh()
+    // Why: deliberate out-of-contract cast — deletion must require a positive 'exited'
+    // match, so a future verdict status the gate does not know must preserve, not delete.
+    const futureVerdict = {
+      status: 'suspended',
+      reason: 'hypothetical future verdict'
+    } as unknown as ProcessLivenessVerdict
+    mod.reclaimLegacyDaemonOwnershipFiles(futureVerdict, [
+      '/fake/daemon-v9.pid',
+      '/fake/daemon-v9.token'
+    ])
+    expect(unlinkSyncMock).not.toHaveBeenCalled()
+
+    mod.reclaimLegacyDaemonOwnershipFiles({ status: 'exited' }, ['/fake/daemon-v9.pid'])
+    expect(unlinkSyncMock).toHaveBeenCalledWith('/fake/daemon-v9.pid')
   })
 
   it('cleans up legacy daemon pid/token files when the probe fails and the process is gone', async () => {

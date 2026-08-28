@@ -1370,6 +1370,25 @@ function legacyDaemonProcessLiveness(
   }
 }
 
+// Why: unlinking is the destructive direction and this is a statement position the compiler
+// does not police for exhaustiveness — deletion must be opted into by a positively matched
+// 'exited', so any future unhandled verdict status preserves ownership instead of deleting it.
+export function reclaimLegacyDaemonOwnershipFiles(
+  verdict: ProcessLivenessVerdict,
+  stalePaths: string[]
+): void {
+  if (verdict.status !== 'exited') {
+    return
+  }
+  for (const stalePath of stalePaths) {
+    try {
+      unlinkSync(stalePath)
+    } catch {
+      // Best-effort
+    }
+  }
+}
+
 // Why: callers that own an isolated runtime namespace must keep discovery history out of app userData.
 export async function createLegacyDaemonAdapters(
   runtimeDir: string,
@@ -1381,24 +1400,10 @@ export async function createLegacyDaemonAdapters(
     const tokenPath = getDaemonTokenPath(runtimeDir, protocolVersion)
     if (!(await probeSocket(socketPath))) {
       // Why: a recycled stale pid later turns an identity check into a PowerShell spawn, so delete leaked pid/token files — but only when the pid-process is provably gone (a live daemon can transiently fail the probe, and dropping its token makes its sessions permanently unadoptable).
-      const verdict = legacyDaemonProcessLiveness(runtimeDir, protocolVersion)
-      switch (verdict.status) {
-        case 'live':
-        case 'unverifiable':
-          continue
-        case 'exited':
-          break
-      }
-      for (const stalePath of [
+      reclaimLegacyDaemonOwnershipFiles(legacyDaemonProcessLiveness(runtimeDir, protocolVersion), [
         getDaemonPidPath(runtimeDir, protocolVersion),
         getDaemonTokenPath(runtimeDir, protocolVersion)
-      ]) {
-        try {
-          unlinkSync(stalePath)
-        } catch {
-          // Best-effort
-        }
-      }
+      ])
       continue
     }
     // Keep old-protocol PTYs routed to their original daemon during upgrade; legacy adapters never respawn (new code would recreate stale env semantics).
