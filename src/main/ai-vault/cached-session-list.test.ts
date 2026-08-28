@@ -27,6 +27,8 @@ import {
   resetAiVaultSessionListCacheForTests
 } from './cached-session-list'
 
+let platform: NodeJS.Platform
+
 function scanResult(scannedAt: string): AiVaultListResult {
   return { sessions: [], issues: [], scannedAt }
 }
@@ -45,6 +47,8 @@ function deferredScan(): { resolve: (value: AiVaultListResult) => void } {
 
 describe('invalidateAiVaultSessionListCache generation guard', () => {
   beforeEach(() => {
+    platform = 'win32'
+    vi.spyOn(process, 'platform', 'get').mockImplementation(() => platform)
     resetAiVaultSessionListCacheForTests()
     filterPathsToRunningWslDistrosAsync.mockClear()
     listRunningWslHomeDirsAsync.mockReset().mockResolvedValue([])
@@ -52,6 +56,7 @@ describe('invalidateAiVaultSessionListCache generation guard', () => {
   })
   afterEach(() => {
     resetAiVaultSessionListCacheForTests()
+    vi.restoreAllMocks()
   })
 
   it('does not let a scan that started before an invalidation repopulate the cache', async () => {
@@ -92,5 +97,12 @@ describe('invalidateAiVaultSessionListCache generation guard', () => {
 
     await expect(getAiVaultWslHomeDirs()).resolves.toEqual(['\\\\wsl.localhost\\Ubuntu\\home\\ada'])
     expect(listRunningWslHomeDirsAsync).toHaveBeenCalledTimes(1)
+  })
+
+  it('skips WSL home discovery off Windows', async () => {
+    platform = 'linux'
+
+    await expect(getAiVaultWslHomeDirs()).resolves.toEqual([])
+    expect(listRunningWslHomeDirsAsync).not.toHaveBeenCalled()
   })
 })
