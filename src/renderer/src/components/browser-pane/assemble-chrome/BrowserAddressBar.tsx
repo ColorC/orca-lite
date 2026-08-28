@@ -160,7 +160,13 @@ export default function BrowserAddressBar({
         searchEngine,
         value: autocompleteQuery
       }),
-    [browserUrlHistory, workspaceDocHistory, autocompleteQuery, searchEngine, browserKagiSessionLink]
+    [
+      browserUrlHistory,
+      workspaceDocHistory,
+      autocompleteQuery,
+      searchEngine,
+      browserKagiSessionLink
+    ]
   )
 
   const clearSuggestionPreview = useCallback((): void => {

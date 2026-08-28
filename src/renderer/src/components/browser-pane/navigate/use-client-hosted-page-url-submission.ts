@@ -67,6 +67,13 @@ export function useClientHostedPageUrlSubmission(params: {
       // Why: loadURL rejects on any failed navigation; did-fail-load owns error reporting.
       void webview.loadURL(submission.url).catch(() => {})
     },
-    [activeLoadFailureRef, browserTabId, onUpdatePageState, setAddressBarValue, webviewRef, worktreeId]
+    [
+      activeLoadFailureRef,
+      browserTabId,
+      onUpdatePageState,
+      setAddressBarValue,
+      webviewRef,
+      worktreeId
+    ]
   )
 }

@@ -125,9 +125,7 @@ describe('mobile publish across an address-bar conversion', () => {
     // of the projection AND its leaf out of the layout — the observable no earlier test drove.
     const sourceGroupId = store.getState().activeGroupIdByWorktree[WORKTREE_ID] ?? ''
     expect(sourceGroupId).not.toBe('')
-    const splitGroupId = store
-      .getState()
-      .createEmptySplitGroup(WORKTREE_ID, sourceGroupId, 'right')
+    const splitGroupId = store.getState().createEmptySplitGroup(WORKTREE_ID, sourceGroupId, 'right')
     expect(splitGroupId).not.toBeNull()
     const docTab = store.getState().createBrowserTab(WORKTREE_ID, '', {
       docLocation: DOC_LOCATION,

@@ -38,7 +38,12 @@ describe('normalizeWorkspaceDocHistoryEntries', () => {
   it('drops malformed rows and fences a url-as-title back to the file name', () => {
     const entries = normalizeWorkspaceDocHistoryEntries([
       entry({ title: `orca-preview://${'a'.repeat(32)}/a.html` }),
-      { docLocation: { kind: 'workspace-doc', worktreeId: '', filePath: '' }, title: 'x', lastVisitedAt: 2, visitCount: 1 }
+      {
+        docLocation: { kind: 'workspace-doc', worktreeId: '', filePath: '' },
+        title: 'x',
+        lastVisitedAt: 2,
+        visitCount: 1
+      }
     ])
     expect(entries).toHaveLength(1)
     expect(entries[0]?.title).toBe('a.html')

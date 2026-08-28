@@ -238,10 +238,10 @@ test('converts a preview to a web tab and back from the address bar', async ({
     // Why the count settles first: the converted tab's old pane unmounts a beat after the store
     // flips, and a strict locator that races it resolves to two inputs.
     await expect
-      .poll(
-        () => page.locator('[data-browser-chrome-address-slot] input').count(),
-        { timeout: 30_000, message: 'the web tab address input never settled to one' }
-      )
+      .poll(() => page.locator('[data-browser-chrome-address-slot] input').count(), {
+        timeout: 30_000,
+        message: 'the web tab address input never settled to one'
+      })
       .toBe(1)
     const secondInput = page.locator('[data-browser-chrome-address-slot] input')
     // Why click-until-expanded: the freshly loaded guest steals focus once, and the dropdown

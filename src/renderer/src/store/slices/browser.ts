@@ -1336,9 +1336,9 @@ export const createBrowserSlice: StateCreator<AppState, [], [], BrowserSlice> = 
         },
         browserTabsByWorktree: {
           ...s.browserTabsByWorktree,
-          [plan.workspace.worktreeId]: (s.browserTabsByWorktree[plan.workspace.worktreeId] ?? []).map(
-            (tab) => (tab.id === plan.workspace.id ? plan.nextWorkspace : tab)
-          )
+          [plan.workspace.worktreeId]: (
+            s.browserTabsByWorktree[plan.workspace.worktreeId] ?? []
+          ).map((tab) => (tab.id === plan.workspace.id ? plan.nextWorkspace : tab))
         },
         pendingAddressBarFocusByPageId: Object.fromEntries(
           Object.entries(s.pendingAddressBarFocusByPageId).filter(
