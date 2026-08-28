@@ -1365,6 +1365,17 @@ export function legacyDaemonProcessLiveness(
       provenRecordText: null
     }
   }
+  // Why: the parser's legacy bare-integer fallback coerces an empty or whitespace-only record to
+  // pid 0 (Number('') === 0) — the shape a concurrent read sees while a daemon publishes, since
+  // writeFileSync 'wx' creates the record before writing it. process.kill(0, 0) probes the
+  // caller's own process group rather than the daemon, so it answers 'occupied' and would publish
+  // a false 'live'. That is the client's own bookkeeping, not host evidence: report unverifiable.
+  if (!Number.isInteger(parsed.pid) || parsed.pid <= 0) {
+    return {
+      verdict: { status: 'unverifiable', reason: 'the daemon PID record does not name a process' },
+      provenRecordText: null
+    }
+  }
   const evidence = inspectProcessSignal(parsed.pid)
   switch (evidence) {
     case 'occupied':

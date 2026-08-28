@@ -524,6 +524,19 @@ describe('daemon-init: legacyDaemonProcessLiveness verdict mapping', () => {
     expect(liveness.provenRecordText).toBeNull()
   })
 
+  it('reports unverifiable when the record names no process', async () => {
+    // An empty record parses to pid 0 via the legacy bare-integer fallback, and process.kill(0, 0)
+    // probes the caller's own process group — it would answer 'occupied' and publish a false live.
+    const mod = await importFresh()
+    readFileSyncMock.mockReturnValue('')
+    parseDaemonPidFileMock.mockReturnValue({ pid: 0, startedAtMs: null })
+
+    const liveness = mod.legacyDaemonProcessLiveness('/fake/runtime', 9)
+
+    expect(liveness.verdict.status).toBe('unverifiable')
+    expect(liveness.provenRecordText).toBeNull()
+  })
+
   it('reports live when the pid probe is denied with EPERM', async () => {
     const mod = await importFresh()
     readFileSyncMock.mockReturnValue('{"pid":123}')
