@@ -352,6 +352,7 @@ export function HtmlDocPreview({
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-editor-surface">
       <DocPreviewToolbar
         identity={identity}
+        previewId={previewId}
         history={history}
         loading={state === 'loading' && failureReason === null}
         onReload={handleReload}

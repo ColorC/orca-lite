@@ -5,7 +5,7 @@ import {
 } from '@/components/browser-pane/assemble-chrome/browser-chrome-toolbar'
 import { BrowserReloadControl } from '@/components/browser-pane/assemble-chrome/browser-reload-control'
 import { translate } from '@/i18n/i18n'
-import { DocPreviewDocumentChip } from './doc-preview-document-chip'
+import { DocPreviewAddressEdit } from './doc-preview-address-edit'
 import type { DocPreviewDocumentIdentity } from './doc-preview-document-identity'
 import type { DocPreviewHistory } from './doc-preview-webview-history'
 import { DocPreviewOverflowMenu } from './doc-preview-overflow-menu'
@@ -16,6 +16,7 @@ import { DocPreviewOverflowMenu } from './doc-preview-overflow-menu'
  */
 export function DocPreviewToolbar({
   identity,
+  previewId,
   history,
   loading,
   onReload,
@@ -30,6 +31,8 @@ export function DocPreviewToolbar({
   markupDisabled
 }: {
   identity: DocPreviewDocumentIdentity
+  /** The browser page this preview is open in — what an address commit converts. */
+  previewId: string
   history: DocPreviewHistory
   loading: boolean
   onReload: () => void
@@ -62,7 +65,7 @@ export function DocPreviewToolbar({
         // Why a no-op: the identity chip has nothing to submit, so nothing can reach this.
         navigate: () => {}
       }}
-      addressSlot={<DocPreviewDocumentChip identity={identity} />}
+      addressSlot={<DocPreviewAddressEdit identity={identity} previewId={previewId} />}
       reloadControl={
         <BrowserReloadControl
           menuOpen={reloadMenuOpen}
