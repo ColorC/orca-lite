@@ -1348,25 +1348,32 @@ async function waitForDaemonEndpointExit(socketPath: string): Promise<boolean> {
 function legacyDaemonProcessLiveness(
   runtimeDir: string,
   protocolVersion: number
-): ProcessLivenessVerdict {
-  let parsed: ParsedDaemonPid | null
+): { verdict: ProcessLivenessVerdict; provenRecordText: string | null } {
+  let recordText: string
   try {
-    parsed = parseDaemonPidFile(readFileSync(getDaemonPidPath(runtimeDir, protocolVersion), 'utf8'))
+    recordText = readFileSync(getDaemonPidPath(runtimeDir, protocolVersion), 'utf8')
   } catch (error) {
-    return { status: 'unverifiable', reason: String(error) }
+    return { verdict: { status: 'unverifiable', reason: String(error) }, provenRecordText: null }
   }
+  const parsed: ParsedDaemonPid | null = parseDaemonPidFile(recordText)
   if (!parsed) {
-    return { status: 'unverifiable', reason: 'the daemon PID record could not be parsed' }
+    return {
+      verdict: { status: 'unverifiable', reason: 'the daemon PID record could not be parsed' },
+      provenRecordText: null
+    }
   }
   const evidence = inspectProcessSignal(parsed.pid)
   switch (evidence) {
     case 'occupied':
     case 'permission_denied':
-      return { status: 'live' }
+      return { verdict: { status: 'live' }, provenRecordText: recordText }
     case 'missing':
-      return { status: 'exited' }
+      return { verdict: { status: 'exited' }, provenRecordText: recordText }
     case 'unavailable':
-      return { status: 'unverifiable', reason: 'the daemon process could not be queried' }
+      return {
+        verdict: { status: 'unverifiable', reason: 'the daemon process could not be queried' },
+        provenRecordText: recordText
+      }
   }
 }
 
@@ -1375,17 +1382,39 @@ function legacyDaemonProcessLiveness(
 // 'exited', so any future unhandled verdict status preserves ownership instead of deleting it.
 export function reclaimLegacyDaemonOwnershipFiles(
   verdict: ProcessLivenessVerdict,
-  stalePaths: string[]
+  provenRecordText: string | null,
+  pidPath: string,
+  tokenPath: string
 ): void {
-  if (verdict.status !== 'exited') {
+  if (verdict.status !== 'exited' || provenRecordText === null) {
     return
   }
-  for (const stalePath of stalePaths) {
-    try {
-      unlinkSync(stalePath)
-    } catch {
-      // Best-effort
-    }
+  // Cross-incarnation guard: 'exited' proves only that the RECORDED pid was
+  // absent at probe time. An old build's own stale-kill can delete that record
+  // and republish in the probe→unlink window, so delete only while the name
+  // still holds the exact record proved dead; any other content (or a missing
+  // record) means a new owner settled the name — preserve both files. A new
+  // owner writes its token after publishing its record, so the record compare
+  // shields the token too.
+  let currentRecordText: string
+  try {
+    currentRecordText = readFileSync(pidPath, 'utf8')
+  } catch {
+    return
+  }
+  if (currentRecordText !== provenRecordText) {
+    return
+  }
+  try {
+    unlinkSync(pidPath)
+  } catch {
+    // Record not removable — leave the token with it rather than orphan it.
+    return
+  }
+  try {
+    unlinkSync(tokenPath)
+  } catch {
+    // Best-effort
   }
 }
 
@@ -1400,10 +1429,13 @@ export async function createLegacyDaemonAdapters(
     const tokenPath = getDaemonTokenPath(runtimeDir, protocolVersion)
     if (!(await probeSocket(socketPath))) {
       // Why: a recycled stale pid later turns an identity check into a PowerShell spawn, so delete leaked pid/token files — but only when the pid-process is provably gone (a live daemon can transiently fail the probe, and dropping its token makes its sessions permanently unadoptable).
-      reclaimLegacyDaemonOwnershipFiles(legacyDaemonProcessLiveness(runtimeDir, protocolVersion), [
+      const liveness = legacyDaemonProcessLiveness(runtimeDir, protocolVersion)
+      reclaimLegacyDaemonOwnershipFiles(
+        liveness.verdict,
+        liveness.provenRecordText,
         getDaemonPidPath(runtimeDir, protocolVersion),
         getDaemonTokenPath(runtimeDir, protocolVersion)
-      ])
+      )
       continue
     }
     // Keep old-protocol PTYs routed to their original daemon during upgrade; legacy adapters never respawn (new code would recreate stale env semantics).

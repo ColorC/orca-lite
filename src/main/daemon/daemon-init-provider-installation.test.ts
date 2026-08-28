@@ -389,20 +389,61 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
 
   it('preserves ownership files for any verdict that is not positively exited', async () => {
     const mod = await importFresh()
+    readFileSyncMock.mockReturnValue('{"pid":123}')
     // Why: deliberate out-of-contract cast — deletion must require a positive 'exited'
     // match, so a future verdict status the gate does not know must preserve, not delete.
     const futureVerdict = {
       status: 'suspended',
       reason: 'hypothetical future verdict'
     } as unknown as ProcessLivenessVerdict
-    mod.reclaimLegacyDaemonOwnershipFiles(futureVerdict, [
+    mod.reclaimLegacyDaemonOwnershipFiles(
+      futureVerdict,
+      '{"pid":123}',
       '/fake/daemon-v9.pid',
       '/fake/daemon-v9.token'
-    ])
+    )
     expect(unlinkSyncMock).not.toHaveBeenCalled()
 
-    mod.reclaimLegacyDaemonOwnershipFiles({ status: 'exited' }, ['/fake/daemon-v9.pid'])
+    mod.reclaimLegacyDaemonOwnershipFiles(
+      { status: 'exited' },
+      '{"pid":123}',
+      '/fake/daemon-v9.pid',
+      '/fake/daemon-v9.token'
+    )
     expect(unlinkSyncMock).toHaveBeenCalledWith('/fake/daemon-v9.pid')
+    expect(unlinkSyncMock).toHaveBeenCalledWith('/fake/daemon-v9.token')
+  })
+
+  it('preserves ownership files when the record changed between the probe and the unlink', async () => {
+    // Cross-incarnation guard: an old build's own stale-kill can delete the dead
+    // record and republish in the probe→unlink window. Once the name holds any
+    // record other than the one proved dead, a new owner claimed it — deleting
+    // its pid/token would make a live legacy daemon's sessions unadoptable.
+    const mod = await importFresh()
+    readFileSyncMock.mockReturnValue('{"pid":456}')
+    mod.reclaimLegacyDaemonOwnershipFiles(
+      { status: 'exited' },
+      '{"pid":123}',
+      '/fake/daemon-v9.pid',
+      '/fake/daemon-v9.token'
+    )
+    expect(unlinkSyncMock).not.toHaveBeenCalled()
+  })
+
+  it('preserves the token when the proven-dead record is already gone', async () => {
+    // A missing record means another actor settled the name; the token's owner
+    // is now ambiguous, and ambiguity must preserve.
+    const mod = await importFresh()
+    readFileSyncMock.mockImplementation(() => {
+      throw Object.assign(new Error('missing'), { code: 'ENOENT' })
+    })
+    mod.reclaimLegacyDaemonOwnershipFiles(
+      { status: 'exited' },
+      '{"pid":123}',
+      '/fake/daemon-v9.pid',
+      '/fake/daemon-v9.token'
+    )
+    expect(unlinkSyncMock).not.toHaveBeenCalled()
   })
 
   it('cleans up legacy daemon pid/token files when the probe fails and the process is gone', async () => {
