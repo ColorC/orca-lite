@@ -122,6 +122,7 @@ export function wslUncDirectoryExistsAsync(uncPath: string): Promise<boolean | n
 // ─── WSL home directory resolution ──────────────────────────────────
 
 const wslHomeCache = new Map<string, string>()
+const wslHomeProbeCache = new Map<string, Promise<string | null>>()
 let wslDistroCache: string[] | null = null
 // Why: a wsl.exe failure must stay retryable (a transient error would
 // otherwise hide every distro until restart), but repeated failures cannot
@@ -132,6 +133,7 @@ let wslDistroListRetryAfterMs = 0
 let wslDistroListEmptyStreak = 0
 let wslDistroProbeSequence = 0
 let wslDistroCacheSequence = 0
+let runningWslDistroProbe: Promise<string[]> | null = null
 function armWslDistroListRetry(): void {
   const now = Date.now()
   // Concurrent completions belong to the retry window already armed by the first result.
@@ -231,6 +233,31 @@ export async function listWslDistrosAsync(): Promise<string[]> {
   }
 }
 
+/** Running user distros only. Results are not cached, but concurrent callers
+ *  share one probe so IPC fan-out cannot multiply wsl.exe processes. */
+export async function listRunningWslDistrosAsync(): Promise<string[]> {
+  if (process.platform !== 'win32') {
+    return []
+  }
+  if (runningWslDistroProbe) {
+    return runningWslDistroProbe
+  }
+
+  const probe = execFileUtf8('wsl.exe', ['--list', '--running', '--quiet'], {
+    ...process.env,
+    WSL_UTF8: '1'
+  })
+    .then((output) => filterUserWslDistros(parseWslDistros(output)))
+    .catch(() => [] as string[])
+    .finally(() => {
+      if (runningWslDistroProbe === probe) {
+        runningWslDistroProbe = null
+      }
+    })
+  runningWslDistroProbe = probe
+  return probe
+}
+
 export function hasCachedWslDistros(): boolean {
   return wslDistroCache !== null
 }
@@ -290,31 +317,48 @@ export async function getWslHomeAsync(distro: string): Promise<string | null> {
   if (wslHomeCache.has(distro)) {
     return wslHomeCache.get(distro)!
   }
-
-  try {
-    const home = (
-      await execFileUtf8('wsl.exe', ['-d', distro, '--exec', 'bash', '-c', 'echo $HOME'])
-    ).trim()
-
-    if (!home || !home.startsWith('/')) {
-      return null
-    }
-
-    const uncPath = toWindowsWslPath(home, distro)
-    wslHomeCache.set(distro, uncPath)
-    return uncPath
-  } catch {
-    return null
+  const inflight = wslHomeProbeCache.get(distro)
+  if (inflight) {
+    return inflight
   }
+
+  const probe = execFileUtf8('wsl.exe', ['-d', distro, '--exec', 'bash', '-c', 'echo $HOME'])
+    .then((output) => {
+      const home = output.trim()
+      if (!home || !home.startsWith('/')) {
+        return null
+      }
+      const uncPath = toWindowsWslPath(home, distro)
+      wslHomeCache.set(distro, uncPath)
+      return uncPath
+    })
+    .catch(() => null)
+    .finally(() => {
+      if (wslHomeProbeCache.get(distro) === probe) {
+        wslHomeProbeCache.delete(distro)
+      }
+    })
+  wslHomeProbeCache.set(distro, probe)
+  return probe
+}
+
+/** UNC home roots for distros that are running at discovery time. */
+export async function listRunningWslHomeDirsAsync(): Promise<string[]> {
+  const homes = await Promise.all(
+    (await listRunningWslDistrosAsync()).map((distro) => getWslHomeAsync(distro))
+  )
+  return homes.filter((home): home is string => Boolean(home))
 }
 
 export function _resetWslCachesForTests(): void {
   wslHomeCache.clear()
+  wslHomeProbeCache.clear()
   wslDistroCache = null
   wslDistroListRetryAfterMs = 0
   wslDistroListEmptyStreak = 0
   wslDistroProbeSequence = 0
   wslDistroCacheSequence = 0
+  runningWslDistroProbe = null
   _resetWslAvailabilityCacheForTests()
 }
 
@@ -339,12 +383,12 @@ export function _setWslCachesForTests(args: {
   }
 }
 
-function execFileUtf8(command: string, args: string[]): Promise<string> {
+function execFileUtf8(command: string, args: string[], env?: NodeJS.ProcessEnv): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(
       command,
       args,
-      { encoding: 'utf-8', timeout: 5000, windowsHide: true },
+      { encoding: 'utf-8', env, timeout: 5000, windowsHide: true },
       (error, stdout) => {
         if (error) {
           reject(error)

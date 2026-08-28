@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as HostReadableTranscriptPathModule from './host-readable-transcript-path'
 
 const mocks = vi.hoisted(() => ({
+  createWslSnapshot: vi.fn(),
   install: vi.fn(),
   resolve: vi.fn(),
   toHostReadable: vi.fn()
@@ -16,6 +17,7 @@ vi.mock('./transcript-watch-engine', () => ({
 }))
 vi.mock('./host-readable-transcript-path', async (importOriginal) => ({
   ...(await importOriginal<typeof HostReadableTranscriptPathModule>()),
+  createWslTranscriptResolutionSnapshot: mocks.createWslSnapshot,
   toHostReadableTranscriptPath: mocks.toHostReadable
 }))
 
@@ -33,6 +35,10 @@ describe('native chat transcript resolve polling', () => {
     vi.useFakeTimers()
     mocks.install.mockReset().mockReturnValue(null)
     mocks.resolve.mockReset().mockResolvedValue(null)
+    mocks.createWslSnapshot.mockReset().mockResolvedValue({
+      runningDistros: ['Ubuntu'],
+      homeDirs: ['\\\\wsl.localhost\\Ubuntu\\home\\ada']
+    })
     mocks.toHostReadable.mockReset().mockResolvedValue(null)
     // Why: a POSIX exact path is a WSL guest path on win32 and is deliberately
     // never installed raw there, so pin the platform instead of inheriting the
@@ -89,6 +95,24 @@ describe('native chat transcript resolve polling', () => {
     await vi.advanceTimersByTimeAsync(5_100)
     expect(mocks.toHostReadable).toHaveBeenCalledTimes(2)
 
+    subscription.unsubscribe()
+  })
+
+  it('keeps snapshot failures on the slow cadence after fallback becomes due', async () => {
+    setPlatform('win32')
+    mocks.createWslSnapshot.mockRejectedValue(new Error('list failed'))
+    const subscription = await subscribeNativeChatTranscript({
+      agent: 'codex',
+      sessionId: 'session-id',
+      transcriptPath: '/home/ada/.codex/sessions/rollout-session-id.jsonl',
+      resolvePollIntervalMs: 10,
+      onAppend: () => {}
+    })
+
+    await vi.advanceTimersByTimeAsync(100)
+    expect(mocks.createWslSnapshot).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(mocks.createWslSnapshot).toHaveBeenCalledTimes(2)
     subscription.unsubscribe()
   })
 

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type * as WslRunningPathFilterModule from '../wsl-running-path-filter'
 import type * as WslTranscriptFsGateModule from './wsl-transcript-fs-gate'
 
 const WSL_SESSIONS_DIR = '\\\\wsl.localhost\\Ubuntu\\home\\ada\\.codex\\sessions'
@@ -6,6 +7,7 @@ const DEBIAN_SESSIONS_DIR = '\\\\wsl.localhost\\Debian\\home\\ada\\.codex\\sessi
 const LOCAL_SESSIONS_DIR = 'C:\\Users\\ada\\.codex\\sessions'
 
 const mocks = vi.hoisted(() => ({
+  filterPathsToRunningWslDistrosAsync: vi.fn(async (paths: readonly string[]) => [...paths]),
   gate: vi.fn(async (_options: { path: string }) => []),
   walk: vi.fn(
     async (
@@ -27,11 +29,21 @@ vi.mock('./wsl-transcript-fs-gate', async (importOriginal) => ({
 vi.mock('../ai-vault/session-scanner-discovery', () => ({
   walkSessionFiles: mocks.walk
 }))
+vi.mock('../wsl', () => ({
+  getWslHomeAsync: vi.fn(async () => '\\\\wsl.localhost\\Ubuntu\\home\\ada'),
+  listRunningWslDistrosAsync: vi.fn(async () => ['Ubuntu']),
+  listRunningWslHomeDirsAsync: vi.fn(async () => ['\\\\wsl.localhost\\Ubuntu\\home\\ada'])
+}))
+vi.mock('../wsl-running-path-filter', async (importOriginal) => ({
+  ...(await importOriginal<typeof WslRunningPathFilterModule>()),
+  filterPathsToRunningWslDistrosAsync: mocks.filterPathsToRunningWslDistrosAsync
+}))
 
 import { resolveSessionFilePath } from './session-file-resolver'
 import { WslTranscriptFsError } from './wsl-transcript-fs-gate'
 
 beforeEach(() => {
+  mocks.filterPathsToRunningWslDistrosAsync.mockClear()
   mocks.gate.mockClear()
   mocks.walk.mockClear()
 })

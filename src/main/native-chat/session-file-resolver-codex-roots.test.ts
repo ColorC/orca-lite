@@ -12,8 +12,10 @@ vi.mock('../codex/codex-home-paths', () => ({
 
 // Keeps the WSL fallback tier inert so this stays a host-roots test on any platform.
 vi.mock('../wsl', () => ({
-  listWslDistrosAsync: vi.fn(async () => []),
-  getWslHomeAsync: vi.fn(async () => null)
+  listRunningWslHomeDirsAsync: vi.fn(async () => [])
+}))
+vi.mock('../wsl-running-path-filter', () => ({
+  filterPathsToRunningWslDistrosAsync: vi.fn(async (paths: readonly string[]) => [...paths])
 }))
 
 const scanned = vi.hoisted(() => ({ dirs: [] as string[] }))
