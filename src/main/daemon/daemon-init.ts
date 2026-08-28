@@ -59,6 +59,8 @@ import {
 } from '../claude-accounts/live-pty-gate'
 import { parseDaemonReadyIdentity, readDaemonProcessIncarnation } from './daemon-ready-identity'
 import type { DaemonEndpointIdentity } from './daemon-hello-protocol'
+import { inspectProcessSignal } from './daemon-process-inspection'
+import type { ProcessLivenessVerdict } from './daemon-incarnation-evidence-types'
 
 // Why: daemon init runs concurrent with window load, so an in-process t timestamp (not harness stderr timing) measures cold-start.
 function logDaemonMilestone(event: string, details: Record<string, unknown> = {}): void {
@@ -1436,18 +1438,30 @@ async function waitForDaemonEndpointExit(socketPath: string): Promise<boolean> {
   return !(await probeSocket(socketPath))
 }
 
-function legacyDaemonProcessMayBeAlive(runtimeDir: string, protocolVersion: number): boolean {
+function legacyDaemonProcessLiveness(
+  runtimeDir: string,
+  protocolVersion: number
+): ProcessLivenessVerdict {
+  let parsed: ParsedDaemonPid | null
   try {
-    const parsed = parseDaemonPidFile(
-      readFileSync(getDaemonPidPath(runtimeDir, protocolVersion), 'utf8')
-    )
-    if (!parsed) {
-      return false
-    }
-    process.kill(parsed.pid, 0)
-    return true
-  } catch {
-    return false
+    parsed = parseDaemonPidFile(readFileSync(getDaemonPidPath(runtimeDir, protocolVersion), 'utf8'))
+  } catch (error) {
+    return { status: 'unverifiable', reason: String(error) }
+  }
+  if (!parsed) {
+    return { status: 'unverifiable', reason: 'the daemon PID record could not be parsed' }
+  }
+  const evidence = inspectProcessSignal(parsed.pid)
+  switch (evidence) {
+    case 'occupied':
+    case 'permission_denied':
+      return { status: 'live' }
+    case 'missing':
+      return { status: 'exited' }
+    case 'unavailable':
+      return { status: 'unverifiable', reason: 'the daemon process could not be queried' }
+    default:
+      return evidence satisfies never
   }
 }
 
@@ -1462,16 +1476,24 @@ export async function createLegacyDaemonAdapters(
     const tokenPath = getDaemonTokenPath(runtimeDir, protocolVersion)
     if (!(await probeSocket(socketPath))) {
       // Why: a recycled stale pid later turns an identity check into a PowerShell spawn, so delete leaked pid/token files — but only when the pid-process is provably gone (a live daemon can transiently fail the probe, and dropping its token makes its sessions permanently unadoptable).
-      if (!legacyDaemonProcessMayBeAlive(runtimeDir, protocolVersion)) {
-        for (const stalePath of [
-          getDaemonPidPath(runtimeDir, protocolVersion),
-          getDaemonTokenPath(runtimeDir, protocolVersion)
-        ]) {
-          try {
-            unlinkSync(stalePath)
-          } catch {
-            // Best-effort
-          }
+      const verdict = legacyDaemonProcessLiveness(runtimeDir, protocolVersion)
+      switch (verdict.status) {
+        case 'live':
+        case 'unverifiable':
+          continue
+        case 'exited':
+          break
+        default:
+          verdict satisfies never
+      }
+      for (const stalePath of [
+        getDaemonPidPath(runtimeDir, protocolVersion),
+        getDaemonTokenPath(runtimeDir, protocolVersion)
+      ]) {
+        try {
+          unlinkSync(stalePath)
+        } catch {
+          // Best-effort
         }
       }
       continue

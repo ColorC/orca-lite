@@ -317,12 +317,26 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
     expect(legacyUnlinks).toEqual([])
   })
 
+  it('keeps legacy daemon ownership files when pid liveness is unverifiable', async () => {
+    const mod = await importFresh()
+    readFileSyncMock.mockImplementation(() => {
+      throw Object.assign(new Error('permission denied'), { code: 'EACCES' })
+    })
+
+    await mod.initDaemonPtyProvider()
+
+    const legacyUnlinks = unlinkSyncMock.mock.calls.filter(
+      ([p]) => typeof p === 'string' && (p.includes('.token') || p.includes('.pid'))
+    )
+    expect(legacyUnlinks).toEqual([])
+  })
+
   it('cleans up legacy daemon pid/token files when the probe fails and the process is gone', async () => {
     const mod = await importFresh()
     readFileSyncMock.mockReturnValue('{"pid":123}')
     // Why: spy process.kill to force a deterministic ESRCH instead of relying on an unallocated real pid.
     const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => {
-      throw new Error('ESRCH')
+      throw Object.assign(new Error('no such process'), { code: 'ESRCH' })
     })
     parseDaemonPidFileMock.mockReturnValue({ pid: 999_999, startedAtMs: null })
 
