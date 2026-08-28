@@ -17,6 +17,7 @@ import { DocPreviewOverflowMenu } from './doc-preview-overflow-menu'
 export function DocPreviewToolbar({
   identity,
   previewId,
+  worktreeId,
   history,
   loading,
   onReload,
@@ -33,6 +34,7 @@ export function DocPreviewToolbar({
   identity: DocPreviewDocumentIdentity
   /** The browser page this preview is open in — what an address commit converts. */
   previewId: string
+  worktreeId: string
   history: DocPreviewHistory
   loading: boolean
   onReload: () => void
@@ -65,7 +67,9 @@ export function DocPreviewToolbar({
         // Why a no-op: the identity chip has nothing to submit, so nothing can reach this.
         navigate: () => {}
       }}
-      addressSlot={<DocPreviewAddressEdit identity={identity} previewId={previewId} />}
+      addressSlot={
+        <DocPreviewAddressEdit identity={identity} previewId={previewId} worktreeId={worktreeId} />
+      }
       reloadControl={
         <BrowserReloadControl
           menuOpen={reloadMenuOpen}

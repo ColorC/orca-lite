@@ -353,6 +353,7 @@ export function HtmlDocPreview({
       <DocPreviewToolbar
         identity={identity}
         previewId={previewId}
+        worktreeId={worktreeId}
         history={history}
         loading={state === 'loading' && failureReason === null}
         onReload={handleReload}

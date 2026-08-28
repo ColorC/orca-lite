@@ -13,6 +13,7 @@ import { useAppStore } from '@/store'
 import type { AppState } from '@/store/types'
 import { findSiblingGroupId } from '@/store/slices/tabs'
 import { browserPageDocLocationsEqual } from '../../../shared/browser-page-doc-location'
+import type { BrowserPageDocLocation } from '../../../shared/browser-workspace-types'
 import { ORCA_BROWSER_BLANK_URL } from '../../../shared/constants'
 
 export type PreviewableLanguage = 'html'
@@ -216,6 +217,36 @@ export function openFileInBrowserTab(params: {
     activate: true
   })
   return plan
+}
+
+/**
+ * The address bar's way into a workspace document: reuse before converting. A document already on
+ * screen is a request to look at it — two tabs of one document would each hold their own grant on
+ * the same file — so an existing tab wins and the current page stays what it was; only otherwise
+ * does the page convert in place.
+ */
+export function convertBrowserPageToWorkspaceDoc(
+  pageId: string,
+  docLocation: BrowserPageDocLocation
+): 'activated-existing' | 'converted' | 'failed' {
+  const state = useAppStore.getState()
+  const existing = (state.browserTabsByWorktree[docLocation.worktreeId] ?? []).find((tab) =>
+    browserPageDocLocationsEqual(tab.docLocation ?? null, docLocation)
+  )
+  if (existing) {
+    if (
+      !activateBrowserWorkspaceTab({
+        worktreeId: docLocation.worktreeId,
+        workspaceId: existing.id
+      })
+    ) {
+      state.setActiveBrowserTab(existing.id)
+    }
+    return 'activated-existing'
+  }
+  return state.convertBrowserPage(pageId, { kind: 'workspace-doc', docLocation })
+    ? 'converted'
+    : 'failed'
 }
 
 export function canPreviewLanguage(language: string): language is PreviewableLanguage {

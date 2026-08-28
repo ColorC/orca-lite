@@ -3,6 +3,8 @@ import { toast } from 'sonner'
 import BrowserAddressBar from '@/components/browser-pane/assemble-chrome/BrowserAddressBar'
 import { resolveBrowserAddressBarSubmission } from '@/components/browser-pane/navigate/browser-address-bar-navigation'
 import { translate } from '@/i18n/i18n'
+import { convertBrowserPageToWorkspaceDoc } from '@/lib/file-preview'
+import { resolveWorkspaceDocAddressTarget } from '@/lib/workspace-doc-address-input'
 import { useAppStore } from '@/store'
 import { DocPreviewDocumentChip } from './doc-preview-document-chip'
 import type { DocPreviewDocumentIdentity } from './doc-preview-document-identity'
@@ -15,10 +17,12 @@ import type { DocPreviewDocumentIdentity } from './doc-preview-document-identity
  */
 export function DocPreviewAddressEdit({
   identity,
-  previewId
+  previewId,
+  worktreeId
 }: {
   identity: DocPreviewDocumentIdentity
   previewId: string
+  worktreeId: string
 }): React.JSX.Element {
   const [editing, setEditing] = useState(false)
   const [value, setValue] = useState('')
@@ -77,7 +81,20 @@ export function DocPreviewAddressEdit({
   )
 
   const submit = useCallback((): void => {
-    const submission = resolveBrowserAddressBarSubmission(inputRef.current?.value ?? '', {
+    const typed = inputRef.current?.value ?? ''
+    // A workspace path retargets the preview (fresh grant, same tab) — or activates the tab the
+    // document is already open in, which is what opening a document has always meant.
+    const docTarget = resolveWorkspaceDocAddressTarget(useAppStore.getState(), worktreeId, typed)
+    if (docTarget.status === 'workspace-doc') {
+      convertBrowserPageToWorkspaceDoc(previewId, docTarget.docLocation)
+      exitEdit()
+      return
+    }
+    if (docTarget.status === 'unsupported') {
+      toast.error(docTarget.message)
+      return
+    }
+    const submission = resolveBrowserAddressBarSubmission(typed, {
       allowFileUrls: false
     })
     if (submission.status === 'navigate') {
@@ -85,7 +102,7 @@ export function DocPreviewAddressEdit({
       return
     }
     toast.error(submission.loadError.description)
-  }, [navigateToUrl])
+  }, [exitEdit, navigateToUrl, previewId, worktreeId])
 
   if (!editing) {
     return <DocPreviewDocumentChip identity={identity} onBeginEdit={beginEdit} />
