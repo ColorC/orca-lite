@@ -135,7 +135,12 @@ test('converts a preview to a web tab and back from the address bar', async ({
     expect(baseline.hostSessionBrowserTabs).toHaveLength(0)
 
     // Chip → address bar, prefilled with the file the reader can retype.
-    await page.getByRole('button', { name: 'Edit address', exact: true }).click()
+    // Why the left-edge position: under CI's narrow pane the squeezed chip's center hit-tests to
+    // the neighboring toolbar control's tooltip span; the file icon at the chip's left edge is
+    // always the chip's own pixels.
+    await page
+      .getByRole('button', { name: 'Edit address', exact: true })
+      .click({ position: { x: 8, y: 10 } })
     const addressInput = page.locator('[data-browser-chrome-address-slot] input')
     await expect(addressInput).toBeVisible({ timeout: 10_000 })
     await expect(addressInput).toHaveValue(FIXTURE_NAME)
