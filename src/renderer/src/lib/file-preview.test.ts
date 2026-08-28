@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   REMOTE_FILE_BROWSER_UNSUPPORTED_MESSAGE,
   canShowWorkspaceFileBrowserAction,
+  convertBrowserPageToWorkspaceDoc,
   getWorkspaceFileBrowserOpenTarget,
   openFileInBrowserTab,
   openFilePreviewToSide
@@ -31,6 +32,7 @@ const mocks = vi.hoisted(() => ({
   activateTab: vi.fn(),
   unifiedTabsByWorktree: {} as Record<string, unknown[]>,
   browserTabsByWorktree: {} as Record<string, unknown[]>,
+  convertBrowserPage: vi.fn(),
   environmentId: null as string | null,
   connectionId: null as string | null,
   layoutByWorktree: {} as Record<string, unknown>,
@@ -58,6 +60,7 @@ vi.mock('@/store', () => ({
       activateTab: mocks.activateTab,
       unifiedTabsByWorktree: mocks.unifiedTabsByWorktree,
       browserTabsByWorktree: mocks.browserTabsByWorktree,
+      convertBrowserPage: mocks.convertBrowserPage,
       getKnownWorktreeById: () => ({ id: 'wt-1', path: '/srv/repo' }),
       groupsByWorktree: {},
       layoutByWorktree: mocks.layoutByWorktree,
@@ -457,5 +460,40 @@ describe('getWorkspaceFileBrowserOpenTarget', () => {
       reason: 'remote-worktree',
       message: REMOTE_FILE_BROWSER_UNSUPPORTED_MESSAGE
     })
+  })
+})
+
+// Why the reuse case is pinned here too: the address bar's way into a document must obey the same
+// one-grant-per-document rule the preview action does.
+describe('convertBrowserPageToWorkspaceDoc', () => {
+  const DOC_LOCATION = {
+    kind: 'workspace-doc' as const,
+    worktreeId: 'wt-1',
+    filePath: '/home/alice/report.html'
+  }
+
+  it('activates the tab already showing the document instead of converting', () => {
+    mocks.browserTabsByWorktree = {
+      'wt-1': [{ id: 'browser-9', docLocation: DOC_LOCATION }]
+    }
+
+    const outcome = convertBrowserPageToWorkspaceDoc('page-1', DOC_LOCATION)
+
+    expect(outcome).toBe('activated-existing')
+    expect(mocks.convertBrowserPage).not.toHaveBeenCalled()
+    expect(mocks.setActiveBrowserTab).toHaveBeenCalledWith('browser-9')
+  })
+
+  it('converts the page in place when no tab shows the document', () => {
+    mocks.convertBrowserPage.mockReturnValue({ id: 'new-page' })
+
+    const outcome = convertBrowserPageToWorkspaceDoc('page-1', DOC_LOCATION)
+
+    expect(outcome).toBe('converted')
+    expect(mocks.convertBrowserPage).toHaveBeenCalledWith(
+      'page-1',
+      { kind: 'workspace-doc', docLocation: DOC_LOCATION },
+      undefined
+    )
   })
 })
