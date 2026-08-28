@@ -7,6 +7,7 @@ import type { BrowserHistoryEntry, BrowserPage, BrowserWorkspace } from './brows
 import type { WorkspaceDocHistoryEntry } from './workspace-doc-history'
 import type { ClientHostedBrowserCloseIntent } from './client-hosted-browser-close-intent'
 import type { PersistedClientHostedBrowserPage } from './client-hosted-browser-page-record'
+import type { ClosedTerminalTabTombstonesByTabId } from './closed-terminal-tab-tombstones'
 
 /** Minimal subset of OpenFile persisted across restarts.
  *  Only edit-mode files are saved — diffs, conflict reviews, and other
@@ -127,6 +128,9 @@ export type WorkspaceSessionState = {
       retiredAt: number
     }
   >
+  /** Terminal tabs this client watched the user close, kept until the host's own snapshot stops
+   *  listing them. See shared/closed-terminal-tab-tombstones.ts for why absence alone cannot say it. */
+  closedTerminalTabTombstonesByTabId?: ClosedTerminalTabTombstonesByTabId
 }
 
 export type WorkspaceSessionPatch = Partial<WorkspaceSessionState>
