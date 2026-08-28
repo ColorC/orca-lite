@@ -16,6 +16,7 @@ import type {
   BrowserViewportPresetId
 } from '../../../../../shared/browser-workspace-types'
 import { returnAcrossBrowserPageConversion } from '@/lib/browser-page-conversion-return'
+import { convertBrowserPageToWorkspaceDoc } from '@/lib/file-preview'
 import type { GrabIntent } from '../describe-page/browser-page-types'
 
 /** Binds the shared browser chrome to a browsing page: an editable address bar and session tools. */
@@ -123,6 +124,9 @@ export function BrowserPageToolbar({
           onChange={setAddressBarValue}
           onSubmit={submitAddressBar}
           onNavigate={navigateToUrl}
+          onOpenWorkspaceDoc={(docLocation) =>
+            convertBrowserPageToWorkspaceDoc(browserPageId, docLocation)
+          }
           inputRef={addressBarInputRef}
           dismissSuggestionsRef={dismissAddressBarSuggestionsRef}
           leadingIcon={<SshEgressIndicator worktreeId={worktreeId} />}

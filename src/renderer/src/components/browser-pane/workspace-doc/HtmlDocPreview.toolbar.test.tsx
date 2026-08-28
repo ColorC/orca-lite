@@ -97,6 +97,8 @@ const storeState = {
     store.pageStateUpdates.push({ pageId, updates })
   },
   browserUrlHistory: [],
+  workspaceDocHistory: [],
+  recordWorkspaceDocVisit: () => undefined,
   browserDefaultSearchEngine: 'google',
   browserKagiSessionLink: null,
   convertBrowserPage: (pageId: string, target: unknown) => {

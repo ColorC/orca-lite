@@ -136,6 +136,10 @@ export function DocPreviewAddressEdit({
         onChange={setValue}
         onSubmit={submit}
         onNavigate={navigateToUrl}
+        onOpenWorkspaceDoc={(docLocation) => {
+          convertBrowserPageToWorkspaceDoc(previewId, docLocation)
+          exitEdit()
+        }}
         inputRef={inputRef}
         dismissSuggestionsRef={dismissSuggestionsRef}
       />

@@ -5,6 +5,7 @@
 import { z } from 'zod'
 import type { BrowserWorkspace } from './browser-workspace-types'
 import { normalizeBrowserHistoryEntries } from './workspace-session-browser-history'
+import { normalizeWorkspaceDocHistoryEntries } from './workspace-doc-history'
 import { salvagingArray } from './zod-salvage'
 
 const browserLoadErrorSchema = z.object({
@@ -110,3 +111,15 @@ const browserHistoryEntrySchema = z.object({
 export const browserHistoryEntriesSchema = salvagingArray(browserHistoryEntrySchema).transform(
   (entries) => normalizeBrowserHistoryEntries(entries)
 )
+
+// A document identity and nothing else: no url field exists for a grant URL to land in.
+const workspaceDocHistoryEntrySchema = z.object({
+  docLocation: browserPageDocLocationSchema,
+  title: z.string(),
+  lastVisitedAt: z.number(),
+  visitCount: z.number()
+})
+
+export const workspaceDocHistoryEntriesSchema = salvagingArray(
+  workspaceDocHistoryEntrySchema
+).transform((entries) => normalizeWorkspaceDocHistoryEntries(entries))

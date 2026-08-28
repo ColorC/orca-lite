@@ -30,6 +30,13 @@ import {
   normalizeBrowserHistoryEntries,
   normalizeBrowserHistoryUrl
 } from '../../../../shared/workspace-session-browser-history'
+import {
+  MAX_WORKSPACE_DOC_HISTORY_ENTRIES,
+  normalizeWorkspaceDocHistoryEntries,
+  normalizeWorkspaceDocHistoryTitle,
+  type WorkspaceDocHistoryEntry
+} from '../../../../shared/workspace-doc-history'
+import { browserPageDocLocationsEqual } from '../../../../shared/browser-page-doc-location'
 import { destroyWorkspaceWebviews } from './browser-webview-cleanup'
 import {
   browserWorkspaceMirrorFieldsEqual,
@@ -352,6 +359,13 @@ export type BrowserSlice = {
   clearDefaultSessionCookies: () => Promise<boolean>
   browserUrlHistory: BrowserHistoryEntry[]
   addBrowserHistoryEntry: (url: string, title: string) => void
+  workspaceDocHistory: WorkspaceDocHistoryEntry[]
+  /** A visit bumps recency and count; a title-only refresh (bump: false) renames the row. */
+  recordWorkspaceDocVisit: (
+    docLocation: BrowserPageDocLocation,
+    title: string | null,
+    options?: { bump?: boolean }
+  ) => void
   clearBrowserHistory: () => void
   defaultBrowserSessionProfileId: string | null
   defaultBrowserSessionProfileIdByHostId: Partial<Record<ExecutionHostId, string | null>>
@@ -495,6 +509,7 @@ export const createBrowserSlice: StateCreator<AppState, [], [], BrowserSlice> = 
   browserSessionHostIdOverride: null,
   browserSessionImportState: null,
   browserUrlHistory: [],
+  workspaceDocHistory: [],
   defaultBrowserSessionProfileId: null,
   defaultBrowserSessionProfileIdByHostId: {},
 
@@ -1986,6 +2001,7 @@ export const createBrowserSlice: StateCreator<AppState, [], [], BrowserSlice> = 
         browserCertificateFailuresByPageId: {},
         browserAnnotationsByPageId: {},
         browserUrlHistory: normalizeBrowserHistoryEntries(session.browserUrlHistory ?? []),
+        workspaceDocHistory: normalizeWorkspaceDocHistoryEntries(session.workspaceDocHistory ?? []),
         // Why restored before the rows are: a close the host never heard must outlive the relaunch
         // that also restores the row it closed, or the restore silently wins.
         clientHostedBrowserCloseIntentsByEnvironment:
@@ -2501,6 +2517,44 @@ export const createBrowserSlice: StateCreator<AppState, [], [], BrowserSlice> = 
     }
   },
 
+  recordWorkspaceDocVisit: (docLocation, title, options) => {
+    const bump = options?.bump ?? true
+    set((s) => {
+      const now = Date.now()
+      const existing = s.workspaceDocHistory.find((entry) =>
+        browserPageDocLocationsEqual(entry.docLocation, docLocation)
+      )
+      if (!existing && !bump) {
+        // A title refresh for a document never visited records nothing.
+        return s
+      }
+      const normalizedTitle = normalizeWorkspaceDocHistoryTitle(
+        title ?? existing?.title,
+        docLocation
+      )
+      const next: WorkspaceDocHistoryEntry[] = existing
+        ? s.workspaceDocHistory.map((entry) =>
+            entry === existing
+              ? {
+                  ...entry,
+                  title: normalizedTitle,
+                  ...(bump ? { lastVisitedAt: now, visitCount: entry.visitCount + 1 } : {})
+                }
+              : entry
+          )
+        : [
+            { docLocation, title: normalizedTitle, lastVisitedAt: now, visitCount: 1 },
+            ...s.workspaceDocHistory
+          ]
+      return {
+        workspaceDocHistory:
+          next.length > MAX_WORKSPACE_DOC_HISTORY_ENTRIES
+            ? normalizeWorkspaceDocHistoryEntries(next)
+            : next
+      }
+    })
+  },
+
   addBrowserHistoryEntry: (url, title) => {
     const safeUrl = redactKagiSessionToken(url)
     if (safeUrl === ORCA_BROWSER_BLANK_URL || safeUrl === 'about:blank' || !safeUrl) {
@@ -2534,5 +2588,6 @@ export const createBrowserSlice: StateCreator<AppState, [], [], BrowserSlice> = 
     })
   },
 
-  clearBrowserHistory: () => set({ browserUrlHistory: [] })
+  // One clear for both sources: the dropdown presents them as one history.
+  clearBrowserHistory: () => set({ browserUrlHistory: [], workspaceDocHistory: [] })
 })

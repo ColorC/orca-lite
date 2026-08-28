@@ -269,6 +269,14 @@ export function HtmlDocPreview({
           onNavigated: syncHistory,
           onTitleUpdated: (event) => {
             useAppStore.getState().updateBrowserPageState(previewId, { title: event.title })
+            // A rename only — the mount already recorded this document's visit.
+            useAppStore
+              .getState()
+              .recordWorkspaceDocVisit(
+                { kind: 'workspace-doc', worktreeId, filePath },
+                event.title,
+                { bump: false }
+              )
           }
         })
         detach = attached.detach
@@ -292,6 +300,14 @@ export function HtmlDocPreview({
       detach?.()
     }
   }, [filePath, previewId, remintCount, resetHistory, syncHistory, worktreeId])
+
+  // The dropdown's doc-history source: opening a document is a visit, once per document per mount
+  // (a hard reload re-mints the grant but is not a new visit).
+  useEffect(() => {
+    useAppStore
+      .getState()
+      .recordWorkspaceDocVisit({ kind: 'workspace-doc', worktreeId, filePath }, null)
+  }, [filePath, worktreeId])
 
   // Why the guest is handed focus rather than left to the press that opens a link: main answers a
   // reported link click only from a focused guest, and a preview has no chrome of its own to pass

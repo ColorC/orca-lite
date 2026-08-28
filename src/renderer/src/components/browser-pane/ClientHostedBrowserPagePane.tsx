@@ -34,6 +34,7 @@ import { useClientHostedGuestActivationFocus } from './host-guest/use-client-hos
 import { useBrowserPageZoomFeedback } from './host-guest/use-browser-page-zoom-feedback'
 import { BrowserLoadFailureOverlay } from './navigate/browser-load-failure-overlay'
 import { useClientHostedPageUrlSubmission } from './navigate/use-client-hosted-page-url-submission'
+import { convertBrowserPageToWorkspaceDoc } from '@/lib/file-preview'
 import { useBrowserPageReloadActions } from './navigate/use-browser-page-reload-actions'
 import { resolveBrowserWebviewLoadFailure } from './navigate/browser-webview-load-failure'
 import { resolveActiveBrowserLoadFailure } from './navigate/browser-load-failure-for-url'
@@ -349,6 +350,9 @@ export function ClientHostedBrowserPagePane({
               onChange={setAddressBarValue}
               onSubmit={() => navigateToUrl(addressBarValue)}
               onNavigate={navigateToUrl}
+              onOpenWorkspaceDoc={(docLocation) =>
+                convertBrowserPageToWorkspaceDoc(browserTab.id, docLocation)
+              }
               inputRef={addressBarInputRef}
               editSession={addressBarEditSession}
               leadingIcon={
