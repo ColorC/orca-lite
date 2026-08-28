@@ -35,6 +35,9 @@ async function preparePairedClient(
 ): Promise<PreparedPairedClient> {
   const client = await launchPairedElectronClient(offer, testInfo, 'Address-bar convergence')
   try {
+    // A workstation-sized window: under CI's default size the split preview squeezes the document
+    // chip below its content width (min-w-0 + overflow-hidden), leaving no chip pixels to click.
+    await client.page.setViewportSize({ width: 1600, height: 900 })
     await expect
       .poll(
         () =>
