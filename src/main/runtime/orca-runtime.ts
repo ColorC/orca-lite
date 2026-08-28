@@ -12127,6 +12127,9 @@ export class OrcaRuntimeService {
    *  between chunks, so recordTerminalSideEffectFact emits it immediately. */
   emitDaemonPtyTransientFact(ptyId: string, fact: PtyTransientFact): void {
     switch (fact.kind) {
+      case 'command-started':
+        this.recordTerminalSideEffectFact(ptyId, fact)
+        return
       case 'bell':
         this.recordTerminalSideEffectFact(ptyId, { kind: 'bell' })
         return
@@ -12186,6 +12189,10 @@ export class OrcaRuntimeService {
       return
     }
     this.emitTerminalSideEffectBatch(ptyId, [fact])
+  }
+
+  emitPrivateTerminalFact(ptyId: string, fact: TerminalSideEffectFact): void {
+    this.recordTerminalSideEffectFact(ptyId, fact)
   }
 
   private emitTerminalSideEffectBatch(
