@@ -75,6 +75,26 @@ async function preparePairedClient(
   }
 }
 
+/**
+ * The canonical new-tab path the client-hosted specs use. A raw createBrowserTab from a paired
+ * client races the client-hosted creation machinery: the host's published snapshot can fail to
+ * match the locally minted row and place the same page twice (seen on CI as duplicate tabs).
+ */
+async function openPairedWebTab(page: Page, url: string): Promise<void> {
+  await page.evaluate(async (pageUrl) => {
+    const state = window.__store?.getState()
+    if (!state?.activeWorktreeId) {
+      throw new Error('Paired client has no active worktree')
+    }
+    const groupId = state.activeGroupIdByWorktree[state.activeWorktreeId]
+    if (!groupId) {
+      throw new Error('Paired client has no active tab group')
+    }
+    state.setBrowserDefaultUrl(pageUrl)
+    await state.openNewBrowserTabInActiveWorkspace(groupId)
+  }, url)
+}
+
 async function openPreviewFromExplorer(page: Page, fixtureName: string): Promise<void> {
   await openFileExplorer(page)
   const fixtureRow = page.locator('[data-file-explorer-row]').filter({ hasText: fixtureName })
@@ -213,12 +233,7 @@ test('converts a preview to a web tab and back from the address bar', async ({
     await page.evaluate((workspaceId) => {
       window.__store?.getState().closeBrowserTab(workspaceId)
     }, returned.workspaceId)
-    await page.evaluate(
-      ({ targetWorktreeId, url }) => {
-        window.__store?.getState().createBrowserTab(targetWorktreeId, url, { activate: true })
-      },
-      { targetWorktreeId: worktreeId, url: marker.markerUrl }
-    )
+    await openPairedWebTab(page, marker.markerUrl)
     const webAddressInput = page.locator('[data-browser-chrome-address-slot] input')
     await expect(webAddressInput).toBeVisible({ timeout: 30_000 })
     await webAddressInput.fill(docFilePath)
@@ -237,12 +252,7 @@ test('converts a preview to a web tab and back from the address bar', async ({
     // The dropdown offers the previewed document as a file identity; selecting it activates the
     // tab it is already open in rather than minting a second grant.
     const docTabsBefore = (await readPairedHtmlPreviewInventory(page, inventoryArgs)).docWorkspaces
-    await page.evaluate(
-      ({ targetWorktreeId, url }) => {
-        window.__store?.getState().createBrowserTab(targetWorktreeId, url, { activate: true })
-      },
-      { targetWorktreeId: worktreeId, url: marker.movedUrl }
-    )
+    await openPairedWebTab(page, marker.movedUrl)
     // Why the count settles first: the converted tab's old pane unmounts a beat after the store
     // flips, and a strict locator that races it resolves to two inputs.
     await expect
