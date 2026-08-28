@@ -87,7 +87,16 @@ export const browserPageSchema = z.object({
   // Why listed here and not just typed: z.object strips what it does not name, so an unlisted
   // docLocation restores a workspace document as a blank New Tab — the page keeps its blank url
   // and loses the only field that said which document it was.
-  docLocation: browserPageDocLocationSchema.nullable().optional()
+  docLocation: browserPageDocLocationSchema.nullable().optional(),
+  // Why persisted: Back's one-level return across an address-bar conversion should survive a
+  // restart. The url variant holds a store url that already passed every fence on its way in.
+  convertedFrom: z
+    .union([
+      z.object({ kind: z.literal('workspace-doc'), docLocation: browserPageDocLocationSchema }),
+      z.object({ kind: z.literal('url'), url: z.string() })
+    ])
+    .nullable()
+    .optional()
 })
 
 const browserHistoryEntrySchema = z.object({
