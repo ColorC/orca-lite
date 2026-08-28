@@ -19,10 +19,7 @@ function ownedWorktreeRoots(
   currentWorktreeId: string
 ): { worktreeId: string; root: string }[] {
   const roots: { worktreeId: string; root: string }[] = []
-  const current = state.getKnownWorktreeById(currentWorktreeId)
-  if (current?.path) {
-    roots.push({ worktreeId: currentWorktreeId, root: current.path })
-  }
+  const currentPath = state.getKnownWorktreeById(currentWorktreeId)?.path ?? null
   for (const worktree of state.allWorktrees()) {
     if (worktree.id !== currentWorktreeId && worktree.path) {
       roots.push({ worktreeId: worktree.id, root: worktree.path })
@@ -34,7 +31,12 @@ function ownedWorktreeRoots(
       roots.push({ worktreeId, root: folder.folderPath })
     }
   }
-  return roots
+  // Most-specific root first (after the current worktree), so a file inside a nested workspace is
+  // attributed to that workspace and not to the outer one that lexically contains it too.
+  roots.sort((a, b) => b.root.length - a.root.length)
+  return currentPath
+    ? [{ worktreeId: currentWorktreeId, root: currentPath }, ...roots]
+    : roots
 }
 
 function planToTarget(

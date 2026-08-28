@@ -71,7 +71,13 @@ export type BrowserPageDocLocation = {
  */
 export type BrowserPageConversionOrigin =
   | { kind: 'workspace-doc'; docLocation: BrowserPageDocLocation }
-  | { kind: 'url'; url: string }
+  | {
+      kind: 'url'
+      url: string
+      /** The origin page's runtime ownership, so Back cannot silently move browsing onto this
+       *  desktop: absent = worktree-inferred, null = client-local, string = that runtime. */
+      browserRuntimeEnvironmentId?: string | null
+    }
 
 export type BrowserPage = {
   id: string

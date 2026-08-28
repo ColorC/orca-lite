@@ -4,12 +4,16 @@ import { ORCA_BROWSER_BLANK_URL } from '../../../../shared/constants'
 import { browserPageSchema } from '../../../../shared/workspace-session-browser-schema'
 import { createTestStore, makeWorktree } from './store-test-helpers'
 
-const mocks = vi.hoisted(() => ({ releaseDocPreviewGrant: vi.fn() }))
+const mocks = vi.hoisted(() => ({ releaseDocPreviewGrant: vi.fn(), callRuntimeRpc: vi.fn() }))
 vi.mock('@/lib/doc-preview-grants', () => ({
   releaseDocPreviewGrant: mocks.releaseDocPreviewGrant,
   ensureDocPreviewGrant: vi.fn(),
   buildDocPreviewGrantRequest: vi.fn()
 }))
+vi.mock('@/runtime/runtime-rpc-client', async (importOriginal) => {
+  const actual = await importOriginal<object>()
+  return { ...actual, callRuntimeRpc: mocks.callRuntimeRpc.mockResolvedValue({}) }
+})
 vi.mock('sonner', () => ({ toast: { info: vi.fn(), success: vi.fn(), error: vi.fn() } }))
 vi.mock('@/lib/agent-status', async (importOriginal) => {
   const actual = await importOriginal<typeof AgentStatusModule>()
@@ -246,9 +250,18 @@ describe('convertBrowserPage placement and activation', () => {
   it('clears the old page id from every per-page side table', () => {
     const store = createStoreWithWorktree()
     const { pageId } = createDocTab(store)
+    // Every table SEEDED, so a deletion that stops running fails instead of passing vacuously.
     store.setState((s) => ({
       pendingAddressBarFocusByPageId: { ...s.pendingAddressBarFocusByPageId, [pageId]: true },
-      pendingAddressBarFocusByTabId: { ...s.pendingAddressBarFocusByTabId, [pageId]: true }
+      pendingAddressBarFocusByTabId: { ...s.pendingAddressBarFocusByTabId, [pageId]: true },
+      browserAnnotationsByPageId: {
+        ...s.browserAnnotationsByPageId,
+        [pageId]: [{ id: 'annotation-1' }] as never
+      },
+      browserCertificateFailuresByPageId: {
+        ...s.browserCertificateFailuresByPageId,
+        [pageId]: { challengeId: 'challenge-1' } as never
+      }
     }))
 
     store.getState().convertBrowserPage(pageId, { kind: 'web', url: 'https://example.com/' })
@@ -257,6 +270,79 @@ describe('convertBrowserPage placement and activation', () => {
     expect(store.getState().pendingAddressBarFocusByTabId[pageId]).toBeUndefined()
     expect(store.getState().browserAnnotationsByPageId[pageId]).toBeUndefined()
     expect(store.getState().browserCertificateFailuresByPageId[pageId]).toBeUndefined()
+  })
+
+  // The leg the remote pane's address bar reaches: converting a runtime-owned page must close the
+  // host's page and drop the handle, or a ghost page stays open on the remote host.
+  it('closes the remote page and drops its handle when a runtime-owned page converts', () => {
+    const store = createStoreWithWorktree()
+    const tab = store.getState().createBrowserTab(WORKTREE_ID, 'https://remote.example/')
+    const pageId = store.getState().browserPagesByWorkspace[tab.id]?.[0]?.id ?? ''
+    store.setState((s) => ({
+      remoteBrowserPageHandlesByPageId: {
+        ...s.remoteBrowserPageHandlesByPageId,
+        [pageId]: { environmentId: 'env-1', remotePageId: 'remote-page-1' } as never
+      }
+    }))
+    mocks.callRuntimeRpc.mockClear()
+
+    const converted = store.getState().convertBrowserPage(pageId, {
+      kind: 'workspace-doc',
+      docLocation: DOC_LOCATION
+    })
+
+    expect(converted).not.toBeNull()
+    expect(store.getState().remoteBrowserPageHandlesByPageId[pageId]).toBeUndefined()
+    expect(mocks.callRuntimeRpc).toHaveBeenCalledWith(
+      { kind: 'environment', environmentId: 'env-1' },
+      'browser.tabClose',
+      expect.objectContaining({ page: 'remote-page-1' }),
+      expect.anything()
+    )
+  })
+
+  // Ownership rides provenance both ways, or Back silently moves a remote tab's browsing onto
+  // this desktop (the ssh-execution-boundary concern).
+  it('carries runtime ownership through provenance and honors it on the return leg', () => {
+    const store = createStoreWithWorktree()
+    const tab = store.getState().createBrowserTab(WORKTREE_ID, 'https://remote.example/', {
+      browserRuntimeEnvironmentId: 'env-1'
+    })
+    const pageId = store.getState().browserPagesByWorkspace[tab.id]?.[0]?.id ?? ''
+
+    const docPage = store.getState().convertBrowserPage(pageId, {
+      kind: 'workspace-doc',
+      docLocation: DOC_LOCATION
+    })
+    expect(docPage?.convertedFrom).toEqual({
+      kind: 'url',
+      url: 'https://remote.example/',
+      browserRuntimeEnvironmentId: 'env-1'
+    })
+
+    const returned = store.getState().convertBrowserPage(
+      docPage?.id ?? '',
+      {
+        kind: 'web',
+        url: 'https://remote.example/',
+        browserRuntimeEnvironmentId: 'env-1'
+      },
+      { recordProvenance: false }
+    )
+    expect(returned?.browserRuntimeEnvironmentId).toBe('env-1')
+  })
+
+  it('returns a worktree-inferred remote page as inferred, never as client-local', () => {
+    const store = createStoreWithWorktree()
+    const { pageId } = createDocTab(store)
+    // The return leg says "inferred" by passing the property explicitly undefined.
+    const returned = store.getState().convertBrowserPage(
+      pageId,
+      { kind: 'web', url: 'https://remote.example/', browserRuntimeEnvironmentId: undefined },
+      { recordProvenance: false }
+    )
+    expect(returned).not.toBeNull()
+    expect('browserRuntimeEnvironmentId' in (returned ?? {})).toBe(false)
   })
 
   it('returns null for an unknown page and changes nothing', () => {

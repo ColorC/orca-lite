@@ -239,16 +239,32 @@ test('converts a preview to a web tab and back from the address bar', async ({
     await expect(secondInput).toBeVisible({ timeout: 30_000 })
     await secondInput.click()
     await secondInput.fill('Convergence')
-    const docSuggestion = page.getByText(FIXTURE_TITLE, { exact: false }).first()
+    // Scoped to the suggestion listbox: the doc tab's own strip label carries the same title, and
+    // a strip click would satisfy a bare text locator without the dropdown existing at all.
+    const docSuggestion = page
+      .locator('#browser-history-listbox')
+      .getByText(FIXTURE_TITLE, { exact: false })
+      .first()
     await expect(docSuggestion).toBeVisible({ timeout: 10_000 })
     await docSuggestion.click()
     await expect
       .poll(
-        async () =>
-          (await readPairedHtmlPreviewInventory(page, inventoryArgs)).docWorkspaces.length,
-        { timeout: 30_000, message: 'selecting the doc suggestion changed the document tab count' }
+        async () => {
+          const inventory = await readPairedHtmlPreviewInventory(page, inventoryArgs)
+          const activeWorkspaceId = await page.evaluate(
+            (targetWorktreeId) =>
+              window.__store?.getState().activeBrowserTabIdByWorktree[targetWorktreeId] ?? null,
+            worktreeId
+          )
+          return { docTabs: inventory.docWorkspaces.length, activeWorkspaceId }
+        },
+        { timeout: 30_000, message: 'selecting the doc suggestion did not activate the doc tab' }
       )
-      .toBe(docTabsBefore.length)
+      .toEqual({
+        docTabs: docTabsBefore.length,
+        // Dedupe wins: selection activates the tab the document is already open in.
+        activeWorkspaceId: docTabsBefore[0]?.workspaceId ?? null
+      })
   } finally {
     await marker.close()
     await prepared?.client.dispose()

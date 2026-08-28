@@ -15,7 +15,15 @@ export function returnAcrossBrowserPageConversion(
     convertBrowserPageToWorkspaceDoc(pageId, origin.docLocation, { recordProvenance: false })
     return
   }
-  useAppStore
-    .getState()
-    .convertBrowserPage(pageId, { kind: 'web', url: origin.url }, { recordProvenance: false })
+  useAppStore.getState().convertBrowserPage(
+    pageId,
+    {
+      kind: 'web',
+      url: origin.url,
+      // Deliberately present even when undefined: absent-on-origin means worktree-inferred, and
+      // returning it as client-local would silently move the tab's browsing onto this desktop.
+      browserRuntimeEnvironmentId: origin.browserRuntimeEnvironmentId
+    },
+    { recordProvenance: false }
+  )
 }

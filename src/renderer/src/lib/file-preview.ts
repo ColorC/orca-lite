@@ -14,6 +14,7 @@ import type { AppState } from '@/store/types'
 import { findSiblingGroupId } from '@/store/slices/tabs'
 import { browserPageDocLocationsEqual } from '../../../shared/browser-page-doc-location'
 import type { BrowserPageDocLocation } from '../../../shared/browser-workspace-types'
+import { findPage } from '@/store/slices/browser-page-records'
 import { ORCA_BROWSER_BLANK_URL } from '../../../shared/constants'
 
 export type PreviewableLanguage = 'html'
@@ -219,6 +220,23 @@ export function openFileInBrowserTab(params: {
   return plan
 }
 
+/** The tab a document is already open in, found by every PAGE's docLocation and not just the
+ *  workspace mirror — a mixed workspace whose doc page is inactive mirrors null. */
+function findWorkspaceShowingDoc(
+  state: AppState,
+  docLocation: BrowserPageDocLocation
+): { workspaceId: string; pageId: string } | null {
+  for (const tab of state.browserTabsByWorktree[docLocation.worktreeId] ?? []) {
+    const page = (state.browserPagesByWorkspace[tab.id] ?? []).find((candidate) =>
+      browserPageDocLocationsEqual(candidate.docLocation ?? null, docLocation)
+    )
+    if (page) {
+      return { workspaceId: tab.id, pageId: page.id }
+    }
+  }
+  return null
+}
+
 /**
  * The address bar's way into a workspace document: reuse before converting. A document already on
  * screen is a request to look at it — two tabs of one document would each hold their own grant on
@@ -229,21 +247,32 @@ export function convertBrowserPageToWorkspaceDoc(
   pageId: string,
   docLocation: BrowserPageDocLocation,
   options?: { recordProvenance?: boolean }
-): 'activated-existing' | 'converted' | 'failed' {
+): 'activated-existing' | 'opened-in-owning-worktree' | 'converted' | 'failed' {
   const state = useAppStore.getState()
-  const existing = (state.browserTabsByWorktree[docLocation.worktreeId] ?? []).find((tab) =>
-    browserPageDocLocationsEqual(tab.docLocation ?? null, docLocation)
-  )
+  const existing = findWorkspaceShowingDoc(state, docLocation)
   if (existing) {
     if (
       !activateBrowserWorkspaceTab({
         worktreeId: docLocation.worktreeId,
-        workspaceId: existing.id
+        workspaceId: existing.workspaceId
       })
     ) {
-      state.setActiveBrowserTab(existing.id)
+      state.setActiveBrowserTab(existing.workspaceId)
     }
+    state.setActiveBrowserPage(existing.workspaceId, existing.pageId)
     return 'activated-existing'
+  }
+  // Why another worktree's document opens a tab there instead of converting this one: a converted
+  // page keeps its workspace row, and a row whose worktree differs from its document's can never
+  // be the reader's surface under the per-worktree activity slots — its guest would never take
+  // focus, and every link in the document would be a dead end.
+  const owningPage = findPage(state.browserPagesByWorkspace, pageId)
+  if (owningPage && owningPage.worktreeId !== docLocation.worktreeId) {
+    const plan = openFileInBrowserTab({
+      filePath: docLocation.filePath,
+      worktreeId: docLocation.worktreeId
+    })
+    return plan.status === 'unsupported' ? 'failed' : 'opened-in-owning-worktree'
   }
   return state.convertBrowserPage(pageId, { kind: 'workspace-doc', docLocation }, options)
     ? 'converted'

@@ -70,8 +70,15 @@ export function planBrowserPageConversion(
       : oldPage.docLocation
         ? { kind: 'workspace-doc', docLocation: oldPage.docLocation }
         : // Why the stored url and not the guest's: the store url passed every fence on its way in,
-          // so provenance can be persisted without opening a new door.
-          { kind: 'url', url: oldPage.url }
+          // so provenance can be persisted without opening a new door. Ownership rides along —
+          // absent stays absent, so a worktree-inferred remote page returns as one.
+          {
+            kind: 'url',
+            url: oldPage.url,
+            ...(oldPage.browserRuntimeEnvironmentId !== undefined
+              ? { browserRuntimeEnvironmentId: oldPage.browserRuntimeEnvironmentId }
+              : {})
+          }
 
   const newPage: BrowserPage = {
     ...(target.kind === 'workspace-doc'
@@ -93,8 +100,10 @@ export function planBrowserPageConversion(
           undefined,
           // Why the old page's ownership and never the inferred default: an omitted id infers the
           // worktree's runtime and renders a streamed pane with no remote handle behind it. The
-          // page being converted lived on this desktop, so its replacement does too.
-          target.browserRuntimeEnvironmentId !== undefined
+          // page being converted lived on this desktop, so its replacement does too. The `in`
+          // check lets Back's return leg say "inferred" explicitly (property present, undefined)
+          // when it restores a worktree-owned remote page.
+          'browserRuntimeEnvironmentId' in target
             ? target.browserRuntimeEnvironmentId
             : (oldPage.browserRuntimeEnvironmentId ?? null)
         )),

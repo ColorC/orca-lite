@@ -69,6 +69,30 @@ describe('resolveWorkspaceDocAddressTarget', () => {
     })
   })
 
+  // Why most-specific-first: the outer root lexically contains the nested workspace's files, and
+  // attributing them to it selects the wrong owner — and so the wrong host — for the grant.
+  it('attributes a file in a nested workspace to the nested root, not the outer one', () => {
+    const state = makeState()
+    const stateWithNested = {
+      ...state,
+      allWorktrees: () => [
+        ...state.allWorktrees(),
+        { id: 'repo2::/srv', path: '/srv' }
+      ]
+    } as typeof state
+
+    const target = resolveWorkspaceDocAddressTarget(
+      stateWithNested,
+      CURRENT,
+      '/srv/site/index.html'
+    )
+
+    expect(target).toMatchObject({
+      status: 'workspace-doc',
+      docLocation: { worktreeId: 'folder:folder-1' }
+    })
+  })
+
   it('resolves a folder workspace root under its folder key', () => {
     const target = resolveWorkspaceDocAddressTarget(makeState(), CURRENT, '/srv/site/index.html')
     expect(target).toMatchObject({
