@@ -96,7 +96,11 @@ export function AppearanceInterfaceSection({
               ariaLabel={themeLabel}
               value={settings.theme}
               onChange={(option) => {
-                updateSettings({ theme: option, pluginAppTheme: null })
+                updateSettings({
+                  theme: option,
+                  pluginAppTheme: null,
+                  activeCustomUiThemeId: ''
+                })
                 applyTheme(option)
               }}
               options={[
@@ -181,6 +185,7 @@ export function AppearanceInterfaceSection({
                     : null
                   updateSettings({
                     pluginAppTheme: value === 'built-in' ? null : (value as `plugin:${string}`),
+                    activeCustomUiThemeId: '',
                     ...linkedSettings
                   })
                   if (pluginTheme) {

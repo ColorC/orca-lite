@@ -77,7 +77,8 @@ export function CustomUiThemeSection({
     }
     updateSettings({
       customUiThemes: [...themes, theme],
-      activeCustomUiThemeId: theme.id
+      activeCustomUiThemeId: theme.id,
+      pluginAppTheme: null
     })
     setName('')
     setSource('')
@@ -161,7 +162,7 @@ export function CustomUiThemeSection({
             <li className="flex items-center justify-between gap-2 px-3 py-2">
               <button
                 type="button"
-                onClick={() => updateSettings({ activeCustomUiThemeId: '' })}
+                onClick={() => updateSettings({ activeCustomUiThemeId: '', pluginAppTheme: null })}
                 className={cn(
                   'flex-1 truncate text-left text-[13px]',
                   activeId === '' ? 'font-medium text-foreground' : 'text-muted-foreground'
@@ -174,7 +175,9 @@ export function CustomUiThemeSection({
               <li key={theme.id} className="flex items-center justify-between gap-2 px-3 py-2">
                 <button
                   type="button"
-                  onClick={() => updateSettings({ activeCustomUiThemeId: theme.id })}
+                  onClick={() =>
+                    updateSettings({ activeCustomUiThemeId: theme.id, pluginAppTheme: null })
+                  }
                   className={cn(
                     'flex-1 truncate text-left text-[13px]',
                     activeId === theme.id ? 'font-medium text-foreground' : 'text-muted-foreground'
