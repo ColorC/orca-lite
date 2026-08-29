@@ -11,6 +11,7 @@ import {
   resetIncrementalTranscriptState
 } from './transcript-incremental-reader'
 import { readNativeChatTranscriptTailFile } from './transcript-tail-reader'
+import { emitTranscriptUnavailableSnapshot } from './transcript-unavailable-snapshot'
 import { transcriptWatcherPathIsInstallable } from './transcript-watcher-install-probe'
 import { nativeChatTurnLifecycleDecoderForAgent } from './transcript-turn-lifecycle'
 import type {
@@ -227,6 +228,8 @@ export async function installTranscriptWatcher(
     }
     if (isWslPath && !runningChecked && !(await transcriptWatcherPathIsRunning(filePath))) {
       nativeWatcher.invalidate()
+      initialErrorEmitted ||=
+        !closed && initialDrain && emitTranscriptUnavailableSnapshot(onInitialSnapshot)
       return
     }
     if (reading) {
@@ -245,15 +248,13 @@ export async function installTranscriptWatcher(
           // A still-pending initial drain also surfaces one error snapshot so a
           // watching client isn't stranded at 'loading' when the read keeps
           // throwing; initialDrain stays true so a recovered read can still win.
-          if (!closed && initialDrain && onInitialSnapshot && !initialErrorEmitted) {
-            initialErrorEmitted = true
-            onInitialSnapshot(
-              [],
-              false,
-              0,
+          initialErrorEmitted ||=
+            !closed &&
+            initialDrain &&
+            emitTranscriptUnavailableSnapshot(
+              onInitialSnapshot,
               error instanceof WslTranscriptFsError ? error.message : 'Transcript unavailable'
             )
-          }
           if (!isWslPath) {
             scheduleRotationRetry()
           }

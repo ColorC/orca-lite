@@ -61,12 +61,14 @@ describe('installed WSL transcript watcher lifecycle', () => {
     vi.useRealTimers()
   })
 
-  it('guards the initial drain when the distro stops after install', async () => {
+  it('settles the guarded initial drain when the distro stops after install', async () => {
+    const onInitialSnapshot = vi.fn()
     const subscription = await installTranscriptWatcher(UNC_PATH, () => null, {
       agent: 'codex',
       sessionId: 'wsl-session',
       reconciliationIntervalMs: 100,
-      onAppend: () => {}
+      onAppend: () => {},
+      onInitialSnapshot
     })
     expect(subscription).not.toBeNull()
 
@@ -75,7 +77,33 @@ describe('installed WSL transcript watcher lifecycle', () => {
     await vi.advanceTimersByTimeAsync(50)
 
     expect(mocks.stat).toHaveBeenCalledTimes(statsAfterInstall)
+    expect(onInitialSnapshot).toHaveBeenCalledWith([], false, 0, 'Transcript unavailable')
     subscription?.unsubscribe()
+  })
+
+  it('does not settle after unsubscribe wins a delayed running probe', async () => {
+    const onInitialSnapshot = vi.fn()
+    const subscription = await installTranscriptWatcher(UNC_PATH, () => null, {
+      agent: 'codex',
+      sessionId: 'wsl-session',
+      onAppend: () => {},
+      onInitialSnapshot
+    })
+    let finishProbe: (() => void) | undefined
+    mocks.filterRunning.mockImplementationOnce(
+      () =>
+        new Promise<string[]>((resolve) => {
+          finishProbe = () => resolve([])
+        })
+    )
+
+    const drain = vi.advanceTimersByTimeAsync(50)
+    await vi.waitFor(() => expect(finishProbe).toBeDefined())
+    subscription?.unsubscribe()
+    finishProbe?.()
+    await drain
+
+    expect(onInitialSnapshot).not.toHaveBeenCalled()
   })
 
   it('suspends observation while stopped and resumes after an explicit start', async () => {
