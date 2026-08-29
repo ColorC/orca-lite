@@ -8692,7 +8692,7 @@ export class OrcaRuntimeService {
    *  `snapshotVersion`, so a re-emit at the same version is silently dropped. */
   touchMobileSessionTabsForWorktree(
     worktreeId: string,
-    options: { immediate?: boolean } = {}
+    options: { immediate?: boolean; refreshStructuredProviderSessions?: boolean } = {}
   ): void {
     const snapshot = this.mobileSessionTabsByWorktree.get(worktreeId)
     if (!snapshot) {
@@ -8700,7 +8700,10 @@ export class OrcaRuntimeService {
     }
     this.mobileSessionTabsByWorktree.set(worktreeId, {
       ...snapshot,
-      snapshotVersion: snapshot.snapshotVersion + 1
+      snapshotVersion: snapshot.snapshotVersion + 1,
+      tabs: options.refreshStructuredProviderSessions
+        ? this.refreshStructuredAgentSessionProviderSessions(snapshot.tabs)
+        : snapshot.tabs
     })
     if (options.immediate) {
       // Why: readiness/lifecycle changes are structural and must not wait
@@ -12355,6 +12358,28 @@ export class OrcaRuntimeService {
   private structuredAgentSessionProviderSessionId(sessionId: string): string | null {
     const record = getStructuredAgentSessionHost()?.deps.store.getRecord(sessionId) ?? null
     return record ? headStructuredProviderSessionId(record) : null
+  }
+
+  private refreshStructuredAgentSessionProviderSessions(
+    tabs: RuntimeMobileSessionTabsSnapshot['tabs']
+  ): RuntimeMobileSessionTabsSnapshot['tabs'] {
+    let changed = false
+    const refreshed = tabs.map((tab) => {
+      if (tab.type !== 'agent-session') {
+        return tab
+      }
+      const providerSessionId = this.structuredAgentSessionProviderSessionId(tab.sessionId)
+      if (providerSessionId === (tab.providerSessionId ?? null)) {
+        return tab
+      }
+      changed = true
+      if (providerSessionId) {
+        return { ...tab, providerSessionId }
+      }
+      const { providerSessionId: _removed, ...withoutProviderSession } = tab
+      return withoutProviderSession
+    })
+    return changed ? refreshed : tabs
   }
 
   publishStructuredAgentSessionTab(input: {
