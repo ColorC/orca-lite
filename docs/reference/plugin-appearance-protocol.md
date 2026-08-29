@@ -57,7 +57,7 @@ If a plugin omits right-sidebar slots but supplies matching sidebar slots, the r
 
 ### Bundled Neo Brutalism pack
 
-LiTeWork includes `stablyai.orca-neobrutalism-theme` as an enabled, declarative appearance sampler.
+Orca includes `stablyai.orca-curated-themes` as an enabled, declarative appearance sampler.
 It adapts the MIT-licensed [NeoBrutalism](https://github.com/neobrutalism/neobrutalism),
 [daisyUI](https://github.com/saadeghi/daisyui), and [Magic UI](https://github.com/magicuidesign/magicui)
 visual conventions into schema version 3. The pack contributes Neo light/dark, cartoon, future, and glass

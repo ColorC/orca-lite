@@ -1,16 +1,12 @@
 {
   "manifestVersion": 1,
-  "id": "orca-neobrutalism-theme",
+  "id": "orca-curated-themes",
   "publisher": "stablyai",
-  "name": "LiTeWork Curated Appearance Pack",
-  "version": "1.5.1",
-  "description": "Declarative Neo, cartoon, future, glass, and evidence-based iGame appearances with matching terminal palettes and local textures.",
-  "author": {
-    "name": "LiTeWork",
-    "url": "https://github.com/neobrutalism/neobrutalism"
-  },
-  "repository": "https://github.com/neobrutalism/neobrutalism",
-  "engines": { "orca": ">=0.1.0" },
+  "name": "Curated Themes for Orca",
+  "version": "1.6.0",
+  "description": "Declarative Neo Brutalism, cartoon, synthwave, glass, paper, and stage appearances with matching terminal palettes and local textures.",
+  "repository": "https://github.com/stablyai/orca",
+  "engines": { "orca": ">=1.4.0" },
   "pluginApi": 1,
   "contributes": {
     "themes": [
@@ -28,14 +24,14 @@
       },
       { "id": "aurora-glass", "label": "Aurora Glass", "path": "themes/aurora-glass.json" },
       {
-        "id": "igame-paper-stage",
-        "label": "iGame Paper Light",
-        "path": "themes/igame-paper-stage.json"
+        "id": "paper-light",
+        "label": "Paper Light",
+        "path": "themes/paper-light.json"
       },
       {
-        "id": "igame-stage-dark",
-        "label": "iGame Stage Dark",
-        "path": "themes/igame-stage-dark.json"
+        "id": "stage-dark",
+        "label": "Stage Dark",
+        "path": "themes/stage-dark.json"
       }
     ],
     "terminalThemes": [
@@ -65,14 +61,14 @@
         "path": "terminal/aurora-glass.json"
       },
       {
-        "id": "igame-paper-terminal",
-        "label": "iGame Paper Light",
-        "path": "terminal/igame-paper-stage.json"
+        "id": "paper-terminal",
+        "label": "Paper Light",
+        "path": "terminal/paper-light.json"
       },
       {
-        "id": "igame-stage-terminal",
-        "label": "iGame Stage Dark",
-        "path": "terminal/igame-stage-dark.json"
+        "id": "stage-terminal",
+        "label": "Stage Dark",
+        "path": "terminal/stage-dark.json"
       }
     ]
   },

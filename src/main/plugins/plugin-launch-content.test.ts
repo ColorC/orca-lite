@@ -59,22 +59,20 @@ describe('Phase 1 launch plugin content', () => {
       .map((entry) => entry.name)
       .sort()
     expect(marketplace.plugins.map((plugin) => plugin.id).sort()).toEqual(
-      localPluginDirectories.filter((pluginId) => pluginId !== 'stablyai.orca-neobrutalism-theme')
+      localPluginDirectories.filter((pluginId) => pluginId !== 'stablyai.orca-curated-themes')
     )
-    expect(localPluginDirectories).toContain('stablyai.orca-neobrutalism-theme')
+    expect(localPluginDirectories).toContain('stablyai.orca-curated-themes')
 
     const contributionKinds = new Set<string>()
-    for (const listing of marketplace.plugins) {
+    for (const pluginId of localPluginDirectories) {
       const inspection = await inspectPluginInstallTree({
-        rootDir: join(launchRoot, listing.id),
+        rootDir: join(launchRoot, pluginId),
         hostVersion: '1.4.0',
-        expectedPluginKey: listing.id
+        expectedPluginKey: pluginId
       })
-      expect(inspection, `${listing.id} must pass the production install inspection`).toMatchObject(
-        {
-          ok: true
-        }
-      )
+      expect(inspection, `${pluginId} must pass the production install inspection`).toMatchObject({
+        ok: true
+      })
       if (!inspection.ok) {
         continue
       }
@@ -97,15 +95,11 @@ describe('Phase 1 launch plugin content', () => {
       if (contributes.commands.length > 0 && contributes.keybindings.length > 0) {
         contributionKinds.add('command-keybinding')
       }
-      if (listing.id === 'stablyai.orca-neobrutalism-theme') {
-        expect(contributes.themes.map((theme) => theme.id)).toContain('igame-paper-stage')
-        expect(contributes.themes.map((theme) => theme.id)).toContain('igame-stage-dark')
-        expect(contributes.terminalThemes.map((theme) => theme.id)).toContain(
-          'igame-paper-terminal'
-        )
-        expect(contributes.terminalThemes.map((theme) => theme.id)).toContain(
-          'igame-stage-terminal'
-        )
+      if (pluginId === 'stablyai.orca-curated-themes') {
+        expect(contributes.themes.map((theme) => theme.id)).toContain('paper-light')
+        expect(contributes.themes.map((theme) => theme.id)).toContain('stage-dark')
+        expect(contributes.terminalThemes.map((theme) => theme.id)).toContain('paper-terminal')
+        expect(contributes.terminalThemes.map((theme) => theme.id)).toContain('stage-terminal')
       }
     }
     expect(contributionKinds).toEqual(
@@ -128,11 +122,11 @@ describe('Phase 1 launch plugin content', () => {
     expect(result.installed.every(isOfficialPluginIdentity)).toBe(true)
   })
 
-  it('publishes the bundled Neo Brutalism pack from its exact release bytes', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'orca-neobrutalism-bundle-'))
-    const userDataPath = await mkdtemp(join(tmpdir(), 'orca-neobrutalism-user-data-'))
+  it('publishes the bundled curated theme pack from its exact release bytes', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'orca-curated-themes-bundle-'))
+    const userDataPath = await mkdtemp(join(tmpdir(), 'orca-curated-themes-user-data-'))
     temporaryRoots.push(root, userDataPath)
-    const pluginKey = 'stablyai.orca-neobrutalism-theme'
+    const pluginKey = 'stablyai.orca-curated-themes'
     const pluginRoot = join(root, pluginKey)
     await cp(join(launchRoot, pluginKey), pluginRoot, { recursive: true })
     const hashed = await hashPluginTree(pluginRoot)
@@ -149,15 +143,15 @@ describe('Phase 1 launch plugin content', () => {
     )
 
     await expect(
-      bootstrapBundledPlugins({ root, userDataPath, hostVersion: '0.1.2' })
+      bootstrapBundledPlugins({ root, userDataPath, hostVersion: '1.4.0' })
     ).resolves.toMatchObject({ installed: [pluginKey], errors: [] })
   })
 
-  it.each(['igame-paper-stage.json', 'igame-stage-dark.json'])(
-    'keeps iGame theme foreground pairs readable in %s',
+  it.each(['paper-light.json', 'stage-dark.json'])(
+    'keeps curated theme foreground pairs readable in %s',
     async (fileName) => {
       const theme = (await readJson(
-        join(launchRoot, 'stablyai.orca-neobrutalism-theme', 'themes', fileName)
+        join(launchRoot, 'stablyai.orca-curated-themes', 'themes', fileName)
       )) as { tokens: Record<string, string> }
       const pairs = [
         ['--background', '--foreground'],
@@ -184,12 +178,12 @@ describe('Phase 1 launch plugin content', () => {
     }
   )
 
-  it('uses iGame green for selection and orange for focus and current context', async () => {
+  it('uses paper green for selection and orange for focus and current context', async () => {
     const theme = (await readJson(
-      join(launchRoot, 'stablyai.orca-neobrutalism-theme', 'themes', 'igame-paper-stage.json')
+      join(launchRoot, 'stablyai.orca-curated-themes', 'themes', 'paper-light.json')
     )) as { terminalThemeContributionId: string; tokens: Record<string, string> }
 
-    expect(theme.terminalThemeContributionId).toBe('igame-paper-terminal')
+    expect(theme.terminalThemeContributionId).toBe('paper-terminal')
     expect(theme.tokens['--primary']).toBe('#669B5B')
     expect(theme.tokens['--appearance-state-selected']).toBe('#669B5B')
     expect(theme.tokens['--appearance-state-selected-foreground']).toBe('#102015')
@@ -198,14 +192,9 @@ describe('Phase 1 launch plugin content', () => {
     expect(theme.tokens['--appearance-state-hover-border']).toBe('#D19A34')
   })
 
-  it('uses the checked-in iGame dark stripe texture without recoloring it', async () => {
+  it('uses the checked-in stage stripe texture without recoloring it', async () => {
     const texture = await readFile(
-      join(
-        launchRoot,
-        'stablyai.orca-neobrutalism-theme',
-        'textures',
-        'spui_common_pattern_4_ep2.png'
-      )
+      join(launchRoot, 'stablyai.orca-curated-themes', 'textures', 'stage.png')
     )
     expect(createHash('sha256').update(texture).digest('hex')).toBe(
       '26660e41ccbf3c4971e4313e8ce9542c3846ed0693172b131bc6cebf6b9254b9'
@@ -213,13 +202,13 @@ describe('Phase 1 launch plugin content', () => {
   })
 
   it.each([
-    ['igame-paper-stage.json', '#ECE7DC', '#262626'],
-    ['igame-stage-dark.json', '#262626', '#ECE7DC']
+    ['paper-light.json', '#ECE7DC', '#262626'],
+    ['stage-dark.json', '#262626', '#ECE7DC']
   ] as const)(
-    'ships linked iGame terminal colors in %s',
+    'ships linked curated terminal colors in %s',
     async (fileName, background, foreground) => {
       const theme = (await readJson(
-        join(launchRoot, 'stablyai.orca-neobrutalism-theme', 'terminal', fileName)
+        join(launchRoot, 'stablyai.orca-curated-themes', 'terminal', fileName)
       )) as { terminal: Record<string, string> }
 
       expect(theme.terminal.background).toBe(background)
@@ -252,7 +241,7 @@ describe('Phase 1 launch plugin content', () => {
     expect(result.installed).toEqual([
       'stablyai.orca-midnight-theme',
       'stablyai.orca-navigation-shortcuts',
-      'stablyai.orca-neobrutalism-theme'
+      'stablyai.orca-curated-themes'
     ])
   })
 })

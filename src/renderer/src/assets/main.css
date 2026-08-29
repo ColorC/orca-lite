@@ -8,6 +8,14 @@
 @import './mobile-page.css';
 
 @font-face {
+  font-family: 'Geist';
+  src: url('./fonts/Geist-Variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
   font-family: 'Orca Nerd Font Symbols';
   src: url('./fonts/SymbolsNerdFontMono-Regular.woff2') format('woff2');
   font-weight: 400;
@@ -50,10 +58,6 @@
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
-  --color-context-usage: var(--context-usage);
-  --color-settings-canvas: var(--settings-canvas);
-  --color-settings-panel: var(--settings-panel);
-  --color-settings-panel-border: var(--settings-panel-border);
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-agent-question: var(--agent-question);
@@ -71,12 +75,6 @@
   --color-worktree-sidebar-accent-foreground: var(--worktree-sidebar-accent-foreground);
   --color-worktree-sidebar-border: var(--worktree-sidebar-border);
   --color-worktree-sidebar-ring: var(--worktree-sidebar-ring);
-  --color-right-sidebar: var(--right-sidebar);
-  --color-right-sidebar-foreground: var(--right-sidebar-foreground);
-  --color-right-sidebar-accent: var(--right-sidebar-accent);
-  --color-right-sidebar-accent-foreground: var(--right-sidebar-accent-foreground);
-  --color-right-sidebar-border: var(--right-sidebar-border);
-  --color-right-sidebar-ring: var(--right-sidebar-ring);
   --color-sidebar-primary: var(--sidebar-primary);
   --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
   --color-sidebar-accent: var(--sidebar-accent);
@@ -105,14 +103,9 @@
   --color-status-success: var(--status-success);
   --color-status-success-background: var(--status-success-background);
   --color-status-success-border: var(--status-success-border);
-  --color-warning: var(--warning);
-  --color-warning-background: var(--warning-background);
-  --color-warning-border: var(--warning-border);
-  --color-p4-status-ours: var(--p4-status-ours);
-  --color-p4-status-other: var(--p4-status-other);
-  --color-tab-surface-inactive: var(--tab-surface-inactive);
-  --color-tab-surface-hover: var(--tab-surface-hover);
-  --color-tab-surface-active: var(--tab-surface-active);
+  --color-workspace-status-done: var(--workspace-status-done);
+  --color-workspace-status-review: var(--workspace-status-review);
+  --color-workspace-status-progress: var(--workspace-status-progress);
   --color-tab-group-split-divider: var(--tab-group-split-divider);
   --color-tab-group-split-divider-strong: var(--tab-group-split-divider-strong);
   --color-git-graph-ref: var(--git-graph-ref);
@@ -124,6 +117,7 @@
   --color-git-graph-lane-4: var(--git-graph-lane-4);
   --color-git-graph-lane-5: var(--git-graph-lane-5);
   --color-annotation-highlight: var(--annotation-highlight);
+  --shadow-floating: 0 10px 24px rgb(0 0 0 / 0.18);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -133,50 +127,15 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-@keyframes workspace-open-in-flash {
-  0%,
-  100% {
-    background-color: transparent;
-  }
-  50% {
-    background-color: color-mix(in srgb, var(--foreground) 10%, transparent);
-  }
-}
-
 /* ── Light Mode ──────────────────────────────────────── */
 
 :root {
-  --app-font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --app-font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-sans: var(--app-font-family);
   --font-mono:
     'SF Mono', SFMono-Regular, ui-monospace, 'Cascadia Code', Menlo, Consolas, 'Liberation Mono',
     monospace;
   --radius: 0.625rem;
-  --appearance-control-radius: calc(var(--radius) * 0.8);
-  --appearance-panel-radius: var(--radius);
-  --appearance-overlay-radius: calc(var(--radius) * 1.4);
-  --appearance-pill-radius: 9999px;
-  --appearance-border-width: 1px;
-  --appearance-control-border-width: 0px;
-  --appearance-control-hover-offset: 0px;
-  --appearance-control-active-offset: 0px;
-  --appearance-disabled-opacity: 0.5;
-  --appearance-motion-scale: 0.95;
-  --appearance-motion-distance: 0.5rem;
-  --appearance-shadow-control: none;
-  --appearance-shadow-control-hover: none;
-  --appearance-shadow-control-active: none;
-  --appearance-shadow-subtle: 0 1px 2px rgb(0 0 0 / 0.08);
-  --appearance-shadow-floating: 0 20px 60px rgb(0 0 0 / 0.28);
-  --motion-instant: 0ms;
-  --motion-fast: 120ms;
-  --motion-base: 180ms;
-  --motion-enter: 200ms;
-  --motion-exit: 150ms;
-  --motion-spinner-cycle: 1s;
-  --motion-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --motion-ease-in: cubic-bezier(0.4, 0, 1, 1);
-  --motion-ease-move: cubic-bezier(0.2, 0.8, 0.2, 1);
   --orca-security-background: #fff;
   --orca-security-foreground: #0a0a0a;
   --orca-security-card: #fff;
@@ -191,8 +150,6 @@
   --orca-security-muted-foreground: #737373;
   --orca-security-accent: #f5f5f5;
   --orca-security-accent-foreground: #171717;
-  --orca-security-destructive: #e40014;
-  --orca-security-destructive-foreground: #fcf3f3;
   --orca-security-border: #e5e5e5;
   --orca-security-input: #e5e5e5;
   --orca-security-ring: #a1a1a1;
@@ -208,24 +165,12 @@
   --secondary: #f5f5f5;
   --secondary-foreground: #171717;
   --muted: #f5f5f5;
-  /* 5.3:1 on --background; #737373 sat at 4.74:1, i.e. AA only by a hair and
-     below it for the 11-13px copy that uses this token most. */
-  --muted-foreground: #6b6b6b;
+  --muted-foreground: #737373;
   --accent: #f5f5f5;
   --accent-foreground: #171717;
   --destructive: #e40014;
   --destructive-foreground: #fcf3f3;
   --border: #e5e5e5;
-  /* Why: a settings section card is `--card` on a `--background` canvas, i.e.
-     white on white — the frame was carried by a 50%-opacity border that reads
-     at 1.06:1 in light and 3.5% white in dark. Give the scroll area its own
-     canvas so the panel has something to sit on, in both themes. */
-  /* The context-window dial reads as a gauge, not as chrome, so it carries the
-     one accent the composer toolbar is allowed. */
-  --context-usage: var(--color-blue-600);
-  --settings-canvas: #f7f7f7;
-  --settings-panel: #ffffff;
-  --settings-panel-border: #e3e3e3;
   --input: #e5e5e5;
   --ring: #a1a1a1;
   --terminal-pane-locate: var(--color-blue-600);
@@ -239,11 +184,11 @@
   --status-success: #15803d;
   --status-success-background: color-mix(in srgb, var(--status-success) 10%, transparent);
   --status-success-border: color-mix(in srgb, var(--status-success) 25%, transparent);
-  --warning: #f59e0b;
-  --warning-background: color-mix(in srgb, var(--warning) 10%, transparent);
-  --warning-border: color-mix(in srgb, var(--warning) 25%, transparent);
-  --p4-status-ours: var(--color-red-600);
-  --p4-status-other: var(--color-blue-600);
+  /* Workspace PR-state tones: same hue in both themes so a status keeps its
+     identity when the theme flips. */
+  --workspace-status-done: #c7a594;
+  --workspace-status-review: #16a34a;
+  --workspace-status-progress: #d4a300;
   --chart-1: var(--color-blue-300);
   --chart-2: var(--color-blue-500);
   --chart-3: var(--color-blue-600);
@@ -263,25 +208,6 @@
   --sidebar-accent-foreground: #171717;
   --sidebar-border: #e5e5e5;
   --sidebar-ring: #a1a1a1;
-  --right-sidebar: #fafafa;
-  --right-sidebar-foreground: #0a0a0a;
-  --right-sidebar-accent: #f5f5f5;
-  --right-sidebar-accent-foreground: #171717;
-  --right-sidebar-border: #e5e5e5;
-  --right-sidebar-ring: #a1a1a1;
-  --appearance-state-hover: var(--accent);
-  --appearance-state-hover-foreground: var(--accent-foreground);
-  --appearance-state-selected: color-mix(in srgb, var(--primary) 14%, var(--background));
-  --appearance-state-selected-foreground: var(--foreground);
-  --appearance-state-current: color-mix(in srgb, var(--primary) 22%, var(--background));
-  --appearance-state-current-foreground: var(--foreground);
-  --appearance-state-hover-border: transparent;
-  --appearance-state-selected-border: transparent;
-  --appearance-state-current-border: transparent;
-  --appearance-state-border-width: 0px;
-  --appearance-canvas-background-image: none;
-  --appearance-worktree-sidebar-background-image: none;
-  --appearance-right-sidebar-background-image: none;
   --terminal-pane-title-on-dark-fg: rgb(255 255 255 / 0.52);
   --terminal-pane-title-on-dark-input-fg: rgb(255 255 255 / 0.7);
   --terminal-pane-title-on-dark-placeholder: rgb(255 255 255 / 0.38);
@@ -314,22 +240,11 @@
   --annotation-highlight: #f59e0b;
   --markdown-search-match: #facc15;
   --markdown-search-match-active: #fb923c;
-  /* Why: tab selection is carried by the whole tab surface, not a hairline, so
-     the active tab stays findable in a saturated strip. Unselected tabs sit a
-     step *below* the strip (`--card`) so they recede; "below" is a different
-     mix direction in each theme, hence separate declarations instead of one. */
-  --tab-surface-inactive: color-mix(in srgb, var(--foreground) 3%, var(--card));
-  --tab-surface-hover: color-mix(in srgb, var(--foreground) 7%, var(--card));
-  --tab-surface-active: color-mix(in srgb, var(--foreground) 14%, var(--card));
-  /* Why: `--border` disappears against the active fill (light `#e5e5e5` on
-     `#dedede`), so the selected tab needs its own hairline to read as a raised
-     chip rather than a wash. */
-  --tab-active-outline: color-mix(in srgb, var(--foreground) 26%, var(--card));
   /* Why: tab-group splits use a dedicated divider — `--border` is too faint on
      card/editor surfaces when panes are side-by-side or stacked. Default must
      meet >=3:1 against `--card`, not only the hover/drag strong state. */
-  --tab-group-split-divider: #d4d4d8;
-  --tab-group-split-divider-strong: #a1a1aa;
+  --tab-group-split-divider: #868690;
+  --tab-group-split-divider-strong: #71717a;
 }
 
 /* ── Dark Mode ───────────────────────────────────────── */
@@ -349,8 +264,6 @@
   --orca-security-muted-foreground: #a1a1a1;
   --orca-security-accent: #404040;
   --orca-security-accent-foreground: #fafafa;
-  --orca-security-destructive: #ff6568;
-  --orca-security-destructive-foreground: #171717;
   --orca-security-border: rgb(255 255 255 / 0.07);
   --orca-security-input: rgb(255 255 255 / 0.15);
   --orca-security-ring: #737373;
@@ -372,12 +285,6 @@
   --destructive: #ff6568;
   --destructive-foreground: #df2225;
   --border: rgb(255 255 255 / 0.07);
-  /* Dark keeps the canvas at `--background` and lifts the panel instead — the
-     7% border alone is invisible at a card edge. */
-  --context-usage: var(--color-blue-400);
-  --settings-canvas: #0a0a0a;
-  --settings-panel: #181818;
-  --settings-panel-border: rgb(255 255 255 / 0.11);
   --input: rgb(255 255 255 / 0.15);
   --ring: #737373;
   --terminal-pane-locate: var(--color-blue-400);
@@ -387,11 +294,9 @@
   --status-success: #86efac;
   --status-success-background: color-mix(in srgb, var(--status-success) 10%, transparent);
   --status-success-border: color-mix(in srgb, var(--status-success) 25%, transparent);
-  --warning: #fbbf24;
-  --warning-background: color-mix(in srgb, var(--warning) 10%, transparent);
-  --warning-border: color-mix(in srgb, var(--warning) 25%, transparent);
-  --p4-status-ours: var(--color-red-400);
-  --p4-status-other: var(--color-blue-400);
+  --workspace-status-done: #c7a594;
+  --workspace-status-review: #16a34a;
+  --workspace-status-progress: #d4a300;
   --chart-1: var(--color-blue-300);
   --chart-2: var(--color-blue-500);
   --chart-3: var(--color-blue-600);
@@ -415,12 +320,6 @@
   --sidebar-accent-foreground: #fafafa;
   --sidebar-border: rgb(255 255 255 / 0.07);
   --sidebar-ring: #525252;
-  --right-sidebar: #171717;
-  --right-sidebar-foreground: #fafafa;
-  --right-sidebar-accent: #262626;
-  --right-sidebar-accent-foreground: #fafafa;
-  --right-sidebar-border: rgb(255 255 255 / 0.07);
-  --right-sidebar-ring: #525252;
   --terminal-pane-title-on-dark-fg: rgb(255 255 255 / 0.52);
   --terminal-pane-title-on-dark-input-fg: rgb(255 255 255 / 0.7);
   --terminal-pane-title-on-dark-placeholder: rgb(255 255 255 / 0.38);
@@ -453,65 +352,11 @@
   --annotation-highlight: #fbbf24;
   --markdown-search-match: #facc15;
   --markdown-search-match-active: #fb923c;
-  /* Dark recedes toward `--background`; mixing toward `--foreground` would lift
-     unselected tabs instead of sinking them. See the light-mode note above. */
-  --tab-surface-inactive: color-mix(in srgb, var(--background) 45%, var(--card));
-  --tab-surface-hover: color-mix(in srgb, var(--foreground) 7%, var(--card));
-  --tab-surface-active: color-mix(in srgb, var(--foreground) 16%, var(--card));
-  --tab-active-outline: color-mix(in srgb, var(--foreground) 30%, var(--card));
   /* Brighter than terminal defaults so the always-visible line clears 3:1 on `--card`. */
-  --tab-group-split-divider: #3f3f46;
-  --tab-group-split-divider-strong: #71717a;
+  --tab-group-split-divider: #71717a;
+  --tab-group-split-divider-strong: #a1a1aa;
 }
 
-.worktree-sidebar-surface {
-  --background: var(--worktree-sidebar);
-  --foreground: var(--worktree-sidebar-foreground);
-  --sidebar: var(--worktree-sidebar);
-  --sidebar-foreground: var(--worktree-sidebar-foreground);
-  --sidebar-accent: var(--worktree-sidebar-accent);
-  --sidebar-accent-foreground: var(--worktree-sidebar-accent-foreground);
-  --sidebar-border: var(--worktree-sidebar-border);
-  --sidebar-ring: var(--worktree-sidebar-ring);
-  --card: color-mix(in srgb, var(--worktree-sidebar-foreground) 4%, var(--worktree-sidebar));
-  --card-foreground: var(--worktree-sidebar-foreground);
-  --primary: var(--sidebar-primary);
-  --primary-foreground: var(--sidebar-primary-foreground);
-  --muted: color-mix(in srgb, var(--worktree-sidebar-foreground) 9%, var(--worktree-sidebar));
-  --muted-foreground: color-mix(
-    in srgb,
-    var(--worktree-sidebar-foreground) 68%,
-    var(--worktree-sidebar)
-  );
-  --accent: var(--worktree-sidebar-accent);
-  --accent-foreground: var(--worktree-sidebar-accent-foreground);
-  --border: var(--worktree-sidebar-border);
-  --input: var(--worktree-sidebar-accent);
-  --ring: var(--worktree-sidebar-ring);
-  background-image: var(--appearance-worktree-sidebar-background-image);
-}
-.right-sidebar-surface {
-  --background: var(--right-sidebar);
-  --foreground: var(--right-sidebar-foreground);
-  --sidebar: var(--right-sidebar);
-  --sidebar-foreground: var(--right-sidebar-foreground);
-  --sidebar-accent: var(--right-sidebar-accent);
-  --sidebar-accent-foreground: var(--right-sidebar-accent-foreground);
-  --sidebar-border: var(--right-sidebar-border);
-  --sidebar-ring: var(--right-sidebar-ring);
-  --accent: var(--right-sidebar-accent);
-  --accent-foreground: var(--right-sidebar-accent-foreground);
-  --card: color-mix(in srgb, var(--right-sidebar-foreground) 4%, var(--right-sidebar));
-  --card-foreground: var(--right-sidebar-foreground);
-  --primary: var(--sidebar-primary);
-  --primary-foreground: var(--sidebar-primary-foreground);
-  --muted: color-mix(in srgb, var(--right-sidebar-foreground) 9%, var(--right-sidebar));
-  --muted-foreground: color-mix(in srgb, var(--right-sidebar-foreground) 68%, var(--right-sidebar));
-  --border: var(--right-sidebar-border);
-  --input: var(--right-sidebar-accent);
-  --ring: var(--right-sidebar-ring);
-  background-image: var(--appearance-right-sidebar-background-image);
-}
 .plugin-security-chrome {
   /* Why: plugin themes may style the app, but provenance and consent must
      retain host-owned contrast so a pack cannot disguise a trust decision. */
@@ -529,225 +374,9 @@
   --muted-foreground: var(--orca-security-muted-foreground);
   --accent: var(--orca-security-accent);
   --accent-foreground: var(--orca-security-accent-foreground);
-  --destructive: var(--orca-security-destructive);
-  --destructive-foreground: var(--orca-security-destructive-foreground);
   --border: var(--orca-security-border);
   --input: var(--orca-security-input);
   --ring: var(--orca-security-ring);
-  --appearance-control-radius: calc(0.625rem * 0.8);
-  --appearance-panel-radius: 0.625rem;
-  --appearance-overlay-radius: calc(0.625rem * 1.4);
-  --appearance-pill-radius: 9999px;
-  --appearance-border-width: 1px;
-  --appearance-control-border-width: 0px;
-  --appearance-control-hover-offset: 0px;
-  --appearance-control-active-offset: 0px;
-  --appearance-disabled-opacity: 0.5;
-  --appearance-motion-scale: 0.95;
-  --appearance-motion-distance: 0.5rem;
-  --appearance-shadow-control: none;
-  --appearance-shadow-control-hover: none;
-  --appearance-shadow-control-active: none;
-  --appearance-shadow-subtle: 0 1px 2px rgb(0 0 0 / 0.08);
-  --appearance-shadow-floating: 0 20px 60px rgb(0 0 0 / 0.28);
-  --motion-fast: 120ms;
-  --motion-base: 180ms;
-  --motion-enter: 200ms;
-  --motion-exit: 150ms;
-  --motion-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --motion-ease-in: cubic-bezier(0.4, 0, 1, 1);
-  --motion-ease-move: cubic-bezier(0.2, 0.8, 0.2, 1);
-  --appearance-state-hover: var(--orca-security-accent);
-  --appearance-state-hover-foreground: var(--orca-security-accent-foreground);
-  --appearance-state-selected: var(--orca-security-secondary);
-  --appearance-state-selected-foreground: var(--orca-security-secondary-foreground);
-  --appearance-state-current: var(--orca-security-accent);
-  --appearance-state-current-foreground: var(--orca-security-accent-foreground);
-  --appearance-state-hover-border: transparent;
-  --appearance-state-selected-border: transparent;
-  --appearance-state-current-border: transparent;
-  --appearance-state-border-width: 0px;
-  --appearance-canvas-background-image: none;
-  --appearance-worktree-sidebar-background-image: none;
-  --appearance-right-sidebar-background-image: none;
-}
-
-[data-slot='button'],
-[data-slot='input'],
-[data-slot='textarea'],
-[data-slot='select-trigger'],
-[data-slot='checkbox'],
-[data-slot='toggle'],
-[data-slot='toggle-group-item'] {
-  border-radius: var(--appearance-control-radius);
-  transition-duration: var(--motion-fast);
-  transition-timing-function: var(--motion-ease-move);
-}
-
-[data-slot='input'],
-[data-slot='textarea'],
-[data-slot='select-trigger'],
-[data-slot='checkbox'] {
-  border-width: var(--appearance-border-width);
-}
-
-[data-slot='button']:not([data-variant='ghost']):not([data-variant='link']),
-[data-slot='tabs-trigger'],
-[data-slot='toggle'],
-[data-slot='toggle-group-item'] {
-  box-shadow: var(--appearance-shadow-control);
-  translate: 0 0;
-}
-
-[data-slot='button']:not([data-variant='ghost']):not([data-variant='link']):not(
-    [data-variant='outline']
-  ),
-[data-slot='tabs-trigger'],
-[data-slot='toggle'],
-[data-slot='toggle-group-item'] {
-  border-color: var(--border);
-  border-width: var(--appearance-control-border-width);
-}
-
-[data-slot='button']:not([data-variant='ghost']):not([data-variant='link']):not(:disabled):hover,
-[data-slot='tabs-trigger']:not(:disabled):hover,
-[data-slot='toggle']:not(:disabled):hover,
-[data-slot='toggle-group-item']:not(:disabled):hover {
-  box-shadow: var(--appearance-shadow-control-hover);
-  translate: var(--appearance-control-hover-offset) var(--appearance-control-hover-offset);
-}
-
-[data-slot='button']:not([data-variant='ghost']):not([data-variant='link']):not(:disabled):active,
-[data-slot='tabs-trigger']:not(:disabled):active,
-[data-slot='toggle']:not(:disabled):active,
-[data-slot='toggle-group-item']:not(:disabled):active {
-  box-shadow: var(--appearance-shadow-control-active);
-  translate: var(--appearance-control-active-offset) var(--appearance-control-active-offset);
-}
-
-[data-slot='card'] {
-  border-radius: var(--appearance-panel-radius);
-  border-width: var(--appearance-border-width);
-  box-shadow: var(--appearance-shadow-subtle);
-}
-
-[data-slot='badge'],
-[data-slot='switch'],
-[data-slot='progress'] {
-  border-radius: var(--appearance-pill-radius);
-}
-
-[data-slot='sheet-content'],
-[data-slot='dialog-content'],
-[data-slot='popover-content'],
-[data-slot='hover-card-content'],
-[data-slot='dropdown-menu-content'],
-[data-slot='dropdown-menu-sub-content'],
-[data-slot='context-menu-content'],
-[data-slot='context-menu-sub-content'],
-[data-slot='select-content'],
-[data-slot='tooltip-content'] {
-  --tw-enter-scale: var(--appearance-motion-scale);
-  --tw-exit-scale: var(--appearance-motion-scale);
-  --tw-animation-duration: var(--motion-enter);
-  --tw-ease: var(--motion-ease-out);
-  border-radius: var(--appearance-overlay-radius);
-  box-shadow: var(--appearance-shadow-floating);
-}
-
-[data-slot='sheet-content'][data-state='closed'],
-[data-slot='dialog-content'][data-state='closed'],
-[data-slot='popover-content'][data-state='closed'],
-[data-slot='hover-card-content'][data-state='closed'],
-[data-slot='dropdown-menu-content'][data-state='closed'],
-[data-slot='dropdown-menu-sub-content'][data-state='closed'],
-[data-slot='context-menu-content'][data-state='closed'],
-[data-slot='context-menu-sub-content'][data-state='closed'],
-[data-slot='select-content'][data-state='closed'],
-[data-slot='tooltip-content'][data-state='closed'] {
-  --tw-animation-duration: var(--motion-exit);
-  --tw-ease: var(--motion-ease-in);
-}
-
-[data-slot='popover-content'][data-side='bottom'],
-[data-slot='hover-card-content'][data-side='bottom'],
-[data-slot='dropdown-menu-content'][data-side='bottom'],
-[data-slot='dropdown-menu-sub-content'][data-side='bottom'],
-[data-slot='context-menu-content'][data-side='bottom'],
-[data-slot='context-menu-sub-content'][data-side='bottom'],
-[data-slot='select-content'][data-side='bottom'],
-[data-slot='tooltip-content'][data-side='bottom'] {
-  --tw-enter-translate-y: calc(var(--appearance-motion-distance) * -1);
-}
-
-[data-slot='popover-content'][data-side='top'],
-[data-slot='hover-card-content'][data-side='top'],
-[data-slot='dropdown-menu-content'][data-side='top'],
-[data-slot='context-menu-content'][data-side='top'],
-[data-slot='select-content'][data-side='top'],
-[data-slot='tooltip-content'][data-side='top'] {
-  --tw-enter-translate-y: var(--appearance-motion-distance);
-}
-
-[data-slot='popover-content'][data-side='right'],
-[data-slot='hover-card-content'][data-side='right'],
-[data-slot='dropdown-menu-sub-content'][data-side='right'],
-[data-slot='context-menu-sub-content'][data-side='right'],
-[data-slot='tooltip-content'][data-side='right'] {
-  --tw-enter-translate-x: calc(var(--appearance-motion-distance) * -1);
-}
-
-[data-slot='popover-content'][data-side='left'],
-[data-slot='hover-card-content'][data-side='left'],
-[data-slot='dropdown-menu-sub-content'][data-side='left'],
-[data-slot='context-menu-sub-content'][data-side='left'],
-[data-slot='tooltip-content'][data-side='left'] {
-  --tw-enter-translate-x: var(--appearance-motion-distance);
-}
-
-.animate-spin {
-  animation-duration: var(--motion-spinner-cycle);
-}
-
-[data-slot='dropdown-menu-item'][data-highlighted],
-[data-slot='dropdown-menu-checkbox-item'][data-highlighted],
-[data-slot='dropdown-menu-radio-item'][data-highlighted],
-[data-slot='context-menu-item'][data-highlighted],
-[data-slot='context-menu-radio-item'][data-highlighted],
-[data-slot='select-item'][data-highlighted],
-[data-slot='command-item'][data-selected='true'] {
-  background: var(--appearance-state-hover);
-  color: var(--appearance-state-hover-foreground);
-  box-shadow: inset 0 0 0 var(--appearance-state-border-width) var(--appearance-state-hover-border);
-}
-
-[data-slot='tabs-trigger'][data-state='active'],
-[data-slot='toggle'][data-state='on'],
-[data-slot='toggle-group-item'][data-state='on'] {
-  background: var(--appearance-state-selected);
-  color: var(--appearance-state-selected-foreground);
-  box-shadow: inset 0 0 0 var(--appearance-state-border-width)
-    var(--appearance-state-selected-border);
-}
-
-[data-slot='button']:disabled,
-[data-slot='input']:disabled,
-[data-slot='textarea']:disabled,
-[data-slot='select-trigger']:disabled,
-[data-slot='checkbox']:disabled,
-[data-slot='switch']:disabled {
-  opacity: var(--appearance-disabled-opacity);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  :root {
-    --motion-instant: 0ms;
-    --motion-fast: 0ms;
-    --motion-base: 0ms;
-    --motion-enter: 0ms;
-    --motion-exit: 0ms;
-    --motion-spinner-cycle: 1.5s;
-  }
 }
 
 .linear-priority-bars {
@@ -760,6 +389,12 @@
 
 [data-sonner-toaster] {
   font-family: var(--font-sans);
+  z-index: 40 !important;
+}
+
+/* Keep interruption controls above unrelated updater/onboarding chrome. */
+.native-chat-pane-shell:has([data-native-chat-working='true']) {
+  z-index: 50;
 }
 
 [data-sonner-toaster] [data-sonner-toast][data-styled='true'] {
@@ -767,7 +402,7 @@
   flex-wrap: wrap;
   gap: 10px;
   padding: 14px 16px;
-  box-shadow: 0 10px 24px rgb(0 0 0 / 0.18);
+  box-shadow: var(--shadow-floating);
 }
 
 [data-sonner-toaster] [data-sonner-toast][data-styled='true'] [data-icon] {
@@ -840,7 +475,6 @@
 
   body {
     @apply bg-background text-foreground;
-    background-image: var(--appearance-canvas-background-image);
     margin: 0;
     padding: 0;
     overflow: hidden;
@@ -848,14 +482,13 @@
     height: 100dvh;
     font-family: var(
       --app-font-family,
-      system-ui,
+      'Geist',
       -apple-system,
       BlinkMacSystemFont,
       'Segoe UI',
       sans-serif
     );
-    /* No global tracking: each font renders with its own natural letter
-       spacing (the old +0.01em was tuned for Geist Sans specifically). */
+    letter-spacing: 0.01em;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
@@ -871,22 +504,6 @@
   :where(button:disabled) {
     cursor: default;
   }
-}
-
-/* ── Settings rows ──────────────────────────────────── */
-/* Why: settings read as a list of rules separated by hairlines, not as cards.
-   Only top-level rows get a rule — a nested row would draw a second one inside
-   its parent. */
-
-.settings-hairline-rows [data-settings-row]:not([data-settings-row] [data-settings-row]) {
-  padding-bottom: 1.25rem;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
-}
-
-.settings-hairline-rows
-  [data-settings-row]:not([data-settings-row] [data-settings-row]):last-child {
-  padding-bottom: 0;
-  border-bottom: 0;
 }
 
 /* ── Sleek scrollbar (VS Code-like) ─────────────────── */
@@ -1099,6 +716,15 @@
   height: 100dvh;
   width: 100vw;
   overflow: hidden;
+  background-image: var(--appearance-canvas-background-image, none);
+}
+
+.worktree-sidebar-surface {
+  background-image: var(--appearance-worktree-sidebar-background-image, none);
+}
+
+.right-sidebar-surface {
+  background-image: var(--appearance-right-sidebar-background-image, none);
 }
 
 /* Why: native windows have a stable content box and need no wake-time viewport reflow. */
@@ -1109,49 +735,49 @@ html.native-shell .app-layout {
   height: 100%;
 }
 
-/* Tab-group split resize handle — a hairline seam (same --border rule as the
-   titlebar/personal-info dividers) with an invisible widened grab area. */
+/* Tab-group split resize handle — wide hit area, visible center line. */
 .tab-group-split-resize-handle {
   flex-shrink: 0;
   position: relative;
-  background: var(--border);
-  transition: background 100ms ease;
-  /* Above pane content so the widened ::before hit area stays clickable. */
-  z-index: 10;
+  background: transparent;
 }
 
 .tab-group-split-resize-handle.is-vertical {
-  width: 1px;
+  width: 6px;
   cursor: col-resize;
 }
 
 .tab-group-split-resize-handle.is-horizontal {
-  height: 1px;
+  height: 6px;
   cursor: row-resize;
 }
 
-/* Invisible widened grab area — panes sit flush against the 1px seam. */
-.tab-group-split-resize-handle::before {
+.tab-group-split-resize-handle::after {
   content: '';
   position: absolute;
+  border-radius: 1px;
+  background: var(--tab-group-split-divider);
+  transition: background 100ms ease;
 }
 
-.tab-group-split-resize-handle.is-vertical::before {
+.tab-group-split-resize-handle.is-vertical::after {
   top: 0;
   bottom: 0;
-  left: -3px;
-  right: -3px;
+  left: 50%;
+  width: 3px;
+  transform: translateX(-50%);
 }
 
-.tab-group-split-resize-handle.is-horizontal::before {
+.tab-group-split-resize-handle.is-horizontal::after {
   left: 0;
   right: 0;
-  top: -3px;
-  bottom: -3px;
+  top: 50%;
+  height: 3px;
+  transform: translateY(-50%);
 }
 
-.tab-group-split-resize-handle:hover,
-.tab-group-split-resize-handle.is-dragging {
+.tab-group-split-resize-handle:hover::after,
+.tab-group-split-resize-handle.is-dragging::after {
   background: var(--tab-group-split-divider-strong);
 }
 
@@ -1196,17 +822,9 @@ html.native-shell .app-layout {
   align-items: center;
   overflow: hidden;
   flex-shrink: 0;
-  /* Why: the column wrapper shrink-wraps to its widest child, so a wide
-     header (traffic-light pad + app name) would stretch the whole column
-     past the resized sidebar below. width:0 keeps this strip out of the
-     intrinsic measurement; min-width:100% then pins it to the wrapper's
-     final width so header and sidebar are always exactly the same width. */
-  width: 0;
-  min-width: 100%;
   /* Why: in workspace view this strip sits directly above the worktree
      sidebar — match its surface so the left column reads as one panel. */
   background: var(--worktree-sidebar);
-  background-image: var(--appearance-worktree-sidebar-background-image);
   /* Why: draw the divider via inset shadow instead of border-bottom so the
      flex content area spans the full 36px. With border-bottom + border-box,
      the content area shrinks to 35px and flex-centered controls land at
@@ -1215,7 +833,7 @@ html.native-shell .app-layout {
      paints the same 1px seam without stealing layout space, so the sidebar
      toggle, agent badge, and back/forward arrows align pixel-perfectly
      with the traffic lights. */
-  box-shadow: inset 0 -1px 0 var(--worktree-sidebar-border);
+  box-shadow: inset 0 -1px 0 var(--border);
   -webkit-app-region: drag;
   user-select: none;
 }
@@ -1223,16 +841,7 @@ html.native-shell .app-layout {
 /* Why: when the sidebar is collapsed this header floats over the tab strip,
    so keep the standard titlebar surface instead of the sidebar tint. */
 .titlebar-left-floating {
-  /* Why: overrides .titlebar-left's sidebar-width pinning — the floating
-     header sizes to its own controls inside a w-0 wrapper. */
-  width: max-content;
-  min-width: 0;
   background: var(--bg-titlebar, var(--card));
-  background-image: none;
-  /* Why: floating, this strip sits inside the tab band rather than above a
-     sidebar, so .titlebar-left's seam would draw a stray rule under the
-     collapse button instead of continuing the column divider. */
-  box-shadow: none;
 }
 
 .titlebar-traffic-light-pad {
@@ -1313,11 +922,16 @@ html.native-shell .app-layout {
   -webkit-app-region: drag;
 }
 
-/* Why: these surfaces stay draggable even while xterm owns focus. Making them
-   no-drag (to observe a zoom-release click, #6301) cost the user every first
-   titlebar drag — the press was swallowed as a focus release instead of moving
-   the window. Zoom routing reads document.activeElement live, and starting an
-   OS window drag blurs the helper textarea, so the release still happens. */
+/* Why: Electron drag regions swallow renderer pointer events. While regular
+   xterm owns focus, make the next top-chrome click observable so it can release
+   terminal zoom ownership; after release these surfaces become draggable again. */
+:root[data-regular-terminal-input-focused] .titlebar,
+:root[data-regular-terminal-input-focused] .titlebar-left,
+:root[data-regular-terminal-input-focused] .window-controls-titlebar-spacer,
+:root[data-regular-terminal-input-focused] .right-sidebar-header-drag,
+:root[data-regular-terminal-input-focused] [data-terminal-focus-release-surface='true'] {
+  -webkit-app-region: no-drag;
+}
 
 .right-sidebar-header-no-drag {
   -webkit-app-region: no-drag;
@@ -1368,6 +982,18 @@ html.native-shell .app-layout {
   color: var(--foreground);
 }
 
+/* Why: tighter padding for the back/forward pair so the arrows sit
+   close together as a single navigation group, while the standard
+   .sidebar-toggle spacing stays unchanged for other titlebar icons. */
+.sidebar-toggle-compact {
+  padding: 4px 5px;
+  color: var(--foreground);
+}
+
+.sidebar-toggle-compact:disabled {
+  color: var(--muted-foreground);
+}
+
 .sidebar-toggle:disabled {
   cursor: default;
   opacity: 0.45;
@@ -1376,6 +1002,36 @@ html.native-shell .app-layout {
 .sidebar-toggle:disabled:hover {
   background: none;
   color: var(--muted-foreground);
+}
+
+.titlebar-app-name {
+  -webkit-app-region: no-drag;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  max-width: min(280px, 32vw);
+  margin-left: 2px;
+  margin-right: 4px;
+  padding: 0 6px;
+  border-radius: 4px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 24px;
+  white-space: nowrap;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+/* Why: when the app name sits inside the worktree sidebar header, it should
+   inherit that panel's contrast instead of the generic titlebar text color. */
+.titlebar-left:not(.titlebar-left-floating) .titlebar-app-name {
+  color: var(--worktree-sidebar-foreground);
+}
+
+.titlebar-app-name-main {
+  flex: 0 0 auto;
 }
 
 .titlebar-icon-button {
@@ -1398,13 +1054,6 @@ html.native-shell .app-layout {
   color: var(--foreground);
 }
 
-/* Why: this rule is unlayered like the base class above, so a pressed state
-   can't be expressed with (layered) Tailwind utilities on the element. */
-.titlebar-icon-button[aria-pressed='true'] {
-  background: var(--accent);
-  color: var(--foreground);
-}
-
 .titlebar-icon-button:disabled {
   cursor: default;
   opacity: 0.5;
@@ -1413,15 +1062,6 @@ html.native-shell .app-layout {
 .titlebar-icon-button:disabled:hover {
   background: none;
   color: var(--muted-foreground);
-}
-
-.titlebar-profile-switcher {
-  -webkit-app-region: no-drag;
-  flex-shrink: 0;
-}
-
-.titlebar-update-button {
-  -webkit-app-region: no-drag;
 }
 
 .editor-header {
@@ -1520,9 +1160,11 @@ html.native-shell .app-layout {
 
 /* ── Jump palette (Cmd+J) ─────────────────────────────── */
 
-/* Why the data-slot qualifier: CommandItem also sets data-[selected=true]:bg-accent;
-   this selector must beat that utility so light-mode selection is actually visible. */
-[data-slot='command-item'].jump-palette-item[data-selected='true'] {
+/* Why the extra qualifier: CommandItem also sets data-[selected=true]:bg-accent;
+   this selector must beat that utility so light-mode selection is actually visible.
+   The role='option' arm covers virtualized rows that render outside cmdk. */
+[data-slot='command-item'].jump-palette-item[data-selected='true'],
+[role='option'].jump-palette-item[data-selected='true'] {
   /* Why: flat --accent (#f5f5f5) on the palette surface (#fff) is nearly invisible
      in light mode — the keyboard cursor has to read as a solid selected row.
      Mix foreground into background and draw an inset ring; expose the surface
@@ -1534,7 +1176,8 @@ html.native-shell .app-layout {
   color: var(--foreground);
 }
 
-.dark [data-slot='command-item'].jump-palette-item[data-selected='true'] {
+.dark [data-slot='command-item'].jump-palette-item[data-selected='true'],
+.dark [role='option'].jump-palette-item[data-selected='true'] {
   /* Why accent, not the light-mode mix: --accent (#404040) already reads clearly on
      dark surfaces; a low-%% foreground mix was a visible step down from the old row. */
   --jump-palette-selection-surface: var(--accent);
@@ -1548,24 +1191,21 @@ html.native-shell .app-layout {
 [data-file-explorer-row][data-selected='true'] {
   /* Why: flat bg-accent ≈ panel background in light mode, so selection mixes
      foreground into accent and adds an inset ring to stay legible in both themes. */
-  background: var(--appearance-state-selected);
-  box-shadow: inset 0 0 0 var(--appearance-state-border-width)
-    var(--appearance-state-selected-border);
-  color: var(--appearance-state-selected-foreground);
+  background: color-mix(in srgb, var(--foreground) 8%, var(--accent));
+  box-shadow: inset 0 0 0 1px var(--border);
+  color: var(--accent-foreground);
 }
 
 [data-file-explorer-row][data-selected='true']:hover {
-  background: var(--appearance-state-current);
-  color: var(--appearance-state-current-foreground);
+  background: color-mix(in srgb, var(--foreground) 10%, var(--accent));
 }
 
 .dark [data-file-explorer-row][data-selected='true'] {
-  background: var(--appearance-state-selected);
+  background: color-mix(in srgb, var(--accent) 70%, transparent);
 }
 
 .dark [data-file-explorer-row][data-selected='true']:hover {
-  background: var(--appearance-state-current);
-  color: var(--appearance-state-current-foreground);
+  background: color-mix(in srgb, var(--accent) 80%, transparent);
 }
 
 .sidebar {
@@ -1585,28 +1225,6 @@ html.native-shell .app-layout {
   background: color-mix(in srgb, var(--sidebar-foreground) 4%, transparent);
 }
 
-:root[data-custom-ui-theme^='plugin:'] .worktree-sidebar-card-hover:hover,
-:root[data-custom-ui-theme^='plugin:'] .worktree-agent-row-hover:hover {
-  background: var(--appearance-state-hover);
-  box-shadow: inset 0 0 0 var(--appearance-state-border-width) var(--appearance-state-hover-border);
-  color: var(--appearance-state-hover-foreground);
-}
-
-:root[data-custom-ui-theme^='plugin:']
-  [data-contextual-tour-target='sidebar-navigation']
-  button:hover {
-  background: var(--appearance-state-hover);
-  box-shadow: inset 0 0 0 var(--appearance-state-border-width) var(--appearance-state-hover-border);
-  color: var(--appearance-state-hover-foreground);
-}
-
-:root[data-custom-ui-theme^='plugin:'] .worktree-sidebar-surface [aria-current='page'] {
-  background: var(--appearance-state-selected);
-  box-shadow: inset 0 0 0 var(--appearance-state-border-width)
-    var(--appearance-state-selected-border);
-  color: var(--appearance-state-selected-foreground);
-}
-
 .dark .worktree-sidebar-card-hover:hover {
   background: color-mix(in srgb, var(--sidebar-accent) 40%, transparent);
 }
@@ -1614,49 +1232,31 @@ html.native-shell .app-layout {
 /* Why: the brighter border carries the selected state; a translucent wash keeps
    card text legible instead of lifting the surface toward the foreground color. */
 [data-worktree-card-surface][data-worktree-card-active='primary'] {
-  /* Why: the fill alone marks the selection — an outline on top of it reads as a
-     second, competing affordance. Same 6% wash the nav and conversation rows use,
-     so one selection language runs down the whole sidebar. */
-  border-color: transparent;
-  background: color-mix(in srgb, var(--worktree-sidebar-foreground) 6%, transparent);
-  box-shadow: none;
-}
-
-:root[data-custom-ui-theme^='plugin:']
-  [data-worktree-card-surface][data-worktree-card-active='primary'] {
-  border-color: transparent;
-  background: var(--appearance-state-selected);
-  box-shadow: inset 0 0 0 var(--appearance-state-border-width)
-    var(--appearance-state-selected-border);
-  color: var(--appearance-state-selected-foreground);
+  border-color: color-mix(in srgb, var(--worktree-sidebar-border) 40%, transparent);
+  background: color-mix(in srgb, var(--worktree-sidebar-foreground) 8%, transparent);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--worktree-sidebar-foreground) 4%, transparent);
 }
 
 .dark [data-worktree-card-surface][data-worktree-card-active='primary'] {
-  border-color: transparent;
-  background: color-mix(in srgb, var(--worktree-sidebar-foreground) 7%, transparent);
-  box-shadow: none;
+  border-color: color-mix(
+    in srgb,
+    var(--worktree-sidebar-foreground) 18%,
+    var(--worktree-sidebar-border)
+  );
+  background: color-mix(in srgb, var(--worktree-sidebar-foreground) 10%, transparent);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--worktree-sidebar-foreground) 3%, transparent);
 }
 
 [data-worktree-card-surface][data-worktree-card-active='secondary'] {
-  border-color: transparent;
-  background: color-mix(in srgb, var(--worktree-sidebar-foreground) 4%, transparent);
-  box-shadow: none;
-}
-
-:root[data-custom-ui-theme^='plugin:']
-  [data-worktree-card-surface][data-worktree-card-active='secondary'],
-:root[data-custom-ui-theme^='plugin:'] .worktree-agent-row-hover[data-focused-agent-pane='true'] {
-  border-color: transparent;
-  background: var(--appearance-state-current);
-  box-shadow: inset 0 0 0 var(--appearance-state-border-width)
-    var(--appearance-state-current-border);
-  color: var(--appearance-state-current-foreground);
+  border-color: color-mix(in srgb, var(--sidebar-ring) 25%, transparent);
+  background: color-mix(in srgb, var(--sidebar-accent) 45%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--sidebar-ring) 15%, transparent);
 }
 
 .dark [data-worktree-card-surface][data-worktree-card-active='secondary'] {
-  border-color: transparent;
-  background: color-mix(in srgb, var(--worktree-sidebar-foreground) 5%, transparent);
-  box-shadow: none;
+  border-color: color-mix(in srgb, var(--sidebar-ring) 28%, transparent);
+  background: color-mix(in srgb, var(--sidebar-accent) 34%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--sidebar-ring) 18%, transparent);
 }
 
 .worktree-agent-row-hover:hover {
@@ -1741,7 +1341,7 @@ html.native-shell .app-layout {
   background: var(--popover);
   color: var(--popover-foreground);
   /* STYLEGUIDE: floating elevation for popovers that escape the editor surface. */
-  box-shadow: 0 10px 24px rgb(0 0 0 / 0.18);
+  box-shadow: var(--shadow-floating);
 }
 
 /* Why: caret points down at the usage meters this notice explains. */
@@ -1916,105 +1516,22 @@ html.native-shell .app-layout {
 }
 
 /* Why: must stay a compositor-driven CSS animation — a JS clock writing
-   per-element styles blocks the renderer input thread (STA-3328: 41 markers ⇒
-   ~490 style writes/s, keystroke p90 363ms). The component anchors each
-   animation's startTime once so concurrent markers breathe in phase.
-   Why this shape: "running" only has to register as alive. A slow opacity
-   breath stays calm next to a dozen live agents where the old 1s throbber was
-   distracting; the floor stays at 0.4 so the dot never blinks out. */
-@keyframes agent-working-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.4;
+   per-element transforms blocks the renderer input thread (STA-3328: 41
+   spinners ⇒ ~490 style writes/s, keystroke p90 363ms). The component anchors
+   each animation's startTime once; steps(12) preserves the retired cadence. */
+@keyframes agent-spinner-rotate {
+  to {
+    transform: rotate(360deg);
   }
 }
 
-.agent-working-pulse {
-  animation: agent-working-pulse 1.6s ease-in-out infinite;
+.agent-working-spinner {
+  animation: agent-spinner-rotate 1s steps(12, end) infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .agent-working-pulse {
+  .agent-working-spinner {
     animation: none;
-  }
-}
-
-/* Native-chat working loader, ported from Paseo's SyncedLoader: 6 dots in a
-   2x3 grid chased snake-style (0→1→3→5→4→2), 950ms cycle in 6 discrete steps
-   so at most 4 dots show at once (head 1, trail 0.78/0.56/0.34). steps(1, end)
-   holds each level solid for its full slot; negative delays phase each dot on
-   the shared document timeline so concurrent loaders stay in sync. */
-.synced-loader {
-  --synced-loader-size: 14px;
-  --synced-loader-gap: 2px;
-  --synced-loader-dot: calc((var(--synced-loader-size) - var(--synced-loader-gap) * 2) / 3);
-  display: grid;
-  grid-template-columns: repeat(2, var(--synced-loader-dot));
-  grid-auto-rows: var(--synced-loader-dot);
-  gap: var(--synced-loader-gap);
-}
-
-.synced-loader-dot {
-  width: var(--synced-loader-dot);
-  height: var(--synced-loader-dot);
-  border-radius: 50%;
-  background: currentColor;
-  animation: synced-loader-dot 950ms infinite;
-}
-
-/* Delays place each dot's "head" moment along the clockwise snake path. */
-.synced-loader-dot:nth-child(1) {
-  animation-delay: -950ms;
-  opacity: 1;
-}
-.synced-loader-dot:nth-child(2) {
-  animation-delay: -791.667ms;
-  opacity: 0;
-}
-.synced-loader-dot:nth-child(3) {
-  animation-delay: -158.333ms;
-  opacity: 0.78;
-}
-.synced-loader-dot:nth-child(4) {
-  animation-delay: -633.333ms;
-  opacity: 0;
-}
-.synced-loader-dot:nth-child(5) {
-  animation-delay: -316.667ms;
-  opacity: 0.56;
-}
-.synced-loader-dot:nth-child(6) {
-  animation-delay: -475ms;
-  opacity: 0.34;
-}
-
-@keyframes synced-loader-dot {
-  0% {
-    opacity: 1;
-    animation-timing-function: steps(1, end);
-  }
-  16.667% {
-    opacity: 0.78;
-    animation-timing-function: steps(1, end);
-  }
-  33.333% {
-    opacity: 0.56;
-    animation-timing-function: steps(1, end);
-  }
-  50% {
-    opacity: 0.34;
-    animation-timing-function: steps(1, end);
-  }
-  66.667% {
-    opacity: 0;
-    animation-timing-function: steps(1, end);
-  }
-  83.333% {
-    opacity: 0;
-    animation-timing-function: steps(1, end);
   }
 }
 
@@ -2032,6 +1549,23 @@ html.native-shell .app-layout {
 
 .compact-agent-expansion-grid-expanded .compact-agent-expansion-content {
   animation: compact-agent-expansion-reveal 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Why: the collapsed summary still uses pill spacing, while expanded compact
+   agents read as a quiet tree inside the existing worktree card. */
+.compact-agent-summary-panel {
+  padding: 2px;
+  border-radius: var(--radius-sm, 0.25rem);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px transparent;
+  transition:
+    background 180ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.compact-agent-summary-panel-expanded {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px transparent;
 }
 
 [data-compact-agent-list='true'] {
@@ -2068,16 +1602,15 @@ html.native-shell .app-layout {
   background: color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
-/* Why: inside a workspace card the focused agent row says so with text colour
-   alone — a fill read as a second selection next to the card's own, in a list
-   that is already indented under it. Hover feedback is untouched, and agent rows
-   on other surfaces keep the shared selection wash. */
 [data-compact-agent-list='true']
-  .compact-agent-row.worktree-agent-row-hover[data-focused-agent-pane='true'],
+  .compact-agent-row.worktree-agent-row-hover[data-focused-agent-pane='true'] {
+  background: color-mix(in srgb, var(--sidebar-foreground) 12%, var(--sidebar-accent));
+}
+
 .dark
   [data-compact-agent-list='true']
   .compact-agent-row.worktree-agent-row-hover[data-focused-agent-pane='true'] {
-  background: transparent;
+  background: color-mix(in srgb, var(--accent) 70%, transparent);
 }
 
 [data-compact-agent-list='true'] .worktree-agent-lineage-children {
@@ -2095,6 +1628,10 @@ html.native-shell .app-layout {
 
   .compact-agent-expansion-grid-expanded .compact-agent-expansion-content {
     animation-duration: 0ms;
+  }
+
+  .compact-agent-summary-panel {
+    transition-duration: 0ms;
   }
 }
 
@@ -2205,6 +1742,13 @@ html.native-shell .app-layout {
 
 .collapsible-height-content[data-state='closed'] {
   animation: collapsible-up 180ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .collapsible-height-content[data-state='open'],
+  .collapsible-height-content[data-state='closed'] {
+    animation: none;
+  }
 }
 
 @keyframes collapsible-down {
@@ -3491,26 +3035,4 @@ html.native-shell .app-layout {
   box-shadow:
     inset 0 1px 0 0 color-mix(in srgb, var(--foreground) 5%, transparent),
     0 10px 24px rgba(0, 0, 0, 0.18);
-}
-
-/* ── Tab title reveal ─────────────────────────────────── */
-
-/* Plays once when an agent-grabbed name replaces the 未命名 placeholder. */
-@keyframes tab-title-reveal {
-  from {
-    clip-path: inset(0 100% 0 0);
-    opacity: 0.35;
-  }
-  to {
-    clip-path: inset(0 0 0 0);
-    opacity: 1;
-  }
-}
-.tab-title-reveal {
-  animation: tab-title-reveal 550ms var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1)) both;
-}
-@media (prefers-reduced-motion: reduce) {
-  .tab-title-reveal {
-    animation: none;
-  }
 }

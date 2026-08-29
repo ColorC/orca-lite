@@ -1,10 +1,10 @@
 {
   "schemaVersion": 5,
   "base": "dark",
-  "terminalThemeContributionId": "igame-stage-terminal",
+  "terminalThemeContributionId": "stage-terminal",
   "textureAssets": {
-    "--appearance-worktree-sidebar-background-image": "textures/spui_common_pattern_4_ep2.png",
-    "--appearance-right-sidebar-background-image": "textures/spui_common_pattern_4_ep2.png"
+    "--appearance-worktree-sidebar-background-image": "textures/stage.png",
+    "--appearance-right-sidebar-background-image": "textures/stage.png"
   },
   "tokens": {
     "--background": "#262626",

@@ -1,10 +1,10 @@
 {
   "schemaVersion": 5,
   "base": "light",
-  "terminalThemeContributionId": "igame-paper-terminal",
+  "terminalThemeContributionId": "paper-terminal",
   "textureAssets": {
-    "--appearance-worktree-sidebar-background-image": "textures/spui_common_pattern_4.png",
-    "--appearance-right-sidebar-background-image": "textures/spui_common_pattern_4.png"
+    "--appearance-worktree-sidebar-background-image": "textures/paper.png",
+    "--appearance-right-sidebar-background-image": "textures/paper.png"
   },
   "tokens": {
     "--background": "#F7ECDD",
