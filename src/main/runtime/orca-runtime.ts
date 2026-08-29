@@ -443,9 +443,10 @@ import {
 } from '../../shared/execution-host'
 import { preservedBranchCleanupScopeKey } from '../../shared/preserved-branch-cleanup'
 import { getRegisteredSshState } from '../ssh/ssh-target-registry'
-import type {
-  AgentProviderSessionMetadata,
-  SleepingAgentLaunchConfig
+import {
+  agentProviderSessionsEqual,
+  type AgentProviderSessionMetadata,
+  type SleepingAgentLaunchConfig
 } from '../../shared/agent-session-resume'
 import type { ExactWorkerProviderSession } from '../../shared/orchestration-worker-output'
 import { applyBrowserSessionTabSelection } from './browser-session-tab-selection-snapshot'
@@ -1932,7 +1933,7 @@ type RuntimeWorktreeAgentSource = {
 type HookLiveAgentRow = Pick<
   RuntimeAgentRowSnapshot,
   'payload' | 'updatedAt' | 'stateStartedAt' | 'worktreeId'
->
+> & { agentCwd?: string }
 
 type RuntimeHeadlessTerminal = {
   emulator: HeadlessEmulator
@@ -30096,12 +30097,14 @@ export class OrcaRuntimeService {
     if (!startup) {
       throw new Error('agent_session_identity_required')
     }
+    const startupCwd = this.resolveWorkspaceTerminalStartupCwd(workspace, request.startupCwd)
     await this.markWorkspaceTrustedForAgent(request.agent, workspace.connectionId, workspace.path)
     if (_caller.signal?.aborted) {
       throw new Error('client_disconnected')
     }
     const terminal = await this.createTerminal(`id:${workspace.id}`, {
       command: startup.launchCommand,
+      ...(startupCwd ? { cwd: startupCwd } : {}),
       env: startup.env,
       launchConfig: startup.launchConfig,
       launchAgent: request.agent,
@@ -36326,13 +36329,27 @@ export class OrcaRuntimeService {
           (hookAgentStatus.providerSessionReceivedAt ?? -1) >= tab.agentStatus.updatedAt)
           ? hookAgentStatus.providerSession
           : tab.agentStatus?.providerSession
+      const hookAgentCwd =
+        hookAgentStatus && hookProviderSession === hookAgentStatus.providerSession
+          ? hookAgentStatus.agentCwd
+          : (tab.agentStatus?.agentCwd ??
+            (hookProviderSession &&
+            hookAgentStatus?.providerSession &&
+            agentProviderSessionsEqual(
+              rendererStatusAgent,
+              hookProviderSession,
+              hookAgentStatus.providerSession
+            )
+              ? hookAgentStatus.agentCwd
+              : undefined))
       const statusPty = liveLeafPty ?? mobileStatusPty
       const normalizedTabAgentStatus = this.renewMobileAgentStatusFromPtyTitle(
         tab.agentStatus
           ? normalizeCompatibleAgentStatusEntryForOwner(
               {
                 ...tab.agentStatus,
-                ...(hookProviderSession ? { providerSession: hookProviderSession } : {})
+                ...(hookProviderSession ? { providerSession: hookProviderSession } : {}),
+                ...(hookAgentCwd ? { agentCwd: hookAgentCwd } : {})
               },
               ownerAgent
             )
@@ -36369,6 +36386,9 @@ export class OrcaRuntimeService {
                 agentType: normalizedTabAgentStatus.agentType,
                 ...(normalizedTabAgentStatus.providerSession
                   ? { providerSession: normalizedTabAgentStatus.providerSession }
+                  : {}),
+                ...(normalizedTabAgentStatus.agentCwd
+                  ? { agentCwd: normalizedTabAgentStatus.agentCwd }
                   : {})
               }
             }
@@ -36532,7 +36552,8 @@ export class OrcaRuntimeService {
       ...(status.worktreeId ? { worktreeId: status.worktreeId } : {}),
       ...(status.tabId ? { tabId: status.tabId } : {}),
       ...(status.terminalTitle ? { terminalTitle: status.terminalTitle } : {}),
-      ...(status.providerSession ? { providerSession: status.providerSession } : {})
+      ...(status.providerSession ? { providerSession: status.providerSession } : {}),
+      ...(status.agentCwd ? { agentCwd: status.agentCwd } : {})
     })
     const titleConfirmsState =
       (pty.lastAgentStatus === 'working' && status.state === 'working') ||
@@ -36603,6 +36624,7 @@ export class OrcaRuntimeService {
     const providerSession = hookRow.providerSession
       ? { providerSession: hookRow.providerSession }
       : {}
+    const agentCwd = hookRow.agentCwd ? { agentCwd: hookRow.agentCwd } : {}
     const leaf = this.leaves.get(this.getLeafKey(tab.parentTabId, tab.leafId)) ?? null
     const trackerOnlyTitle = this.getUnpersistedTrackedTitleForPty(
       pty?.ptyId ?? leaf?.ptyId ?? null
@@ -36666,7 +36688,8 @@ export class OrcaRuntimeService {
             : {}),
           tabId: tab.parentTabId,
           terminalTitle,
-          ...providerSession
+          ...providerSession,
+          ...agentCwd
         },
         ownerAgent
       )
@@ -36704,7 +36727,8 @@ export class OrcaRuntimeService {
         tabId: tab.parentTabId,
         terminalTitle,
         stateHistory: [],
-        ...providerSession
+        ...providerSession,
+        ...agentCwd
       }
     }
   }
@@ -36757,6 +36781,7 @@ export class OrcaRuntimeService {
     providerSession: AgentProviderSessionMetadata | null
     providerSessionAgentType: string | null
     providerSessionReceivedAt: number | null
+    agentCwd: string | null
     agentType: string | null
     agentIsLive: boolean
     live: HookLiveAgentRow | null
@@ -36798,6 +36823,7 @@ export class OrcaRuntimeService {
       providerSession: session?.providerSession ?? null,
       providerSessionAgentType: session?.agentType ?? null,
       providerSessionReceivedAt: session?.receivedAt ?? null,
+      agentCwd: session?.agentCwd ?? null,
       agentType: agent?.agentType ?? null,
       // A fresh completed row still projects its terminal `done` status, but it is
       // past-tense identity evidence and must not outrank process or launch facts.
@@ -36807,7 +36833,8 @@ export class OrcaRuntimeService {
             payload: pickParsedAgentStatusPayload(live),
             updatedAt: live.receivedAt,
             stateStartedAt: live.stateStartedAt ?? live.receivedAt,
-            ...(live.worktreeId ? { worktreeId: live.worktreeId } : {})
+            ...(live.worktreeId ? { worktreeId: live.worktreeId } : {}),
+            ...(live.agentCwd ? { agentCwd: live.agentCwd } : {})
           }
         : null
     }
