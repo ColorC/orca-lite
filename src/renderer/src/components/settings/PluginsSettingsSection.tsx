@@ -232,6 +232,29 @@ export function PluginsSettingsSection({
         decision
       })
       applyCompletedMutation(nextPlugins)
+      if (decision === 'approve') {
+        const contributedTerminalThemes = (await window.api.plugins.listTerminalThemes()).filter(
+          (theme) => theme.pluginKey === pluginKey
+        )
+        const terminalTheme =
+          contributedTerminalThemes.length === 1 ? contributedTerminalThemes[0] : undefined
+        if (terminalTheme) {
+          try {
+            await updateSettings(
+              terminalThemeActivationUpdate(settings, terminalTheme.id, getSystemPrefersDark())
+            )
+          } catch {
+            if (mountedRef.current) {
+              setSettingsError(
+                translate(
+                  'auto.components.settings.PluginsSettingsSection.themeApplyFailed',
+                  'The plugin was enabled, but Orca could not apply its terminal theme.'
+                )
+              )
+            }
+          }
+        }
+      }
       if (mountedRef.current) {
         setConsentPluginId(null)
       }

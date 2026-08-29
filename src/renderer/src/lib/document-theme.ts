@@ -110,7 +110,7 @@ export function applyPluginAppTheme(
   root: PluginThemeRoot = document.documentElement
 ): void {
   const previous = appliedPluginTokens.get(root) ?? new Set<string>()
-  const vars = { ...(theme?.tokens ?? {}) }
+  const vars = { ...theme?.tokens }
   for (const [token, dataUrl] of Object.entries(theme?.textureDataUrls ?? {})) {
     if (/^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/.test(dataUrl)) {
       vars[token] = `url("${dataUrl}")`

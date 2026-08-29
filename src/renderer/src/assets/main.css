@@ -3,14 +3,9 @@
 @import '@xterm/xterm/css/xterm.css';
 @import 'katex/dist/katex.min.css';
 @import './rich-markdown-editor.css';
-@import './prompt-editor.css';
 @import './markdown-preview.css';
 @import './terminal.css';
 @import './mobile-page.css';
-@import './conversations-tokens.css';
-@import './conversation-composer.css';
-@import './cindy-chat.css';
-@import './skill-hub.css';
 
 @font-face {
   font-family: 'Orca Nerd Font Symbols';

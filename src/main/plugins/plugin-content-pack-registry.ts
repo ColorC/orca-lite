@@ -79,13 +79,13 @@ export class PluginContentPackRegistry {
         approvedKeys.has(plugin.pluginKey) &&
         !excluded.has(plugin.pluginKey) &&
         !this.isKilled(plugin.pluginKey)
+      this.commands.reconcile(discovered, approveAtomically, keybindings)
       await Promise.all([
         this.themes.reconcile(discovered, approveAtomically),
         this.languagePacks.reconcile(discovered, approveAtomically),
         this.iconThemes.reconcile(discovered, approveAtomically),
         this.terminalThemes.reconcile(discovered, approveAtomically),
-        this.vmRecipes.reconcile(discovered, approveAtomically),
-        this.commands.reconcile(discovered, approveAtomically, keybindings)
+        this.vmRecipes.reconcile(discovered, approveAtomically)
       ])
 
       let foundNewError = false
