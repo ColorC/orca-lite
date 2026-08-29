@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as WslRunningPathFilterModule from '../wsl-running-path-filter'
 import type * as WslTranscriptFsGateModule from './wsl-transcript-fs-gate'
 
@@ -42,11 +42,20 @@ vi.mock('../wsl-running-path-filter', async (importOriginal) => ({
 import { resolveSessionFilePath } from './session-file-resolver'
 import { WslTranscriptFsError } from './wsl-transcript-fs-gate'
 
+const realPlatform = process.platform
+
+function setPlatform(platform: NodeJS.Platform): void {
+  Object.defineProperty(process, 'platform', { value: platform, configurable: true })
+}
+
 beforeEach(() => {
+  setPlatform('win32')
   mocks.filterPathsToRunningWslDistrosAsync.mockClear()
   mocks.gate.mockClear()
   mocks.walk.mockClear()
 })
+
+afterEach(() => setPlatform(realPlatform))
 
 describe('Codex WSL scan gate', () => {
   it('routes WSL session-tree scans through the shared filesystem gate', async () => {
