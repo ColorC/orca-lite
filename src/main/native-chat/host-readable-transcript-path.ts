@@ -2,11 +2,7 @@ import { existsSync } from 'node:fs'
 import { isAbsolute } from 'node:path'
 import { isWslUncPath, parseWslUncPath, toWindowsWslPath } from '../../shared/wsl-paths'
 import { WSL_CODEX_RUNTIME_HOME_SEGMENTS } from '../pty/codex-home-wsl-env'
-import {
-  getWslHomeAsync,
-  listRunningWslDistrosAsync,
-  listRunningWslHomeDirsAsync
-} from '../wsl'
+import { getWslHomeAsync, listRunningWslDistrosAsync, listRunningWslHomeDirsAsync } from '../wsl'
 import {
   filterPathsToRunningWslDistrosAsync,
   filterPathsToWslDistros
@@ -47,14 +43,29 @@ export function needsWslHostResolution(
 
 export type WslTranscriptResolutionSnapshot = {
   runningDistros: string[]
-  homeDirs: string[]
+  homeDirs?: string[]
 }
 
 /** One running-distro view shared by every WSL lookup in a resolve attempt. */
-export async function createWslTranscriptResolutionSnapshot(): Promise<WslTranscriptResolutionSnapshot> {
+export async function createWslTranscriptResolutionSnapshot(
+  options: {
+    includeHomes?: boolean
+  } = {}
+): Promise<WslTranscriptResolutionSnapshot> {
   const runningDistros = await listRunningWslDistrosAsync()
+  if (options.includeHomes === false) {
+    return { runningDistros }
+  }
   const homes = await Promise.all(runningDistros.map((distro) => getWslHomeAsync(distro)))
   return { runningDistros, homeDirs: homes.filter((home): home is string => home !== null) }
+}
+
+async function snapshotHomeDirs(snapshot: WslTranscriptResolutionSnapshot): Promise<string[]> {
+  if (snapshot.homeDirs) {
+    return snapshot.homeDirs
+  }
+  const homes = await Promise.all(snapshot.runningDistros.map((distro) => getWslHomeAsync(distro)))
+  return homes.filter((home): home is string => home !== null)
 }
 
 export type HostReadableTranscriptPathDeps = {
@@ -182,7 +193,9 @@ export async function toHostReadableTranscriptPath(
     return (await pathExists(path)) ? path : null
   }
 
-  const homeDirs = deps.wslSnapshot?.homeDirs ?? (await resolveWslHomeDirs(deps.listWslHomeDirs))
+  const homeDirs = deps.wslSnapshot
+    ? await snapshotHomeDirs(deps.wslSnapshot)
+    : await resolveWslHomeDirs(deps.listWslHomeDirs)
   // Sequential on purpose: the ranked order picks the owning distro, and probing
   // every distro at once would fan out 9P calls to ones the user left stopped.
   let unavailable: WslTranscriptFsError | undefined
@@ -228,10 +241,7 @@ function rankDistrosForGuestPath(wslHomeUncDirs: readonly string[], guestPath: s
  * hook path is absent.
  */
 export async function wslCodexSessionsDirs(
-  deps: Pick<
-    HostReadableTranscriptPathDeps,
-    'platform' | 'listWslHomeDirs' | 'wslSnapshot'
-  > = {}
+  deps: Pick<HostReadableTranscriptPathDeps, 'platform' | 'listWslHomeDirs' | 'wslSnapshot'> = {}
 ): Promise<string[]> {
   const platform = deps.platform ?? process.platform
   if (platform !== 'win32') {
@@ -239,7 +249,9 @@ export async function wslCodexSessionsDirs(
   }
   const additionalHomes = getAdditionalCodexHomePaths?.() ?? []
   const [homeDirs, runningAdditionalHomes] = await Promise.all([
-    deps.wslSnapshot?.homeDirs ?? resolveWslHomeDirs(deps.listWslHomeDirs),
+    deps.wslSnapshot
+      ? snapshotHomeDirs(deps.wslSnapshot)
+      : resolveWslHomeDirs(deps.listWslHomeDirs),
     deps.wslSnapshot
       ? filterPathsToWslDistros(additionalHomes, deps.wslSnapshot.runningDistros)
       : filterPathsToRunningWslDistrosAsync(additionalHomes)

@@ -101,17 +101,13 @@ describe('Codex WSL scan gate', () => {
     ).rejects.toBe(refusal)
   })
 
-  it('falls through a gate-refused hook path to an id-based hit', async () => {
-    const hit = `${DEBIAN_SESSIONS_DIR}\\2026\\rollout-1-session-id.jsonl`
+  it('does not scan by id after an authoritative WSL hook path is refused', async () => {
+    const refusal = new WslTranscriptFsError('timeout', 'slow share')
     mocks.gate.mockImplementation(async (options: { operation?: string; path: string }) => {
       if (options.operation === 'access') {
-        throw new WslTranscriptFsError('timeout', 'slow share')
+        throw refusal
       }
       return []
-    })
-    mocks.walk.mockImplementation(async (dir, _agent, _issues, options) => {
-      await options.readDirectory?.(dir)
-      return dir === DEBIAN_SESSIONS_DIR ? [hit] : []
     })
 
     await expect(
@@ -119,7 +115,8 @@ describe('Codex WSL scan gate', () => {
         transcriptPath: `${WSL_SESSIONS_DIR}\\2026\\rollout-1-session-id.jsonl`,
         codexSessionsDirs: [DEBIAN_SESSIONS_DIR]
       })
-    ).resolves.toBe(hit)
+    ).rejects.toBe(refusal)
+    expect(mocks.walk).not.toHaveBeenCalled()
   })
 
   it('surfaces the hook-path refusal when the id search also misses', async () => {

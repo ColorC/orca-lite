@@ -17,6 +17,7 @@ import {
 import {
   createWslTranscriptResolutionSnapshot,
   needsWslHostResolution,
+  needsWslHostTranslation,
   toHostReadableTranscriptPath,
   wslCodexSessionsDirs,
   type WslTranscriptResolutionSnapshot
@@ -113,7 +114,9 @@ export async function resolveSessionFilePath(
   if (hookPath && extname(hookPath) === '.jsonl') {
     try {
       if (!wslSnapshot && needsWslHostResolution(hookPath)) {
-        wslSnapshot = await createWslTranscriptResolutionSnapshot()
+        wslSnapshot = await createWslTranscriptResolutionSnapshot({
+          includeHomes: needsWslHostTranslation(hookPath)
+        })
       }
       const hostReadable = await toHostReadableTranscriptPath(hookPath, { signal, wslSnapshot })
       if (hostReadable) {
@@ -126,10 +129,15 @@ export async function resolveSessionFilePath(
       // it does not, so a stalled distro reads as unavailable, never "missing".
       unavailable = wslTranscriptFsRefusal(error)
     }
+    if (needsWslHostResolution(hookPath)) {
+      if (unavailable) {
+        throw unavailable
+      }
+      return null
+    }
   }
 
-  const resolveOptions =
-    wslSnapshot === options.wslSnapshot ? options : { ...options, wslSnapshot }
+  const resolveOptions = wslSnapshot === options.wslSnapshot ? options : { ...options, wslSnapshot }
   const resolved = await resolveSessionFileById(transcriptAgent, sessionId, resolveOptions, signal)
   if (!resolved && unavailable) {
     throw unavailable
