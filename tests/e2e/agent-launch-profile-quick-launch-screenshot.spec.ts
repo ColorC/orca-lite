@@ -15,12 +15,23 @@ test('quick-launch submenu before and after launch profiles @headful', async ({ 
   await waitForSessionReady(orcaPage)
   await waitForActiveWorktree(orcaPage)
   await ensureTerminalVisible(orcaPage)
+  // Why: the e2e profile can surface the recoverable-UI-error dialog on startup (reproduces on
+  // untouched main); while it is open the rest of the page is inert to role queries.
+  const dismissError = orcaPage.getByRole('button', { name: /^(Don't send|不发送)$/ }).first()
+  if (await dismissError.isVisible({ timeout: 5_000 }).catch(() => false)) {
+    await dismissError.click()
+  }
   // Why: the aria-label is localized; the e2e profile follows the OS locale.
   const newTab = orcaPage.getByRole('button', { name: /^(New tab|新标签页)$/ }).first()
 
-  await orcaPage.evaluate(async () => {
-    await window.__store?.getState().updateSettings({ agentLaunchProfiles: [] })
-  })
+  // Why: the e2e PATH is isolated, so point the Codex command at a binary that exists to make
+  // agent detection list it; the menu never launches it here.
+  await orcaPage.evaluate(async (codexCommand) => {
+    await window.__store?.getState().updateSettings({
+      agentLaunchProfiles: [],
+      agentCmdOverrides: { codex: codexCommand }
+    })
+  }, process.execPath)
   await newTab.click({ force: true })
   const codexRow = orcaPage.getByRole('menuitem', { name: /^Codex$/ }).first()
   await expect(codexRow).toBeVisible({ timeout: 30_000 })

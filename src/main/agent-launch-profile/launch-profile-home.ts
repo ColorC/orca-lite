@@ -6,7 +6,8 @@ import {
   type AgentLaunchProfile,
   type AgentLaunchProfileHome
 } from '../../shared/agent-launch-profile/agent-launch-profile'
-import { getDefaultWslDistro, getWslHome } from '../wsl'
+import { getDefaultWslDistro, getWslHome, parseWslPath } from '../wsl'
+import { addWslEnvKeys } from '../wsl-env'
 
 // Why: shell-ready wrappers restore CODEX_HOME from ORCA_CODEX_HOME after profile scripts, so a
 // relocated Codex home must set both. Claude Code reads CLAUDE_CONFIG_DIR directly.
@@ -82,6 +83,26 @@ export function applyLaunchProfileHomeMarkers(args: {
     for (const mirror of MIRROR_ENV_VARS[profile.home.envVar] ?? []) {
       args.env[mirror] = profileHome
     }
+  }
+}
+
+/**
+ * Rewrites a resolved WSL home (a `\\wsl.localhost\...` UNC path) to the Linux path the distro
+ * shell needs and exports it through WSLENV. The daemon lane does this inside its own WSL
+ * translation; the in-process lane resolves markers after that translation ran, so it calls this.
+ */
+export function exportLaunchProfileHomesForWsl(env: Record<string, string>): void {
+  for (const profile of SECONDARY_HOME_PROFILES) {
+    const value = env[profile.home.envVar]
+    const wslInfo = value ? parseWslPath(value) : null
+    if (!wslInfo) {
+      continue
+    }
+    env[profile.home.envVar] = wslInfo.linuxPath
+    for (const mirror of MIRROR_ENV_VARS[profile.home.envVar] ?? []) {
+      env[mirror] = wslInfo.linuxPath
+    }
+    addWslEnvKeys(env, [profile.home.envVar, ...(MIRROR_ENV_VARS[profile.home.envVar] ?? [])])
   }
 }
 

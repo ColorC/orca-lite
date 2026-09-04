@@ -8,16 +8,19 @@ import {
 
 const wslMocks = vi.hoisted(() => ({
   getDefaultWslDistro: vi.fn<() => string | null>(() => null),
-  getWslHome: vi.fn<(distro: string) => string | null>(() => null)
+  getWslHome: vi.fn<(distro: string) => string | null>(() => null),
+  parseWslPath: vi.fn<(path: string) => { distro: string; linuxPath: string } | null>(() => null)
 }))
 
 vi.mock('../wsl', () => ({
   getDefaultWslDistro: wslMocks.getDefaultWslDistro,
-  getWslHome: wslMocks.getWslHome
+  getWslHome: wslMocks.getWslHome,
+  parseWslPath: wslMocks.parseWslPath
 }))
 
 import {
   applyLaunchProfileHomeMarkers,
+  exportLaunchProfileHomesForWsl,
   launchProfileHostHomeOrNull,
   SECONDARY_HOME_PROFILES
 } from './launch-profile-home'
@@ -26,6 +29,29 @@ describe('launch profile home markers', () => {
   beforeEach(() => {
     wslMocks.getDefaultWslDistro.mockReset().mockReturnValue(null)
     wslMocks.getWslHome.mockReset().mockReturnValue(null)
+    wslMocks.parseWslPath.mockReset().mockReturnValue(null)
+  })
+
+  it('exports a resolved WSL home as a Linux path through WSLENV', () => {
+    wslMocks.parseWslPath.mockImplementation((value) =>
+      value.startsWith('\\\\wsl.localhost\\Ubuntu\\')
+        ? {
+            distro: 'Ubuntu',
+            linuxPath: `/${value.slice('\\\\wsl.localhost\\Ubuntu\\'.length).replaceAll('\\', '/')}`
+          }
+        : null
+    )
+    const env: Record<string, string> = {
+      CODEX_HOME: '\\\\wsl.localhost\\Ubuntu\\home\\dev\\.codex-2',
+      ORCA_CODEX_HOME: '\\\\wsl.localhost\\Ubuntu\\home\\dev\\.codex-2',
+      CLAUDE_CONFIG_DIR: 'C:\\Users\\dev\\.claude-2'
+    }
+    exportLaunchProfileHomesForWsl(env)
+    expect(env.CODEX_HOME).toBe('/home/dev/.codex-2')
+    expect(env.ORCA_CODEX_HOME).toBe('/home/dev/.codex-2')
+    expect(env.CLAUDE_CONFIG_DIR).toBe('C:\\Users\\dev\\.claude-2')
+    expect(env.WSLENV).toContain('CODEX_HOME')
+    expect(env.WSLENV).toContain('ORCA_CODEX_HOME')
   })
 
   it('covers exactly the built-in secondary-home profiles', () => {
