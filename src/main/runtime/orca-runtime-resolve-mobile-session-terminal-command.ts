@@ -66,8 +66,7 @@ export class OrcaRuntimeWithResolveMobileSessionTerminalCommand extends OrcaRunt
       profile: resolveRequestedAgentLaunchProfile({
         agent: opts.agent,
         launchProfileId: opts.launchProfileId,
-        settings,
-        isRemote
+        settings
       }),
       agentArgs: resolveTuiAgentLaunchArgs(opts.agent, settings.agentDefaultArgs),
       agentEnv: resolveTuiAgentLaunchEnv(opts.agent, settings.agentDefaultEnv)

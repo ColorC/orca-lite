@@ -165,8 +165,7 @@ export class OrcaRuntimeWithCreateAgentSession extends OrcaRuntimeWithGetAgentSe
       const launchProfile = resolveRequestedAgentLaunchProfile({
         agent: request.agent,
         launchProfileId: request.launchProfileId,
-        settings,
-        isRemote
+        settings
       })
       const launch = applyAgentLaunchProfile({
         profile: launchProfile,

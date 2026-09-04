@@ -9,18 +9,18 @@ import type { TuiAgent } from '../../shared/tui-agent'
 export const AGENT_SESSION_LAUNCH_PROFILE_UNKNOWN = 'agent_session_launch_profile_unknown'
 export const AGENT_SESSION_LAUNCH_PROFILE_AGENT_MISMATCH =
   'agent_session_launch_profile_agent_mismatch'
+/** Raised at SSH spawn when the session never learned the remote home a secondary home needs. */
 export const AGENT_SESSION_LAUNCH_PROFILE_REMOTE_UNSUPPORTED =
   'agent_session_launch_profile_remote_unsupported'
 
 /**
  * Resolves a client-supplied profile id against this host's catalog. Named errors let a
- * client built for a newer catalog tell "unknown here" from "wrong agent" from "not on SSH".
+ * client built for a newer catalog tell "unknown here" from "wrong agent".
  */
 export function resolveRequestedAgentLaunchProfile(args: {
   agent: TuiAgent
   launchProfileId: string | null | undefined
   settings: Pick<GlobalSettings, 'agentLaunchProfiles'>
-  isRemote: boolean
 }): AgentLaunchProfile | null {
   if (!args.launchProfileId) {
     return null
@@ -33,11 +33,6 @@ export function resolveRequestedAgentLaunchProfile(args: {
         ? AGENT_SESSION_LAUNCH_PROFILE_AGENT_MISMATCH
         : AGENT_SESSION_LAUNCH_PROFILE_UNKNOWN
     )
-  }
-  // Why: a secondary home is resolved on the execution host, which for SSH is a machine this
-  // runtime cannot inspect; refuse rather than launch on the wrong home.
-  if (profile.home && args.isRemote) {
-    throw new Error(AGENT_SESSION_LAUNCH_PROFILE_REMOTE_UNSUPPORTED)
   }
   return profile
 }

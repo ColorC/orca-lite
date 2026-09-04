@@ -15,13 +15,35 @@ const MIRROR_ENV_VARS: Readonly<Record<string, readonly string[]>> = {
   CODEX_HOME: ['ORCA_CODEX_HOME']
 }
 
+export type SecondaryHomeProfile = AgentLaunchProfile & { home: AgentLaunchProfileHome }
+
 /** Only built-in profiles relocate a home; custom profiles carry args/env and no marker. */
-export const SECONDARY_HOME_PROFILES: readonly (AgentLaunchProfile & {
-  home: AgentLaunchProfileHome
-})[] = BUILT_IN_AGENT_LAUNCH_PROFILES.filter(
-  (profile): profile is AgentLaunchProfile & { home: AgentLaunchProfileHome } =>
-    profile.home !== undefined
-)
+export const SECONDARY_HOME_PROFILES: readonly SecondaryHomeProfile[] =
+  BUILT_IN_AGENT_LAUNCH_PROFILES.filter(
+    (profile): profile is SecondaryHomeProfile => profile.home !== undefined
+  )
+
+/** The secondary-home profiles a launch env carries a marker for. */
+export function requestedSecondaryHomeProfiles(
+  env: Readonly<Record<string, string>>
+): SecondaryHomeProfile[] {
+  return SECONDARY_HOME_PROFILES.filter(
+    (profile) => env[agentLaunchProfileHomeMarkerEnv(profile.home.envVar)] === profile.id
+  )
+}
+
+/** Writes the resolved home, its mirrors, and drops the marker the launch carried. */
+export function assignLaunchProfileHome(
+  env: Record<string, string>,
+  profile: SecondaryHomeProfile,
+  home: string
+): void {
+  delete env[agentLaunchProfileHomeMarkerEnv(profile.home.envVar)]
+  env[profile.home.envVar] = home
+  for (const mirror of MIRROR_ENV_VARS[profile.home.envVar] ?? []) {
+    env[mirror] = home
+  }
+}
 
 export type LaunchProfileHomeHostContext = {
   hostEnv?: NodeJS.ProcessEnv
@@ -44,7 +66,7 @@ export function resolveLaunchProfileHostHome(
 }
 
 function resolveLaunchProfileWslHome(
-  profile: AgentLaunchProfile & { home: AgentLaunchProfileHome },
+  profile: SecondaryHomeProfile,
   distro: string | null | undefined
 ): string {
   const target = distro?.trim() || getDefaultWslDistro()
@@ -69,20 +91,15 @@ export function applyLaunchProfileHomeMarkers(args: {
   hostEnv?: NodeJS.ProcessEnv
   hostHome?: string
 }): void {
-  for (const profile of SECONDARY_HOME_PROFILES) {
-    const markerEnv = agentLaunchProfileHomeMarkerEnv(profile.home.envVar)
-    if (args.env[markerEnv] !== profile.id) {
-      continue
-    }
+  for (const profile of requestedSecondaryHomeProfiles(args.env)) {
     // Why: main may already have injected the selected managed home; the explicit profile wins.
-    delete args.env[markerEnv]
-    const profileHome = args.isWslLaunch
-      ? resolveLaunchProfileWslHome(profile, args.wslDistro)
-      : resolveLaunchProfileHostHome(profile.home, args)
-    args.env[profile.home.envVar] = profileHome
-    for (const mirror of MIRROR_ENV_VARS[profile.home.envVar] ?? []) {
-      args.env[mirror] = profileHome
-    }
+    assignLaunchProfileHome(
+      args.env,
+      profile,
+      args.isWslLaunch
+        ? resolveLaunchProfileWslHome(profile, args.wslDistro)
+        : resolveLaunchProfileHostHome(profile.home, args)
+    )
   }
 }
 

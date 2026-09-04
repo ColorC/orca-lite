@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
   AGENT_SESSION_LAUNCH_PROFILE_AGENT_MISMATCH,
-  AGENT_SESSION_LAUNCH_PROFILE_REMOTE_UNSUPPORTED,
   AGENT_SESSION_LAUNCH_PROFILE_UNKNOWN,
   resolveRequestedAgentLaunchProfile
 } from './requested-launch-profile'
@@ -16,8 +15,7 @@ describe('resolveRequestedAgentLaunchProfile', () => {
       resolveRequestedAgentLaunchProfile({
         agent: 'codex',
         launchProfileId: undefined,
-        settings,
-        isRemote: false
+        settings
       })
     ).toBeNull()
   })
@@ -27,16 +25,14 @@ describe('resolveRequestedAgentLaunchProfile', () => {
       resolveRequestedAgentLaunchProfile({
         agent: 'codex',
         launchProfileId: 'codex-secondary-home',
-        settings,
-        isRemote: false
+        settings
       })?.home?.envVar
     ).toBe('CODEX_HOME')
     expect(
       resolveRequestedAgentLaunchProfile({
         agent: 'codex',
         launchProfileId: 'codex-work',
-        settings,
-        isRemote: false
+        settings
       })?.args
     ).toBe('-c a=b')
   })
@@ -46,36 +42,25 @@ describe('resolveRequestedAgentLaunchProfile', () => {
       resolveRequestedAgentLaunchProfile({
         agent: 'codex',
         launchProfileId: 'missing',
-        settings,
-        isRemote: false
+        settings
       })
     ).toThrow(AGENT_SESSION_LAUNCH_PROFILE_UNKNOWN)
     expect(() =>
       resolveRequestedAgentLaunchProfile({
         agent: 'claude',
         launchProfileId: 'codex-work',
-        settings,
-        isRemote: false
+        settings
       })
     ).toThrow(AGENT_SESSION_LAUNCH_PROFILE_AGENT_MISMATCH)
   })
 
-  it('refuses a secondary home on a remote execution host but allows args-only profiles', () => {
-    expect(() =>
+  it('does not refuse a secondary home up front; the SSH lane resolves it at spawn', () => {
+    expect(
       resolveRequestedAgentLaunchProfile({
         agent: 'claude',
         launchProfileId: 'claude-secondary-home',
-        settings,
-        isRemote: true
-      })
-    ).toThrow(AGENT_SESSION_LAUNCH_PROFILE_REMOTE_UNSUPPORTED)
-    expect(
-      resolveRequestedAgentLaunchProfile({
-        agent: 'codex',
-        launchProfileId: 'codex-work',
-        settings,
-        isRemote: true
+        settings
       })?.id
-    ).toBe('codex-work')
+    ).toBe('claude-secondary-home')
   })
 })

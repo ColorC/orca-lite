@@ -149,8 +149,7 @@ export function buildWorktreeStartupForAgent(
     profile: resolveRequestedAgentLaunchProfile({
       agent,
       launchProfileId: environment.launchProfileId,
-      settings,
-      isRemote
+      settings
     }),
     agentArgs: resolveTuiAgentLaunchArgs(agent, settings.agentDefaultArgs),
     agentEnv: resolveTuiAgentLaunchEnv(agent, settings.agentDefaultEnv)
