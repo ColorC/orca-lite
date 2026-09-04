@@ -44,11 +44,10 @@ export function getWorktreeStartupAgentFlags(
   }
   // Why: only the shape is checked here; the host owns the profile catalog and reports
   // agent_session_launch_profile_unknown / _agent_mismatch for ids it does not serve.
+  // Why: the guard narrows the rejected branch to never, so the message is built before it.
+  const rejected = `Invalid --launch-profile "${launchProfileId}" (expected a lowercase slug such as codex-secondary-home)`
   if (!isAgentLaunchProfileId(launchProfileId)) {
-    throw new RuntimeClientError(
-      'invalid_argument',
-      `Invalid --launch-profile "${launchProfileId}" (expected a lowercase slug such as codex-secondary-home)`
-    )
+    throw new RuntimeClientError('invalid_argument', rejected)
   }
   return { startupAgent: agent, startupLaunchProfileId: launchProfileId }
 }
