@@ -1611,6 +1611,8 @@
         "startNewWorkspace": "Start new workspace"
       },
       "NewWorkspaceComposerCard": {
+        "launchProfileLabel": "Launch profile",
+        "launchProfileDefault": "Default launch",
         "reuseExistingBranch": "Reuse branch",
         "reuseExistingBranchHint": "Check out the existing branch instead of creating a new one from it.",
         "createMultiple": "Create more",

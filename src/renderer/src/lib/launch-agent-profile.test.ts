@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { resolveNewTabAgentLaunch } from './launch-agent-profile'
+import {
+  resolveAgentLaunchWithProfileFallback,
+  resolveNewTabAgentLaunch
+} from './launch-agent-profile'
 
 describe('resolveNewTabAgentLaunch', () => {
   const settings = {
@@ -42,5 +45,15 @@ describe('resolveNewTabAgentLaunch', () => {
   it('fails the launch for an unknown or foreign profile', () => {
     expect(resolveNewTabAgentLaunch(settings, 'codex', undefined, 'nope')).toBeNull()
     expect(resolveNewTabAgentLaunch(settings, 'claude', undefined, 'codex-work')).toBeNull()
+  })
+
+  it('falls back to the default launch for a stale profile id', () => {
+    const launch = resolveAgentLaunchWithProfileFallback(settings, 'codex', 'codex-gone')
+    expect(launch.launchProfileId).toBeUndefined()
+    expect(launch.agentEnv.ORCA_AGENT_LAUNCH_PROFILE).toBeUndefined()
+    expect(
+      resolveAgentLaunchWithProfileFallback(settings, 'codex', 'codex-secondary-home')
+        .launchProfileId
+    ).toBe('codex-secondary-home')
   })
 })

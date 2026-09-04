@@ -54,3 +54,19 @@ export function resolveNewTabAgentLaunch(
   })
   return { agentArgs: launch.agentArgs, agentEnv: launch.agentEnv, launchProfileId: profile.id }
 }
+
+/**
+ * Same resolution for flows that must not block on a stale id: settings can change under an
+ * open composer, and its picker repairs itself on the next render, so the default launch is
+ * the right answer for the one submit that raced it.
+ */
+export function resolveAgentLaunchWithProfileFallback(
+  settings: Parameters<typeof resolveNewTabAgentLaunch>[0],
+  agent: TuiAgent,
+  launchProfileId: string | null | undefined
+): NewTabAgentLaunch {
+  return (
+    resolveNewTabAgentLaunch(settings, agent, undefined, launchProfileId) ??
+    resolveNewTabAgentLaunch(settings, agent, undefined, null)!
+  )
+}

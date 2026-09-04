@@ -1293,6 +1293,8 @@
         "startNewWorkspace": "启动新工作区"
       },
       "NewWorkspaceComposerCard": {
+        "launchProfileLabel": "启动配置",
+        "launchProfileDefault": "默认启动",
         "cbb47ee0dc": "仅适用于本地 Git 项目。",
         "d861de981b": "稀疏检出",
         "090cfedeb4": "写备注",

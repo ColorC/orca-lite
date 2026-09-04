@@ -73,4 +73,9 @@ remote's own `ORCA_*_SECONDARY_HOME` override is not consulted there.
   advertise `agent-session.launch-profile.v1`, and the client refuses to fall back to the legacy
   env-only create on hosts that lack it.
 - CLI: `orca worktree create --agent codex --launch-profile codex-secondary-home`.
-- Mobile: the same RPC fields are accepted; the app-side picker is a follow-up.
+- New Workspace composer: a `Launch profile` select appears under the agent picker when the
+  chosen agent has profiles; the profile is layered into the startup command and env the
+  renderer already sends, so no new create field is needed.
+- Mobile: the new-tab sheet lists each agent's profiles beneath its default launch once the
+  host advertises the capability, and a terminal tab shows a small badge with the profile it
+  runs under (built-ins shortened, custom ids as-is).
