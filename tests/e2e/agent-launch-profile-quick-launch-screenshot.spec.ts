@@ -115,13 +115,12 @@ test('quick-launch submenu before and after launch profiles @headful', async ({ 
     await orcaPage.keyboard.press('Escape')
   }
   const agentSection = orcaPage.locator('[data-contextual-tour-target="workspace-creation-agent"]')
-  // Why: the error dialog can land between the menu closing and this click; retry the open.
+  // Why: the sidebar entry differs between Orca and its forks; the store action is the contract.
   for (let attempt = 0; attempt < 3; attempt += 1) {
     await dismissRecoverableError()
-    await orcaPage
-      .getByRole('button', { name: /^(New workspace|新建工作区)$/ })
-      .first()
-      .click({ force: true })
+    await orcaPage.evaluate(() => {
+      window.__store?.getState().openModal('new-workspace-composer', { telemetrySource: 'unknown' })
+    })
     if (await agentSection.isVisible({ timeout: 5_000 }).catch(() => false)) {
       break
     }
