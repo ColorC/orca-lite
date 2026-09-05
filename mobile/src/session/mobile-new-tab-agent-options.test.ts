@@ -30,9 +30,21 @@ describe('mobile new-tab agent options', () => {
   it('lists launch profiles under their agent only when the host supports them', () => {
     const settings = {
       defaultTuiAgent: 'codex' as const,
-      agentLaunchProfiles: [{ id: 'codex-work-proxy', agent: 'codex', label: 'Work proxy' }]
+      agentLaunchProfiles: [{ id: 'codex-work-proxy', agent: 'codex', label: 'Work proxy' }],
+      agentLaunchProfilesEnabled: true
     }
     expect(buildMobileNewTabAgentOptions(settings, ['codex', 'claude'])).toEqual([
+      { agent: 'codex', label: 'Codex' },
+      { agent: 'claude', label: 'Claude' }
+    ])
+    // Why: the host's setting is off by default; a capable host still shows plain rows then.
+    expect(
+      buildMobileNewTabAgentOptions(
+        { ...settings, agentLaunchProfilesEnabled: false },
+        ['codex', 'claude'],
+        { launchProfilesSupported: true }
+      )
+    ).toEqual([
       { agent: 'codex', label: 'Codex' },
       { agent: 'claude', label: 'Claude' }
     ])
@@ -67,7 +79,10 @@ describe('mobile new-tab agent options', () => {
   it('drops malformed custom profiles instead of failing the picker', () => {
     expect(
       buildMobileNewTabAgentOptions(
-        { agentLaunchProfiles: [{ id: 'Bad Id', agent: 'codex' }, 'nonsense'] },
+        {
+          agentLaunchProfiles: [{ id: 'Bad Id', agent: 'codex' }, 'nonsense'],
+          agentLaunchProfilesEnabled: true
+        },
         ['codex'],
         { launchProfilesSupported: true }
       ).map((option) => option.launchProfileId ?? null)

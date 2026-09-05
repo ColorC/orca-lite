@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import {
   agentLaunchProfilesForAgent,
-  resolveAgentLaunchProfiles
+  resolveAgentLaunchProfilesForPicker
 } from '../../../../shared/agent-launch-profile/agent-launch-profile'
 import { getAgentCatalog, AgentIcon } from '@/lib/agent-catalog'
 import { useAppStore } from '@/store'
@@ -135,9 +135,16 @@ function QuickLaunchAgentMenuItemsInner({
   }, [openSettingsPage, openSettingsTarget])
 
   const launchProfileSettings = useAppStore((s) => s.settings?.agentLaunchProfiles)
+  const launchProfilePickerEnabled = useAppStore(
+    (s) => s.settings?.agentLaunchProfilesEnabled === true
+  )
   const launchProfiles = useMemo(
-    () => resolveAgentLaunchProfiles(launchProfileSettings),
-    [launchProfileSettings]
+    () =>
+      resolveAgentLaunchProfilesForPicker({
+        agentLaunchProfiles: launchProfileSettings,
+        agentLaunchProfilesEnabled: launchProfilePickerEnabled
+      }),
+    [launchProfileSettings, launchProfilePickerEnabled]
   )
 
   const runLaunch = useCallback(

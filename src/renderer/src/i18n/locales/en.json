@@ -8828,6 +8828,9 @@
         },
         "agents": {
           "search": {
+            "launchProfile": "launch profile",
+            "secondAccount": "second account",
+            "provider": "provider",
             "2814401339": "installed",
             "719f53350c": "path",
             "839e82c81f": "detect",
@@ -10533,6 +10536,10 @@
           "modeTitle": "Keep computer awake",
           "modeDescriptionWindows": "Choose On, Agent, or Off. Agent mode stays awake while agents are working; lid-close behavior follows this device's power settings.",
           "modeDescriptionDefault": "Choose On, Agent, or Off. Agent mode stays awake while agents are working. Orca also asks this device to stay awake when the lid is closed, subject to its power policy."
+        },
+        "agent-launch-profiles-copy": {
+          "title": "Agent launch profiles",
+          "description": "Offer a second credential home or a provider profile when launching Codex or Claude, in the tab bar, the New Workspace composer and Orca Mobile. Off by default; the CLI and paired clients can pass a profile either way."
         },
         "agent-status-hooks-copy": {
           "7707c15abb": "Agent status hooks",

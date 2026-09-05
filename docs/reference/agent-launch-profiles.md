@@ -67,6 +67,9 @@ remote's own `ORCA_*_SECONDARY_HOME` override is not consulted there.
 
 ## Surfaces
 
+The pickers are off by default: Settings → Agents → **Agent launch profiles** turns them on.
+The RPC fields and the CLI flag accept a profile id regardless of the setting.
+
 - Desktop tab bar: the agent row becomes a submenu when profiles exist (`Default launch` +
   one item per profile).
 - Paired web / thin clients: `launchProfileId` rides `terminal.createAgentSession`; hosts

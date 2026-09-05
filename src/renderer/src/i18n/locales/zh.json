@@ -7774,6 +7774,9 @@
         },
         "agents": {
           "search": {
+            "launchProfile": "启动配置",
+            "secondAccount": "第二个账号",
+            "provider": "供应商",
             "2814401339": "已安装",
             "719f53350c": "路径",
             "839e82c81f": "检测",
@@ -9337,6 +9340,10 @@
           "on": "开启",
           "auto": "智能体",
           "off": "关闭"
+        },
+        "agent-launch-profiles-copy": {
+          "title": "智能体启动配置",
+          "description": "启动 Codex 或 Claude 时可选择第二个凭据目录或某个供应商配置，在标签栏、新建工作区面板和 Orca Mobile 中显示。默认关闭；CLI 与配对客户端不受影响，仍可传入配置。"
         },
         "agent-status-hooks-copy": {
           "7707c15abb": "智能体状态钩子",

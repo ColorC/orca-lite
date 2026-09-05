@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { normalizeAgentLaunchProfileSettings } from '../../../../shared/agent-launch-profile/agent-launch-profile'
 import { normalizePRBotAuthorOverrides } from '../../../../shared/pr-bot-author-overrides'
 import { isTaskProvider } from '../../../../shared/task-providers'
 import { isTuiAgent } from '../../../../shared/tui-agent-config'
@@ -67,6 +68,11 @@ export const SettingsUpdate = z
       .optional(),
     experimentalNewWorktreeCardStyle: z.boolean().optional(),
     agentStatusHooksEnabled: z.boolean().optional(),
+    agentLaunchProfiles: z
+      .unknown()
+      .transform((value) => normalizeAgentLaunchProfileSettings(value))
+      .optional(),
+    agentLaunchProfilesEnabled: z.boolean().optional(),
     defaultRepoSelection: z.array(z.string()).nullable().optional(),
     defaultLinearTeamSelection: z.array(z.string()).nullable().optional(),
     compactWorktreeCards: z.boolean().optional(),

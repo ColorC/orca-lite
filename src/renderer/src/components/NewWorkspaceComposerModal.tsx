@@ -23,7 +23,7 @@ import type { GitHubWorkItem } from '../../../shared/github/work-item-types'
 import type { TuiAgent } from '../../../shared/tui-agent'
 import {
   findAgentLaunchProfile,
-  resolveAgentLaunchProfiles
+  resolveAgentLaunchProfilesForPicker
 } from '../../../shared/agent-launch-profile/agent-launch-profile'
 import type { WorkspaceSource as WorkspaceCreateTelemetrySource } from '../../../shared/workspace-source'
 import type { WorkspaceStatus } from '../../../shared/worktree/types'
@@ -188,7 +188,7 @@ function QuickTabBody({
   const quickLaunchProfileId =
     quickAgent && quickLaunchProfileOverride
       ? (findAgentLaunchProfile(
-          resolveAgentLaunchProfiles(settings?.agentLaunchProfiles),
+          resolveAgentLaunchProfilesForPicker(settings),
           quickAgent,
           quickLaunchProfileOverride
         )?.id ?? null)

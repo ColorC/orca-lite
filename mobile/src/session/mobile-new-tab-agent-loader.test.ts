@@ -43,12 +43,18 @@ describe('mobile new-tab agent loading', () => {
     ])
   })
 
-  it('adds launch-profile rows when the host advertises the capability', async () => {
+  it('adds launch-profile rows when the host advertises the capability and opted in', async () => {
     const client = createClient(async (method) => {
       if (method === 'settings.get') {
         return {
           ok: true,
-          result: { settings: { defaultTuiAgent: 'codex', disabledTuiAgents: ['claude'] } }
+          result: {
+            settings: {
+              defaultTuiAgent: 'codex',
+              disabledTuiAgents: ['claude'],
+              agentLaunchProfilesEnabled: true
+            }
+          }
         }
       }
       if (method === 'preflight.detectAgents') {

@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { AgentLaunchProfilesSetting } from './AgentLaunchProfilesSetting'
 import { Info } from 'lucide-react'
 import type { GlobalSettings } from '../../../../shared/global-settings-types'
 import type { TuiAgent } from '../../../../shared/tui-agent'
@@ -255,6 +256,7 @@ export function AgentsPane({
         wslCapabilitiesLoading={wslCapabilitiesLoading}
       />
       <AgentStatusHooksSetting settings={settings} updateSettings={updateSettings} />
+      <AgentLaunchProfilesSetting settings={settings} updateSettings={updateSettings} />
       <AgentGeneratedTabTitlesSetting settings={settings} updateSettings={updateSettings} />
       {!isPairedWebClientWindow() ? (
         <AgentAwakeSetting settings={settings} updateSettings={updateSettings} />

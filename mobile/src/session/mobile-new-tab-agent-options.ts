@@ -15,6 +15,7 @@ export type MobileNewTabAgentSettings = {
   defaultTuiAgent?: TuiAgent | 'blank' | null
   disabledTuiAgents?: unknown
   agentLaunchProfiles?: unknown
+  agentLaunchProfilesEnabled?: unknown
 }
 
 export type MobileNewTabAgentOption = {
@@ -50,11 +51,15 @@ export function buildMobileNewTabAgentOptions(
   if (!detectedAgentIds) {
     return []
   }
-  // Why: only a host that advertises the capability resolves profile ids; an older host would
-  // ignore the field and silently start the default launch under the profile's name.
-  const profiles = options.launchProfilesSupported
-    ? resolveAgentLaunchProfiles(normalizeAgentLaunchProfileSettings(settings?.agentLaunchProfiles))
-    : []
+  // Why: only a host that advertises the capability resolves profile ids (an older host would
+  // ignore the field and silently start the default launch under the profile's name), and the
+  // host's setting decides whether pickers show profiles at all.
+  const profiles =
+    options.launchProfilesSupported && settings?.agentLaunchProfilesEnabled === true
+      ? resolveAgentLaunchProfiles(
+          normalizeAgentLaunchProfileSettings(settings?.agentLaunchProfiles)
+        )
+      : []
   return orderMobileNewTabAgents(
     settings?.defaultTuiAgent,
     detectedAgentIds,

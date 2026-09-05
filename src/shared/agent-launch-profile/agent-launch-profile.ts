@@ -223,3 +223,24 @@ export function hasAgentLaunchProfileHomeMarker(
 ): boolean {
   return isAgentLaunchProfileId(env?.[agentLaunchProfileHomeMarkerEnv(envVar)])
 }
+
+export type AgentLaunchProfilePickerSettings = {
+  agentLaunchProfiles?: readonly AgentLaunchProfileSetting[] | null
+  agentLaunchProfilesEnabled?: boolean
+}
+
+/** Pickers stay hidden until the user opts in; RPC and CLI accept profile ids either way. */
+export function isAgentLaunchProfilePickerEnabled(
+  settings: AgentLaunchProfilePickerSettings | null | undefined
+): boolean {
+  return settings?.agentLaunchProfilesEnabled === true
+}
+
+/** The catalog a picker may show: empty while the setting is off. */
+export function resolveAgentLaunchProfilesForPicker(
+  settings: AgentLaunchProfilePickerSettings | null | undefined
+): AgentLaunchProfile[] {
+  return isAgentLaunchProfilePickerEnabled(settings)
+    ? resolveAgentLaunchProfiles(settings?.agentLaunchProfiles)
+    : []
+}

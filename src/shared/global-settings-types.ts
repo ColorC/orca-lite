@@ -379,6 +379,8 @@ export type GlobalSettings = {
   agentDefaultEnv?: Partial<Record<TuiAgent, Record<string, string>>>
   /** User-defined launch profiles (args/env per launch) on top of the built-in secondary homes. */
   agentLaunchProfiles?: AgentLaunchProfileSetting[]
+  /** Shows launch-profile choices in the tab bar, composer and mobile picker; hosts accept ids regardless. */
+  agentLaunchProfilesEnabled?: boolean
   /** One-shot guard for adding yolo-mode default args to untouched agent launch profiles. */
   agentYoloDefaultsMigrated?: boolean
   /** Why: disabling must persist so startup doesn't reinstall global agent hook entries the user just removed. */

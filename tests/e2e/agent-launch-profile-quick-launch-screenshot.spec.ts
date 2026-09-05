@@ -61,7 +61,9 @@ test('quick-launch submenu before and after launch profiles @headful', async ({ 
 
   if (!baselineOnly) {
     await orcaPage.evaluate(async () => {
-      await window.__store?.getState().updateSettings({ agentLaunchProfiles: [] })
+      await window.__store
+        ?.getState()
+        .updateSettings({ agentLaunchProfiles: [], agentLaunchProfilesEnabled: false })
     })
   }
   await dismissRecoverableError()
@@ -84,6 +86,7 @@ test('quick-launch submenu before and after launch profiles @headful', async ({ 
 
   await orcaPage.evaluate(async () => {
     await window.__store?.getState().updateSettings({
+      agentLaunchProfilesEnabled: true,
       agentLaunchProfiles: [
         {
           id: 'codex-work-proxy',

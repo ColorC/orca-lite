@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  resolveAgentLaunchProfilesForPicker,
   AGENT_LAUNCH_PROFILE_ENV,
   BUILT_IN_AGENT_LAUNCH_PROFILES,
   CLAUDE_SECONDARY_HOME_PROFILE_ID,
@@ -116,5 +117,18 @@ describe('agent launch profiles', () => {
     const result = applyAgentLaunchProfile({ profile: null, agentArgs: '--x', agentEnv })
     expect(result.agentArgs).toBe('--x')
     expect(result.agentEnv).toBe(agentEnv)
+  })
+})
+
+describe('resolveAgentLaunchProfilesForPicker', () => {
+  it('hides every profile, built-ins included, until the setting is on', () => {
+    const custom = [{ id: 'codex-work', agent: 'codex' as const }]
+    expect(resolveAgentLaunchProfilesForPicker({ agentLaunchProfiles: custom })).toEqual([])
+    expect(
+      resolveAgentLaunchProfilesForPicker({
+        agentLaunchProfiles: custom,
+        agentLaunchProfilesEnabled: true
+      }).map((profile) => profile.id)
+    ).toEqual(['codex-secondary-home', 'claude-secondary-home', 'codex-work'])
   })
 })

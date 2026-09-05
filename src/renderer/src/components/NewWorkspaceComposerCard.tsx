@@ -27,7 +27,7 @@ import { NewWorkspaceComposerAdvancedSection } from './new-workspace/NewWorkspac
 import { NewWorkspaceComposerAgentSection } from './new-workspace/NewWorkspaceComposerAgentSection'
 import {
   agentLaunchProfilesForAgent,
-  resolveAgentLaunchProfiles
+  resolveAgentLaunchProfilesForPicker
 } from '../../../shared/agent-launch-profile/agent-launch-profile'
 import { NewWorkspaceComposerFooter } from './new-workspace/NewWorkspaceComposerFooter'
 import { NewWorkspaceComposerNameSection } from './new-workspace/NewWorkspaceComposerNameSection'
@@ -162,15 +162,21 @@ export default function NewWorkspaceComposerCard(
   const showSetupAgentStartupPolicy =
     setupControlsEnabled && setupConfig !== null && setupConfig.kind !== 'default-tabs'
   const agentLaunchProfiles = useAppStore((state) => state.settings?.agentLaunchProfiles)
+  const agentLaunchProfilesEnabled = useAppStore(
+    (state) => state.settings?.agentLaunchProfilesEnabled === true
+  )
   const quickLaunchProfiles = React.useMemo(
     () =>
       props.quickAgent
         ? agentLaunchProfilesForAgent(
-            resolveAgentLaunchProfiles(agentLaunchProfiles),
+            resolveAgentLaunchProfilesForPicker({
+              agentLaunchProfiles,
+              agentLaunchProfilesEnabled
+            }),
             props.quickAgent
           )
         : [],
-    [agentLaunchProfiles, props.quickAgent]
+    [agentLaunchProfiles, agentLaunchProfilesEnabled, props.quickAgent]
   )
   const agentCatalog = getAgentCatalog()
   const enabledAgentIds = new Set(

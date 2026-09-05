@@ -30,7 +30,11 @@ vi.mock('@/store', () => ({
         openSettingsTarget: storeMocks.openSettingsTarget,
         setRuntimeEnvironmentStatus: storeMocks.setRuntimeEnvironmentStatus,
         activeModal: 'none',
-        settings: { defaultTuiAgent: null, disabledTuiAgents: [] },
+        settings: {
+          defaultTuiAgent: null,
+          disabledTuiAgents: [],
+          agentLaunchProfilesEnabled: true
+        },
         updateSettings: vi.fn(),
         projects: [],
         repos: []
